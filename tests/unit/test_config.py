@@ -7,8 +7,8 @@ from datetime import time
 
 import pytest
 
-from cleanplex import database as db
-from cleanplex.config import Config
+from leapfrog import database as db
+from leapfrog.config import Config
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")

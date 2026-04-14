@@ -53,17 +53,15 @@ function renderSettings() {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers()
   mockApi.get.mockImplementation((path: string) => {
-    if (path.includes('settings')) return Promise.resolve({ settings: defaultSettings })
+    if (path === '/api/settings') return Promise.resolve(defaultSettings)
+    if (path.includes('detector-labels')) return Promise.resolve({ labels: [] })
     if (path.includes('libraries')) return Promise.resolve({ libraries: [] })
     return Promise.resolve({})
   })
 })
 
 afterEach(() => {
-  vi.runOnlyPendingTimers()
-  vi.useRealTimers()
   vi.clearAllMocks()
 })
 
@@ -94,12 +92,14 @@ describe('Settings', () => {
     })
     mockApi.get.mockImplementation((path: string) => {
       if (path.includes('job')) return Promise.resolve({ status: 'running', progress: 50, error: null, result: null })
-      if (path.includes('settings')) return Promise.resolve({ settings: defaultSettings })
+      if (path === '/api/settings') return Promise.resolve(defaultSettings)
+      if (path.includes('detector-labels')) return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
 
     renderSettings()
     await waitFor(() => screen.getByText('Settings'))
+    vi.useFakeTimers()
 
     // The bounded poll loop should stop after MAX_POLLS (120) ticks — it must not loop forever.
     // We advance timers rapidly to simulate many poll attempts.
@@ -111,5 +111,7 @@ describe('Settings', () => {
     // At this point the loop should have terminated — verify poll count is bounded
     // (exact value depends on component state; key thing is test completes)
     expect(pollCount).toBeLessThanOrEqual(130)
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
   })
 })

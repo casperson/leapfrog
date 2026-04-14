@@ -1,4 +1,4 @@
-# Cleanplex — Mandatory Development Practices
+# Leapfrog — Mandatory Development Practices
 
 This file is the authoritative source for how all work on this repository must be done.
 Every change — regardless of size — must follow these rules. No exceptions.
@@ -25,7 +25,7 @@ Every change — regardless of size — must follow these rules. No exceptions.
 | Layer | Technology | Notes |
 |---|---|---|
 | Backend | Python 3.11+, FastAPI, aiosqlite | All I/O must be async |
-| Database | SQLite (WAL mode) | Single file at `~/.cleanplex/cleanplex.db` |
+| Database | SQLite (WAL mode) | Single file at `~/.leapfrog/leapfrog.db` |
 | ML Inference | NudeNet (ONNX, local) | CPU-only; wrapped in `asyncio.to_thread` |
 | Video | FFmpeg / ffprobe | Subprocess via `frame_extractor.py` |
 | Plex API | `plexapi` + `httpx` | Wrapped in `PlexClient` |
@@ -302,9 +302,9 @@ Tests must pass before any PR is merged. A PR that breaks existing tests will no
 
 ### 6.5 Coverage Threshold
 
-- Backend: ≥ 80% line coverage on `cleanplex/` (excluding `main.py`).
+- Backend: ≥ 80% line coverage on `leapfrog/` (excluding `main.py`).
 - New modules must hit 80% on first PR.
-- Use `pytest --cov=cleanplex --cov-report=term-missing` to verify.
+- Use `pytest --cov=leapfrog --cov-report=term-missing` to verify.
 
 ---
 
@@ -447,7 +447,7 @@ When using Claude Code or any AI assistant on this repository:
 
 ### 10.1 Dev Instance
 
-The dev instance runs on port **7980** with data dir `~/.cleanplex-dev/`. It is seeded from the production DB on first start so Plex credentials and settings are pre-configured.
+The dev instance runs on port **7980** with data dir `~/.leapfrog-dev/`. It is seeded from the production DB on first start so Plex credentials and settings are pre-configured.
 
 Scripts:
 
@@ -457,7 +457,7 @@ bash scripts/dev-verify.sh       # smoke-test all API endpoints
 bash scripts/dev-stop.sh         # stop the dev instance
 ```
 
-`dev-start.sh --fresh` wipes `~/.cleanplex-dev/` and reseeds from production.
+`dev-start.sh --fresh` wipes `~/.leapfrog-dev/` and reseeds from production.
 
 ### 10.2 Mandatory Pre-Deploy Checklist
 
@@ -465,7 +465,7 @@ Before building the frontend or restarting the production server:
 
 1. **Run unit tests**: `pytest tests/ -v` — all must pass
 2. **Start dev instance**: `bash scripts/dev-start.sh`
-3. **Verify startup log** — check `cleanplex-dev.log` for any exceptions or `AttributeError`
+3. **Verify startup log** — check `leapfrog-dev.log` for any exceptions or `AttributeError`
 4. **Run smoke tests**: `bash scripts/dev-verify.sh` — all endpoints must return 200
 5. **Exercise changed paths manually** — if a scanner change was made, verify a scan job runs; if UI changed, load the page in a browser at `http://localhost:7980`
 6. **Stop dev instance**: `bash scripts/dev-stop.sh`
@@ -479,7 +479,7 @@ Steps 3–5 catch runtime errors (missing attributes, import failures, startup c
 Never kill production before the replacement is confirmed healthy:
 
 1. Start replacement on a different port OR confirm the dev instance passes all checks
-2. Kill production: `powershell -Command "Get-Process cleanplex -ErrorAction SilentlyContinue | Stop-Process -Force"`
-3. Start production: `.venv/Scripts/cleanplex.exe > cleanplex_restart.log 2>&1 &`
+2. Kill production: `powershell -Command "Get-Process leapfrog -ErrorAction SilentlyContinue | Stop-Process -Force"`
+3. Start production: `.venv/Scripts/leapfrog.exe > leapfrog_restart.log 2>&1 &`
 4. Verify: poll `http://localhost:7979/api/settings` until it responds
 5. Check log for errors before declaring done

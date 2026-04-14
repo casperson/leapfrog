@@ -1,0 +1,31 @@
+[Unit]
+Description=Leapfrog — server-side media filtering service
+Documentation=https://github.com/casperson/leapfrog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/leapfrog/.venv/bin/leapfrog
+WorkingDirectory=/opt/leapfrog
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=leapfrog
+
+# Optional: run as a dedicated user
+# User=leapfrog
+# Group=leapfrog
+
+# Data directory (override default ~/.leapfrog)
+# Environment=LEAPFROG_DATA=/var/lib/leapfrog
+
+# Web UI port (default 7979)
+# Environment=LEAPFROG_PORT=7979
+
+# Bind to localhost only (put nginx in front for remote access)
+# Environment=LEAPFROG_HOST=0.0.0.0
+
+[Install]
+WantedBy=multi-user.target

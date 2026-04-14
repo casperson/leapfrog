@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from cleanplex import database as db
-from cleanplex.bg_jobs import recover_stale_jobs, get_job_status
+from leapfrog import database as db
+from leapfrog.bg_jobs import recover_stale_jobs, get_job_status
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")

@@ -20,14 +20,22 @@ interface Title {
 interface Segment {
   id: number
   plex_guid: string
+  media_id: string
   title: string
   start_ms: number
   end_ms: number
+  start_time: number
+  end_time: number
+  category: string
+  source: string
   confidence: number
   has_thumbnail: boolean
   thumbnail_url: string
   created_at: string
+  updated_at?: string
   labels?: string
+  text_excerpt?: string
+  review_status?: string
 }
 
 interface ScannerStatus {
@@ -111,6 +119,31 @@ function renderLabels(labels?: string): React.ReactNode {
           </span>
         )
       })}
+    </div>
+  )
+}
+
+function renderCategoryMeta(segment: Segment): React.ReactNode {
+  return (
+    <div className="space-y-2 mt-2">
+      <div className="flex flex-wrap gap-2">
+        <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-plex-orange/15 text-plex-orange border border-plex-orange/20">
+          {segment.category}
+        </span>
+        <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
+          {segment.source}
+        </span>
+        {segment.review_status && (
+          <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-gray-500/10 text-gray-300 border border-gray-500/20">
+            {segment.review_status}
+          </span>
+        )}
+      </div>
+      {segment.text_excerpt && (
+        <p className="text-xs text-gray-300 leading-relaxed">
+          “{segment.text_excerpt}”
+        </p>
+      )}
     </div>
   )
 }
@@ -587,6 +620,7 @@ export default function Segments() {
                                 <p className="text-xs text-gray-500">
                                   Detected {new Date(seg.created_at).toLocaleDateString()}
                                 </p>
+                                {renderCategoryMeta(seg)}
                                 {renderLabels(seg.labels)}
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
@@ -660,6 +694,7 @@ export default function Segments() {
                         <p className="text-xs text-gray-500">
                           Detected {new Date(seg.created_at).toLocaleDateString()}
                         </p>
+                        {renderCategoryMeta(seg)}
                         {renderLabels(seg.labels)}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">

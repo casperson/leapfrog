@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 
-import cleanplex.scanner as scanner
-from cleanplex import database as db
+import leapfrog.scanner as scanner
+from leapfrog import database as db
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")

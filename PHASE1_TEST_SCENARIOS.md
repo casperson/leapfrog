@@ -11,7 +11,7 @@ and conflict resolution logic. All scenarios are designed to validate robustness
 # ============================================================================
 # SCENARIO 1: Single Instance Upload
 # ============================================================================
-# Setup: One Cleanplex instance, 5 videos with detected segments
+# Setup: One Leapfrog instance, 5 videos with detected segments
 # Test: Upload all local segments to library
 #
 # Expected Results:
@@ -184,7 +184,7 @@ and conflict resolution logic. All scenarios are designed to validate robustness
 # ============================================================================
 # SCENARIO 9: Large-Scale Upload (1000+ files)
 # ============================================================================
-# Setup: Cleanplex with library containing 1000+ titles, all scanned
+# Setup: Leapfrog with library containing 1000+ titles, all scanned
 # Test:
 # - /api/sync/upload-segment-library
 # - Memory efficiency with large batch processing
@@ -261,7 +261,7 @@ and conflict resolution logic. All scenarios are designed to validate robustness
 #    - Settings persistence: set → verify → update → verify again
 #
 # 3. End-to-end scenarios:
-#    - Run 2-3 Cleanplex instances locally
+#    - Run 2-3 Leapfrog instances locally
 #    - Scan same test videos
 #    - Upload from each instance
 #    - Download and merge on each instance

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cleanplex import database as db
+from leapfrog import database as db
 from tests.conftest import make_mock_plex_client
 
 
@@ -35,7 +35,7 @@ async def test_get_settings_reflects_stored_values(http_client):
 # ── PUT /api/settings ─────────────────────────────────────────────────────────
 
 async def test_update_settings_writes_values(http_client):
-    with patch("cleanplex.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
+    with patch("leapfrog.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
         resp = await http_client.put("/api/settings", json={"log_level": "DEBUG"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
@@ -44,7 +44,7 @@ async def test_update_settings_writes_values(http_client):
 
 async def test_update_settings_ignores_none_fields(http_client):
     await db.set_setting("poll_interval", "5")
-    with patch("cleanplex.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
+    with patch("leapfrog.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
         resp = await http_client.put("/api/settings", json={"log_level": "WARNING"})
     assert resp.status_code == 200
     # poll_interval not included in payload — should remain unchanged
@@ -53,8 +53,8 @@ async def test_update_settings_ignores_none_fields(http_client):
 
 async def test_update_settings_reinitialises_plex_client_on_url_change(http_client):
     await db.set_setting("plex_token", "token-abc")
-    with patch("cleanplex.web.routes.settings.plex_mod.init_client") as mock_init, \
-         patch("cleanplex.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
+    with patch("leapfrog.web.routes.settings.plex_mod.init_client") as mock_init, \
+         patch("leapfrog.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
         resp = await http_client.put("/api/settings", json={"plex_url": "http://newplex:32400"})
     assert resp.status_code == 200
     mock_init.assert_called_once()
@@ -62,7 +62,7 @@ async def test_update_settings_reinitialises_plex_client_on_url_change(http_clie
 
 async def test_update_settings_triggers_scanner_restart_on_worker_change(http_client):
     await db.set_setting("scan_workers", "2")
-    with patch("cleanplex.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()) as mock_restart:
+    with patch("leapfrog.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()) as mock_restart:
         resp = await http_client.put("/api/settings", json={"scan_workers": "4"})
     assert resp.status_code == 200
     mock_restart.assert_awaited_once()
@@ -81,7 +81,7 @@ async def test_test_connection_requires_url_and_token(http_client):
 async def test_test_connection_returns_ok_true(http_client):
     await db.set_setting("plex_url", "http://plex:32400")
     await db.set_setting("plex_token", "tok")
-    with patch("cleanplex.web.routes.settings.plex_mod.PlexClient") as MockClient:
+    with patch("leapfrog.web.routes.settings.plex_mod.PlexClient") as MockClient:
         instance = MockClient.return_value
         instance.test_connection = AsyncMock(return_value=(True, "My Plex"))
         resp = await http_client.post("/api/settings/test-connection")
@@ -113,7 +113,7 @@ async def test_validate_model_path_320n_always_ok(http_client):
 # ── GET /api/users ─────────────────────────────────────────────────────────────
 
 async def test_get_users_returns_empty_when_no_plex_no_filters(http_client):
-    with patch("cleanplex.web.routes.users.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.users.plex_mod.get_client", side_effect=RuntimeError):
         resp = await http_client.get("/api/users")
     assert resp.status_code == 200
     assert resp.json()["users"] == []
@@ -121,7 +121,7 @@ async def test_get_users_returns_empty_when_no_plex_no_filters(http_client):
 
 async def test_get_users_includes_db_filter_entries(http_client):
     await db.upsert_user_filter("dave", enabled=False)
-    with patch("cleanplex.web.routes.users.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.users.plex_mod.get_client", side_effect=RuntimeError):
         resp = await http_client.get("/api/users")
     users = resp.json()["users"]
     dave = next((u for u in users if u["username"] == "dave"), None)
@@ -130,18 +130,22 @@ async def test_get_users_includes_db_filter_entries(http_client):
 
 
 async def test_get_users_merges_plex_users_with_filters(http_client):
-    from cleanplex.plex_client import PlexUser
+    from leapfrog.plex_client import PlexUser
     await db.upsert_user_filter("alice", enabled=False)
     mock_client = make_mock_plex_client()
     mock_client.get_all_users = AsyncMock(return_value=[
         PlexUser(username="alice", thumb="/alice.jpg"),
         PlexUser(username="bob", thumb=""),
     ])
-    with patch("cleanplex.web.routes.users.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.users.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.get("/api/users")
     users = {u["username"]: u for u in resp.json()["users"]}
     assert users["alice"]["enabled"] is False
     assert users["bob"]["enabled"] is True  # default when no filter record
+    assert "nudity" in users["alice"]["categories"]
+    assert "profanity" in users["alice"]["categories"]
+    assert "violence" in users["alice"]["categories"]
+    assert "drugs" in users["alice"]["categories"]
 
 
 # ── PUT /api/users/{username} ─────────────────────────────────────────────────
@@ -159,6 +163,18 @@ async def test_update_user_filter_disables(http_client):
     assert resp.status_code == 200
     row = await db.get_user_filter("frank")
     assert row["enabled"] == 0
+
+
+async def test_update_user_category_preference_persists_threshold(http_client):
+    resp = await http_client.put(
+        "/api/users/frank/categories/profanity",
+        json={"enabled": True, "threshold": 0.85},
+    )
+    assert resp.status_code == 200
+    prefs = await db.get_user_category_preferences("frank")
+    assert prefs[0]["category"] == "profanity"
+    assert prefs[0]["enabled"] == 1
+    assert prefs[0]["threshold"] == 0.85
 
 
 # ── GET /api/thumbnails/{segment_id} ──────────────────────────────────────────

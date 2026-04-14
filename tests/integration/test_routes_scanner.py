@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from cleanplex import database as db
+from leapfrog import database as db
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")
@@ -27,10 +27,10 @@ async def _make_job(guid: str = "job-guid", title: str = "Movie", library_id: st
 
 async def test_get_scan_queue_returns_jobs(http_client):
     await _make_job()
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=0), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.get_current_scan", return_value=None), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.get_current_scans", return_value=[]), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.is_paused", return_value=False):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=0), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.get_current_scan", return_value=None), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.get_current_scans", return_value=[]), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.is_paused", return_value=False):
         resp = await http_client.get("/api/scan/queue")
     assert resp.status_code == 200
     data = resp.json()
@@ -39,10 +39,10 @@ async def test_get_scan_queue_returns_jobs(http_client):
 
 
 async def test_get_scan_queue_paused_field(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=0), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.get_current_scan", return_value=None), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.get_current_scans", return_value=[]), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.is_paused", return_value=True):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=0), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.get_current_scan", return_value=None), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.get_current_scans", return_value=[]), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.is_paused", return_value=True):
         resp = await http_client.get("/api/scan/queue")
     assert resp.json()["paused"] is True
 
@@ -50,15 +50,15 @@ async def test_get_scan_queue_paused_field(http_client):
 # ── POST /api/scan/title ──────────────────────────────────────────────────────
 
 async def test_scan_title_returns_404_when_job_not_found(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.scanner_routes.plex_mod.get_client", side_effect=RuntimeError):
         resp = await http_client.post("/api/scan/title", json={"plex_guid": "no-such-guid"})
     assert resp.status_code == 404
 
 
 async def test_scan_title_queues_existing_job(http_client):
     await _make_job("scan-me")
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.enqueue", new=AsyncMock()) as mock_enqueue, \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=1):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.enqueue", new=AsyncMock()) as mock_enqueue, \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=1):
         resp = await http_client.post("/api/scan/title", json={"plex_guid": "scan-me"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
@@ -68,8 +68,8 @@ async def test_scan_title_queues_existing_job(http_client):
 
 async def test_scan_title_force_calls_force_scan_job(http_client):
     await _make_job("force-me")
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.force_scan_job", new=AsyncMock()) as mock_force, \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=0):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.force_scan_job", new=AsyncMock()) as mock_force, \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.get_queue_size", return_value=0):
         resp = await http_client.post("/api/scan/title", json={"plex_guid": "force-me", "now": True})
     assert resp.status_code == 200
     mock_force.assert_awaited_once_with("force-me")
@@ -78,7 +78,7 @@ async def test_scan_title_force_calls_force_scan_job(http_client):
 # ── POST /api/scan/pause ──────────────────────────────────────────────────────
 
 async def test_pause_scanner(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.pause_scanner") as mock_pause:
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.pause_scanner") as mock_pause:
         resp = await http_client.post("/api/scan/pause")
     assert resp.status_code == 200
     assert resp.json()["paused"] is True
@@ -88,7 +88,7 @@ async def test_pause_scanner(http_client):
 # ── POST /api/scan/resume ─────────────────────────────────────────────────────
 
 async def test_resume_scanner(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.resume_scanner") as mock_resume:
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.resume_scanner") as mock_resume:
         resp = await http_client.post("/api/scan/resume")
     assert resp.status_code == 200
     assert resp.json()["paused"] is False
@@ -98,14 +98,14 @@ async def test_resume_scanner(http_client):
 # ── POST /api/scan/skip-current ───────────────────────────────────────────────
 
 async def test_skip_current_scan_returns_404_when_nothing_scanning(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.get_current_scan", return_value=None):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.get_current_scan", return_value=None):
         resp = await http_client.post("/api/scan/skip-current", json={})
     assert resp.status_code == 404
 
 
 async def test_skip_current_scan_returns_ok(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.get_current_scan", return_value="guid-curr"), \
-         patch("cleanplex.web.routes.scanner_routes.scan_mod.skip_current_scan") as mock_skip:
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.get_current_scan", return_value="guid-curr"), \
+         patch("leapfrog.web.routes.scanner_routes.scan_mod.skip_current_scan") as mock_skip:
         resp = await http_client.post("/api/scan/skip-current", json={})
     assert resp.status_code == 200
     assert resp.json()["skipped"] == "guid-curr"
@@ -113,7 +113,7 @@ async def test_skip_current_scan_returns_ok(http_client):
 
 
 async def test_skip_current_scan_specific_guid(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.request_skip_scan", return_value=True) as mock_skip:
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.request_skip_scan", return_value=True) as mock_skip:
         resp = await http_client.post("/api/scan/skip-current", json={"plex_guid": "specific-guid"})
     assert resp.status_code == 200
     assert resp.json()["skipped"] == "specific-guid"
@@ -121,7 +121,7 @@ async def test_skip_current_scan_specific_guid(http_client):
 
 
 async def test_skip_current_scan_specific_guid_not_active(http_client):
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.request_skip_scan", return_value=False):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.request_skip_scan", return_value=False):
         resp = await http_client.post("/api/scan/skip-current", json={"plex_guid": "not-active"})
     assert resp.status_code == 404
 
@@ -156,7 +156,7 @@ async def test_toggle_ignored_returns_404_for_missing(http_client):
 async def test_scan_library_queues_pending_jobs(http_client):
     await _make_job("lib-job-1")
     await _make_job("lib-job-2")
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.enqueue", new=AsyncMock()):
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.enqueue", new=AsyncMock()):
         resp = await http_client.post("/api/scan/library/lib1", json={})
     assert resp.status_code == 200
     assert resp.json()["queued"] == 2
@@ -165,7 +165,7 @@ async def test_scan_library_queues_pending_jobs(http_client):
 async def test_scan_library_skips_done_jobs(http_client):
     await _make_job("done-job", library_id="lib2")
     await db.update_scan_job_status("done-job", "done")
-    with patch("cleanplex.web.routes.scanner_routes.scan_mod.enqueue", new=AsyncMock()) as mock_enqueue:
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.enqueue", new=AsyncMock()) as mock_enqueue:
         resp = await http_client.post("/api/scan/library/lib2", json={})
     assert resp.status_code == 200
     assert resp.json()["queued"] == 0

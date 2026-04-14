@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for Cleanplex tests."""
+"""Shared pytest fixtures for Leapfrog tests."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from cleanplex import database as db
-from cleanplex.web.app import create_app
+from leapfrog import database as db
+from leapfrog.web.app import create_app
 
 
 # ── Database fixtures ──────────────────────────────────────────────────────────
@@ -17,7 +17,7 @@ from cleanplex.web.app import create_app
 @pytest_asyncio.fixture
 async def setup_db(tmp_path):
     """Initialise a fresh SQLite database in a temp directory for each test."""
-    db.set_db_path(tmp_path / "cleanplex.db")
+    db.set_db_path(tmp_path / "leapfrog.db")
     await db.init_db()
     yield
 
@@ -55,6 +55,6 @@ def make_mock_plex_client(
     mock.get_episode_show_art = AsyncMock(return_value=show_art)
     mock.thumb_url = MagicMock(side_effect=lambda p: f"http://plex{p}" if p else "")
     mock.fetch_image = AsyncMock(return_value=(b"imgdata", "image/jpeg"))
-    mock.update_cleanplex_summary = AsyncMock(return_value=True)
+    mock.update_leapfrog_summary = AsyncMock(return_value=True)
     mock.test_connection = AsyncMock(return_value=(connection_ok, "My Plex"))
     return mock

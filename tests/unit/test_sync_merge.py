@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cleanplex.sync_merge import SegmentMerger, resolve_segments
+from leapfrog.sync_merge import SegmentMerger, resolve_segments
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Start a dev instance of Cleanplex on port 7980.
+# Start a dev instance of Leapfrog on port 7980.
 #
-# Uses ~/.cleanplex-dev/ as the data directory, seeded from the production
+# Uses ~/.leapfrog-dev/ as the data directory, seeded from the production
 # DB so Plex credentials and settings are available without manual config.
 #
 # Usage:
@@ -10,11 +10,21 @@
 
 set -euo pipefail
 
-PROD_DB="$USERPROFILE/.cleanplex/cleanplex.db"
-DEV_DIR="$USERPROFILE/.cleanplex-dev"
-DEV_DB="$DEV_DIR/cleanplex.db"
-DEV_LOG="cleanplex-dev.log"
+USER_HOME="${USERPROFILE:-$HOME}"
+PROD_DB="$USER_HOME/.leapfrog/leapfrog.db"
+DEV_DIR="$USER_HOME/.leapfrog-dev"
+DEV_DB="$DEV_DIR/leapfrog.db"
+DEV_LOG="leapfrog-dev.log"
 PID_FILE=".dev-server.pid"
+
+if [[ -x ".venv/bin/leapfrog" ]]; then
+  LEAPFROG_BIN=".venv/bin/leapfrog"
+elif [[ -x ".venv/Scripts/leapfrog.exe" ]]; then
+  LEAPFROG_BIN=".venv/Scripts/leapfrog.exe"
+else
+  echo "[dev] ERROR: no Leapfrog executable found in .venv"
+  exit 1
+fi
 
 if [[ "${1:-}" == "--fresh" ]]; then
   echo "[dev] Wiping dev data dir $DEV_DIR"
@@ -47,16 +57,35 @@ if [[ -f "$PID_FILE" ]]; then
 fi
 
 echo "[dev] Starting dev server on http://localhost:7980 (log: $DEV_LOG)"
-CLEANPLEX_DATA="$DEV_DIR" CLEANPLEX_PORT=7980 \
-  .venv/Scripts/cleanplex.exe > "$DEV_LOG" 2>&1 &
-DEV_PID=$!
+DEV_PID=$(
+  LEAPFROG_BIN="$LEAPFROG_BIN" DEV_DIR="$DEV_DIR" DEV_LOG="$DEV_LOG" python - <<'PY'
+import os
+import subprocess
+
+command = [os.environ["LEAPFROG_BIN"]]
+env = os.environ.copy()
+env["LEAPFROG_DATA"] = os.environ["DEV_DIR"]
+env["LEAPFROG_PORT"] = "7980"
+
+with open(os.environ["DEV_LOG"], "ab") as log_file:
+    proc = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        env=env,
+        start_new_session=True,
+    )
+print(proc.pid)
+PY
+)
 echo "$DEV_PID" > "$PID_FILE"
 echo "[dev] PID $DEV_PID — waiting for startup..."
 
 # Poll until the server responds (max 30s).
 for i in $(seq 1 30); do
   sleep 1
-  if curl -sf http://localhost:7980/api/settings > /dev/null 2>&1; then
+  if curl -sf http://localhost:7980/api/status > /dev/null 2>&1; then
     echo "[dev] Server is UP at http://localhost:7980"
     exit 0
   fi

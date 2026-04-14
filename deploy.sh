@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# deploy.sh — Deploy Cleanplex to a remote Linux host via SSH.
+# deploy.sh — Deploy Leapfrog to a remote Linux host via SSH.
 #
 # Usage:
 #   ./deploy.sh <user@host> [remote_dir]
 #
 # Arguments:
 #   user@host   (required) e.g. myuser@192.168.1.10
-#   remote_dir  (optional) defaults to /opt/cleanplex
+#   remote_dir  (optional) defaults to /opt/leapfrog
 #
 # Requirements (local): ssh, rsync
 # Requirements (remote): sudo, apt-get or dnf  (Python/Node auto-installed if missing)
@@ -20,8 +20,8 @@ if [ -z "${1:-}" ]; then
 fi
 
 TARGET="$1"
-REMOTE_DIR="${2:-/opt/cleanplex}"
-SERVICE_NAME="cleanplex"
+REMOTE_DIR="${2:-/opt/leapfrog}"
+SERVICE_NAME="leapfrog"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REMOTE_USER="${TARGET%%@*}"
@@ -52,7 +52,7 @@ info "Syncing source files ..."
 rsync -az --delete --info=progress2 \
   --exclude='.git' \
   --exclude='frontend/node_modules' \
-  --exclude='cleanplex/web/static' \
+  --exclude='leapfrog/web/static' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
   --exclude='*.egg-info' \
@@ -131,7 +131,7 @@ log "Building frontend ..."
 cd "${REMOTE_DIR}/frontend"
 npm install --silent
 npm run build --silent
-log "Frontend built → cleanplex/web/static/"
+log "Frontend built → leapfrog/web/static/"
 
 # ── Python venv + package ─────────────────────────────────────────────────────
 cd "${REMOTE_DIR}"
@@ -153,8 +153,8 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 sudo tee "$SERVICE_FILE" > /dev/null <<SERVICE
 [Unit]
-Description=Cleanplex — Plex content filter service
-Documentation=https://github.com/nazmolla/Cleanplex
+Description=Leapfrog — Plex content filter service
+Documentation=https://github.com/casperson/leapfrog
 After=network-online.target
 Wants=network-online.target
 
@@ -163,12 +163,12 @@ Type=simple
 User=${REMOTE_USER}
 Group=${REMOTE_USER}
 WorkingDirectory=${REMOTE_DIR}
-ExecStart=${VENV}/bin/python -m cleanplex
+ExecStart=${VENV}/bin/python -m leapfrog
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=cleanplex
+SyslogIdentifier=leapfrog
 
 [Install]
 WantedBy=multi-user.target

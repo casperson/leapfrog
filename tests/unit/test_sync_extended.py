@@ -10,7 +10,7 @@ import os
 import httpx
 import pytest
 
-from cleanplex import sync, database as db
+from leapfrog import sync, database as db
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")

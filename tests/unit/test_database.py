@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cleanplex import database as db
+from leapfrog import database as db
+from leapfrog.domain import Segment
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")
@@ -78,6 +79,37 @@ async def test_get_all_user_filters_returns_list():
     assert "bob" in usernames
 
 
+async def test_upsert_and_get_user_category_preference():
+    await db.upsert_user_category_preference(
+        "alice",
+        "profanity",
+        enabled=False,
+        threshold=0.9,
+    )
+    prefs = await db.get_user_category_preferences("alice")
+    assert len(prefs) == 1
+    assert prefs[0]["user_id"] == "alice"
+    assert prefs[0]["category"] == "profanity"
+    assert prefs[0]["enabled"] == 0
+    assert prefs[0]["threshold"] == 0.9
+
+
+async def test_set_and_get_user_preference():
+    await db.set_user_preference(
+        "charlie",
+        "nudity",
+        enabled=True,
+        threshold=0.65,
+    )
+    prefs = await db.get_user_preferences("charlie")
+    assert len(prefs) == 1
+    assert prefs[0]["user_id"] == "charlie"
+    assert prefs[0]["category"] == "nudity"
+    assert prefs[0]["enabled"] == 1
+    assert prefs[0]["threshold"] == pytest.approx(0.65)
+    assert prefs[0]["id"] > 0
+
+
 # ── Segments ───────────────────────────────────────────────────────────────────
 
 async def test_insert_and_get_segments_for_guid():
@@ -96,6 +128,54 @@ async def test_insert_and_get_segments_for_guid():
     assert rows[0]["start_ms"] == 1000
     assert rows[0]["end_ms"] == 5000
     assert rows[0]["labels"] == "NUDITY"
+
+
+async def test_insert_segment_persists_extended_fields():
+    seg_id = await db.insert_segment(
+        plex_guid="guid-extended",
+        media_id="guid-extended",
+        title="Test Movie",
+        start_ms=1000,
+        end_ms=2500,
+        category="profanity",
+        source="subtitles",
+        confidence=0.75,
+        text_excerpt="bad word here",
+        review_status="pending",
+    )
+    row = await db.get_segment_by_id(seg_id)
+    assert row is not None
+    assert row["media_id"] == "guid-extended"
+    assert row["category"] == "profanity"
+    assert row["source"] == "subtitles"
+    assert row["text_excerpt"] == "bad word here"
+    assert row["review_status"] == "pending"
+
+
+async def test_insert_segments_accepts_segment_model():
+    await db.insert_segments(
+        "guid-model",
+        [
+            Segment(
+                media_id="guid-model",
+                start_time=1.5,
+                end_time=3.25,
+                category="nudity",
+                source="nudenet",
+                confidence=None,
+                text_excerpt=None,
+                title="Model Movie",
+            )
+        ],
+    )
+    rows = await db.get_segments_for_guid("guid-model")
+    assert len(rows) == 1
+    assert rows[0]["media_id"] == "guid-model"
+    assert rows[0]["start_ms"] == 1500
+    assert rows[0]["end_ms"] == 3250
+    assert rows[0]["start_time"] == pytest.approx(1.5)
+    assert rows[0]["end_time"] == pytest.approx(3.25)
+    assert rows[0]["confidence"] is None
 
 
 async def test_get_segments_for_guid_returns_empty_for_unknown():
@@ -187,6 +267,9 @@ async def test_upsert_scan_job_creates_job():
     assert job is not None
     assert job["title"] == "Movie"
     assert job["status"] == "pending"
+    scan_statuses = await db.get_media_scan_statuses_for_media("guid-job")
+    categories = {row["category"] for row in scan_statuses}
+    assert {"nudity", "profanity"} <= categories
 
 
 async def test_upsert_scan_job_is_idempotent():

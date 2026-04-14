@@ -1,4 +1,5 @@
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 *.egg-info/
@@ -15,7 +16,8 @@ frontend/node_modules/
 frontend/dist/
 
 # Thumbnails and runtime data
-~/.cleanplex/
+~/.leapfrog/
+.phase*-devdir
 
 # IDE
 .vscode/
@@ -23,8 +25,8 @@ frontend/dist/
 *.swp
 
 # Local runtime/log artifacts
-cleanplex.log
-cleanplex*.log
+leapfrog.log
+leapfrog*.log
 *.log
 .coverage
 
@@ -36,7 +38,7 @@ ping_test.py
 _create_*.ps1
 
 # Generated web assets served by backend
-cleanplex/web/static/
+leapfrog/web/static/
 
 # Local one-off debug/maintenance helpers
 check_force_scan.py

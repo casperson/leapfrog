@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from cleanplex.plex_client import PlexClient, ActiveSession, LibrarySection, MediaItem, PlexUser
+from leapfrog.plex_client import PlexClient, ActiveSession, LibrarySection, MediaItem, PlexUser
 
 
 def _make_client(seek_transport=None) -> PlexClient:
@@ -30,7 +30,7 @@ async def test_test_connection_success():
     c = _make_client()
     srv = _mock_server()
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", new=AsyncMock(return_value=srv)):
+    with patch("leapfrog.plex_client.asyncio.to_thread", new=AsyncMock(return_value=srv)):
         ok, name = await c.test_connection()
 
     assert ok is True
@@ -39,7 +39,7 @@ async def test_test_connection_success():
 
 async def test_test_connection_failure():
     c = _make_client()
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("connection refused")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("connection refused")):
         ok, msg = await c.test_connection()
     assert ok is False
     assert "connection refused" in msg
@@ -61,7 +61,7 @@ async def test_get_active_sessions_empty():
             return srv  # _get_server
         return srv.sessions()  # sessions()
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
         sessions = await c.get_active_sessions()
 
     assert sessions == []
@@ -69,7 +69,7 @@ async def test_get_active_sessions_empty():
 
 async def test_get_active_sessions_returns_empty_on_exception():
     c = _make_client()
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("network error")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("network error")):
         sessions = await c.get_active_sessions()
     assert sessions == []
 
@@ -90,7 +90,7 @@ async def test_seek_success_via_server_proxy():
             return srv
         return None  # srv.query
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
         result = await c.seek("client-id", 30000)
 
     assert result is True
@@ -100,7 +100,7 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure():
     transport = httpx.MockTransport(lambda req: httpx.Response(200, content=b"ok"))
     c = _make_client(seek_transport=transport)
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10", client_port=32500)
 
     assert result is True
@@ -108,7 +108,7 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure():
 
 async def test_seek_returns_false_when_no_client_address_and_proxy_fails():
     c = _make_client()
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
         result = await c.seek("client-id", 30000, client_address="")
     assert result is False
 
@@ -116,7 +116,7 @@ async def test_seek_returns_false_when_no_client_address_and_proxy_fails():
 async def test_seek_returns_false_when_all_variants_fail():
     transport = httpx.MockTransport(lambda req: httpx.Response(400, content=b"bad"))
     c = _make_client(seek_transport=transport)
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10")
     assert result is False
 
@@ -141,7 +141,7 @@ async def test_get_library_sections_returns_list():
             return srv
         return [mock_section]  # sections()
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
         sections = await c.get_library_sections()
 
     assert len(sections) == 1
@@ -168,7 +168,7 @@ async def test_get_library_sections_excludes_non_video_sections():
             return srv
         return [music]
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
         sections = await c.get_library_sections()
 
     assert sections == []
@@ -176,7 +176,7 @@ async def test_get_library_sections_excludes_non_video_sections():
 
 async def test_get_library_sections_returns_empty_on_exception():
     c = _make_client()
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("plex down")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("plex down")):
         sections = await c.get_library_sections()
     assert sections == []
 
@@ -255,9 +255,9 @@ def test_invalidate_clears_server():
     assert c._server is None
 
 
-# ── update_cleanplex_summary ──────────────────────────────────────────────────
+# ── update_leapfrog_summary ──────────────────────────────────────────────────
 
-async def test_update_cleanplex_summary_success():
+async def test_update_leapfrog_summary_success():
     c = _make_client()
     srv = _mock_server()
 
@@ -276,14 +276,14 @@ async def test_update_cleanplex_summary_success():
             return mock_item
         return None
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
-        result = await c.update_cleanplex_summary("42", "Scanned", 3)
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+        result = await c.update_leapfrog_summary("42", "Scanned", 3)
 
     assert result is True
 
 
-async def test_update_cleanplex_summary_returns_false_on_exception():
+async def test_update_leapfrog_summary_returns_false_on_exception():
     c = _make_client()
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("fetch failed")):
-        result = await c.update_cleanplex_summary("42", "Scanned", 3)
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("fetch failed")):
+        result = await c.update_leapfrog_summary("42", "Scanned", 3)
     assert result is False

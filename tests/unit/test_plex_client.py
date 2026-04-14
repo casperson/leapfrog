@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from cleanplex.plex_client import PlexClient, _SHOW_ART_CACHE_TTL_S
+from leapfrog.plex_client import PlexClient, _SHOW_ART_CACHE_TTL_S
 
 
 @pytest.fixture
@@ -38,42 +38,43 @@ def test_thumb_url_empty_path_returns_empty():
     assert c.thumb_url(None) == ""
 
 
-# ── _strip_cleanplex_block ─────────────────────────────────────────────────────
+# ── _strip_leapfrog_block ─────────────────────────────────────────────────────
 
-def test_strip_cleanplex_block_removes_block():
+def test_strip_leapfrog_block_removes_block():
     c = PlexClient("http://plex:32400", "t")
-    summary = "Great movie.\n\n[[CLEANPLEX]]\nStatus: Scanned\nSegments: 3\n[[/CLEANPLEX]]\n"
-    stripped = c._strip_cleanplex_block(summary)
-    assert "[[CLEANPLEX]]" not in stripped
+    summary = "Great movie.\n\n[[LEAPFROG]]\nStatus: Scanned\nSegments: 3\n[[/LEAPFROG]]\n"
+    stripped = c._strip_leapfrog_block(summary)
+    assert "[[LEAPFROG]]" not in stripped
     assert "Great movie." in stripped
 
 
-def test_strip_cleanplex_block_no_block_unchanged():
+def test_strip_leapfrog_block_no_block_unchanged():
     c = PlexClient("http://plex:32400", "t")
     summary = "Just a normal summary."
-    assert c._strip_cleanplex_block(summary) == summary
+    assert c._strip_leapfrog_block(summary) == summary
 
 
-def test_strip_cleanplex_block_empty_string():
+def test_strip_leapfrog_block_empty_string():
     c = PlexClient("http://plex:32400", "t")
-    assert c._strip_cleanplex_block("") == ""
+    assert c._strip_leapfrog_block("") == ""
 
 
-# ── _build_cleanplex_block ─────────────────────────────────────────────────────
+# ── _build_leapfrog_block ─────────────────────────────────────────────────────
 
-def test_build_cleanplex_block_contains_required_fields():
+def test_build_leapfrog_block_contains_required_fields():
     c = PlexClient("http://plex:32400", "t")
-    block = c._build_cleanplex_block("Scanned", 5, "2025-01-01 10:00")
-    assert "[[CLEANPLEX]]" in block
-    assert "[[/CLEANPLEX]]" in block
+    block = c._build_leapfrog_block("Scanned", 5, "2025-01-01 10:00")
+    assert "[[LEAPFROG]]" in block
+    assert "[[/LEAPFROG]]" in block
+    assert "Leapfrog Scan" in block
     assert "Status: Scanned" in block
     assert "Segments: 5" in block
     assert "2025-01-01 10:00" in block
 
 
-def test_build_cleanplex_block_uses_current_timestamp_when_none():
+def test_build_leapfrog_block_uses_current_timestamp_when_none():
     c = PlexClient("http://plex:32400", "t")
-    block = c._build_cleanplex_block("Pending", 0, last_scan=None)
+    block = c._build_leapfrog_block("Pending", 0, last_scan=None)
     assert "Last Scan:" in block
 
 
@@ -86,7 +87,7 @@ async def test_get_episode_show_art_caches_result():
     # Pre-populate with a fresh cache entry (TTL not expired)
     c._show_art_cache["100"] = (time.monotonic(), cached_value)
 
-    with patch("cleanplex.plex_client.asyncio.to_thread") as mock_at:
+    with patch("leapfrog.plex_client.asyncio.to_thread") as mock_at:
         result = await c.get_episode_show_art("100")
 
     assert result == cached_value
@@ -114,7 +115,7 @@ async def test_get_episode_show_art_populates_cache_on_first_call():
             return mock_item
         return mock_srv
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
         result = await c.get_episode_show_art("200")
 
     assert result[:3] == ("show-guid", "The Show", "/thumb/show")
@@ -131,14 +132,14 @@ async def test_get_episode_show_art_ttl_expiry():
     mock_item.grandparentTitle = "Fresh Show"
     mock_item.grandparentThumb = "/fresh/thumb"
 
-    with patch("cleanplex.plex_client.asyncio.to_thread") as mock_thread:
+    with patch("leapfrog.plex_client.asyncio.to_thread") as mock_thread:
         mock_thread.side_effect = [MagicMock(), mock_item]  # _get_server, fetchItem
 
         srv = MagicMock()
         srv.fetchItem = MagicMock(return_value=mock_item)
 
         with patch.object(c, "_get_server", return_value=srv):
-            with patch("cleanplex.plex_client.asyncio.to_thread",
+            with patch("leapfrog.plex_client.asyncio.to_thread",
                        new=AsyncMock(side_effect=[srv, mock_item])):
                 # Patch to_thread to return the server first, then the item
                 pass
@@ -151,7 +152,7 @@ async def test_get_episode_show_art_ttl_expiry():
     fresh_item.grandparentTitle = "Fresh"
     fresh_item.grandparentThumb = "/f"
 
-    with patch("cleanplex.plex_client.asyncio.to_thread") as mock_at:
+    with patch("leapfrog.plex_client.asyncio.to_thread") as mock_at:
         mock_at.side_effect = lambda f, *a, **kw: (
             c._get_server() if "fetchItem" not in str(f) and not a else fresh_item
         )
@@ -162,7 +163,7 @@ async def test_get_episode_show_art_ttl_expiry():
 async def test_get_episode_show_art_returns_empty_on_exception():
     c = PlexClient("http://plex:32400", "t")
 
-    with patch("cleanplex.plex_client.asyncio.to_thread", side_effect=Exception("connection error")):
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("connection error")):
         result = await c.get_episode_show_art("bad-key")
 
     assert result == ("", "", "", "", "")
@@ -194,7 +195,7 @@ async def test_fetch_image_404_returns_empty():
 # ── init_client ────────────────────────────────────────────────────────────────
 
 def test_init_client_creates_singleton():
-    from cleanplex import plex_client as pm
+    from leapfrog import plex_client as pm
     original = pm._client
     try:
         new_client = pm.init_client("http://plex:32400", "token")
@@ -204,7 +205,7 @@ def test_init_client_creates_singleton():
 
 
 def test_get_client_raises_when_not_initialised():
-    from cleanplex import plex_client as pm
+    from leapfrog import plex_client as pm
     original = pm._client
     try:
         pm._client = None

@@ -7,8 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import cleanplex.filter_engine as fe
-from cleanplex.plex_client import ActiveSession
+import leapfrog.filter_engine as fe
+from leapfrog.adapters.plex_runtime import PlexPlaybackContext
+from leapfrog.plex_client import ActiveSession
 
 
 def _session(
@@ -47,8 +48,38 @@ def _make_client(seek_result: bool = True) -> MagicMock:
     return client
 
 
-def _segs(start: int, end: int) -> list[dict]:
-    return [{"start_ms": start, "end_ms": end, "confidence": 0.9, "plex_guid": "guid-1"}]
+def _segs(start: int, end: int, *, category: str = "nudity", confidence: float = 0.9) -> list[dict]:
+    return [
+        {
+            "start_ms": start,
+            "end_ms": end,
+            "confidence": confidence,
+            "category": category,
+            "source": "db",
+        }
+    ]
+
+
+def _playback_context(
+    *,
+    all_segments: list[dict] | None = None,
+    effective_segments: list[dict] | None = None,
+    segment_source: str = "db",
+) -> PlexPlaybackContext:
+    return PlexPlaybackContext(
+        adapter="plex",
+        connected=True,
+        media_resolved=bool(all_segments),
+        media_id="guid-1",
+        title="Movie",
+        user_id="alice",
+        preferences_resolved=True,
+        segment_source=segment_source,
+        all_segments=all_segments or [],
+        effective_segments=effective_segments or [],
+        external_ids={"plex_guid": "guid-1", "plex_rating_key": "rk-1"},
+        scan_statuses=[],
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -61,146 +92,143 @@ def reset_filter_state():
     fe._seek_backoff_until.clear()
 
 
-# ── Not controllable ───────────────────────────────────────────────────────────
-
 async def test_non_controllable_session_skips_without_seek():
     session = _session(is_controllable=False)
     client = _make_client()
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=[])
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context()),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
     client.seek.assert_not_called()
 
-
-# ── No segments ────────────────────────────────────────────────────────────────
 
 async def test_no_segments_does_not_seek():
     session = _session(position_ms=5000)
     client = _make_client()
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=[])
-        mock_db.get_segments_by_rating_key = AsyncMock(return_value=[])
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context()),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
     client.seek.assert_not_called()
 
 
-# ── GUID mismatch fallback ─────────────────────────────────────────────────────
-
-async def test_guid_mismatch_falls_back_to_rating_key():
+async def test_runtime_adapter_segments_can_trigger_seek():
     session = _session(position_ms=50000, rating_key="rk-fallback")
     client = _make_client()
-    segments = _segs(45000, 60000)  # position is within segment
-
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=[])
-        mock_db.get_segments_by_rating_key = AsyncMock(return_value=segments)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(
+            return_value=_playback_context(
+                all_segments=_segs(45000, 60000),
+                effective_segments=_segs(45000, 60000),
+            )
+        ),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
+    client.seek.assert_awaited_once()
 
-    mock_db.get_segments_by_rating_key.assert_awaited_once_with("rk-fallback")
-
-
-# ── Lookahead trigger ──────────────────────────────────────────────────────────
 
 async def test_position_within_lookahead_triggers_seek():
-    # Segment starts at 30000ms (after 5s expansion → 25000ms), lookahead=5000ms
-    # Position at 21000ms is within lookahead window of 25000ms
     session = _session(position_ms=21000)
     client = _make_client()
-    # Raw segment: start=30000, end=40000 → expanded: start=25000, end=45000
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000, lookahead_ms=5000)
 
     client.seek.assert_awaited_once()
     _, seek_ms, *_ = client.seek.call_args[0]
-    # Seek target is the expanded start (25000ms)
     assert seek_ms == 25000
 
 
 async def test_position_before_lookahead_does_not_seek():
-    # Position at 5000ms, lookahead window starts at 25000ms - 5000ms = 20000ms
     session = _session(position_ms=5000)
     client = _make_client()
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000, lookahead_ms=5000)
-
     client.seek.assert_not_called()
 
 
 async def test_position_inside_segment_triggers_seek():
-    # Position is within expanded segment bounds
     session = _session(position_ms=35000)
     client = _make_client()
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000, lookahead_ms=5000)
-
     client.seek.assert_awaited_once()
 
 
 async def test_position_past_segment_does_not_seek():
-    # Position is beyond the expanded segment end
     session = _session(position_ms=55000)
     client = _make_client()
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000, lookahead_ms=5000)
-
     client.seek.assert_not_called()
 
-
-# ── Recently skipped guard ─────────────────────────────────────────────────────
 
 async def test_recently_skipped_prevents_re_trigger():
     session = _session(position_ms=35000)
     client = _make_client()
-    # Simulate a previous skip that set end to 50000ms
     fe._recently_skipped["sess-1"] = 50000
-
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
-
     client.seek.assert_not_called()
 
 
 async def test_recently_skipped_cleared_when_past_end():
-    # Position has moved past the skipped end → entry should be removed
     session = _session(position_ms=60000)
     client = _make_client()
     fe._recently_skipped["sess-1"] = 50000
-
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
-
     assert "sess-1" not in fe._recently_skipped
 
-
-# ── Backoff guard ──────────────────────────────────────────────────────────────
 
 async def test_seek_backoff_prevents_retry():
     session = _session(position_ms=35000)
     client = _make_client()
-    # Set a backoff in the future
     fe._seek_backoff_until["sess-1"] = time.time() + 60
-
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
-
     client.seek.assert_not_called()
 
 
 async def test_failed_seek_sets_backoff():
     session = _session(position_ms=35000)
     client = _make_client(seek_result=False)
-
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
-
     assert "sess-1" in fe._seek_backoff_until
     assert fe._seek_backoff_until["sess-1"] > time.time()
 
@@ -208,23 +236,100 @@ async def test_failed_seek_sets_backoff():
 async def test_successful_seek_records_recently_skipped():
     session = _session(position_ms=35000)
     client = _make_client(seek_result=True)
-
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
-
-    # Should record end_ms of the expanded segment (45000)
-    assert "sess-1" in fe._recently_skipped
     assert fe._recently_skipped["sess-1"] == 45000
 
 
 async def test_successful_seek_clears_backoff():
     session = _session(position_ms=35000)
     client = _make_client(seek_result=True)
-    fe._seek_backoff_until["sess-1"] = time.time() - 1  # expired backoff
+    fe._seek_backoff_until["sess-1"] = time.time() - 1
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
+        await fe.process(session, client, skip_buffer_ms=3000)
+    assert "sess-1" not in fe._seek_backoff_until
 
-    with patch("cleanplex.filter_engine.db") as mock_db:
-        mock_db.get_segments_for_guid = AsyncMock(return_value=_segs(30000, 40000))
+
+async def test_disabled_category_does_not_seek():
+    session = _session(position_ms=35000)
+    client = _make_client()
+    segments = _segs(30000, 40000)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=[])),
+    ):
+        await fe.process(session, client, skip_buffer_ms=3000)
+    client.seek.assert_not_called()
+
+
+async def test_thresholded_category_below_threshold_does_not_seek():
+    session = _session(position_ms=35000)
+    client = _make_client()
+    segments = _segs(30000, 40000, category="profanity", confidence=0.4)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=[])),
+    ):
+        await fe.process(session, client, skip_buffer_ms=3000)
+    client.seek.assert_not_called()
+
+
+async def test_nudity_only_preferences_skip_only_nudity_segments():
+    session = _session(position_ms=26000)
+    client = _make_client()
+    all_segments = [
+        *_segs(30000, 40000, category="nudity"),
+        *_segs(10000, 15000, category="profanity", confidence=0.95),
+    ]
+    effective_segments = _segs(30000, 40000, category="nudity")
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=all_segments, effective_segments=effective_segments)),
+    ):
         await fe.process(session, client, skip_buffer_ms=3000)
 
-    assert "sess-1" not in fe._seek_backoff_until
+    client.seek.assert_awaited_once()
+    _, seek_ms, *_ = client.seek.call_args[0]
+    assert seek_ms == 25000
+
+
+async def test_profanity_only_preferences_skip_only_profanity_segments():
+    session = _session(position_ms=6000)
+    client = _make_client()
+    all_segments = [
+        *_segs(30000, 40000, category="nudity"),
+        *_segs(10000, 15000, category="profanity", confidence=0.95),
+    ]
+    effective_segments = _segs(10000, 15000, category="profanity", confidence=0.95)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=all_segments, effective_segments=effective_segments)),
+    ):
+        await fe.process(session, client, skip_buffer_ms=3000)
+
+    client.seek.assert_awaited_once()
+    _, seek_ms, *_ = client.seek.call_args[0]
+    assert seek_ms == 5000
+
+
+async def test_all_categories_disabled_skips_nothing():
+    session = _session(position_ms=26000)
+    client = _make_client()
+    all_segments = [
+        *_segs(30000, 40000, category="nudity"),
+        *_segs(10000, 15000, category="profanity", confidence=0.95),
+    ]
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=all_segments, effective_segments=[])),
+    ):
+        await fe.process(session, client, skip_buffer_ms=3000)
+    client.seek.assert_not_called()

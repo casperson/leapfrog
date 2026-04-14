@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop the dev Cleanplex instance started by dev-start.sh.
+# Stop the dev Leapfrog instance started by dev-start.sh.
 
 set -euo pipefail
 

@@ -26,19 +26,36 @@ interface Title {
   media_type: string
   year?: number | null
   ignored: boolean
+  segment_counts_by_category?: Record<string, number>
+  scan_statuses?: Record<string, {
+    status: string
+    source: string
+    detail: string
+    updated_at?: string
+  }>
+  analysis_state?: string
 }
 
 interface Segment {
   id: number
   plex_guid: string
+  media_id: string
   title: string
   start_ms: number
   end_ms: number
+  start_time?: number
+  end_time?: number
+  category?: string
+  source?: string
   confidence: number
   has_thumbnail: boolean
   thumbnail_url: string
   created_at: string
+  updated_at?: string
   labels?: string
+  text_excerpt?: string
+  review_status?: string
+  would_skip?: boolean | null
 }
 
 interface ScannerStatus {
@@ -142,6 +159,120 @@ function renderLabels(labels?: string): React.ReactNode {
           </span>
         )
       })}
+    </div>
+  )
+}
+
+function formatAnalysisState(value?: string): string {
+  switch (value) {
+    case 'scanned':
+      return 'Fully scanned'
+    case 'partially_scanned':
+      return 'Partially scanned'
+    case 'unscanned':
+    default:
+      return 'Unscanned'
+  }
+}
+
+function renderAnalysisBadge(title: Title): React.ReactNode {
+  const state = title.analysis_state ?? 'unscanned'
+  const className = state === 'scanned'
+    ? 'bg-green-500/15 text-green-400'
+    : state === 'partially_scanned'
+      ? 'bg-amber-500/15 text-amber-300'
+      : 'bg-gray-700/50 text-gray-400'
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full ${className}`}>
+      {formatAnalysisState(state)}
+    </span>
+  )
+}
+
+function renderCategoryCounts(title: Title): React.ReactNode {
+  const counts = Object.entries(title.segment_counts_by_category ?? {})
+  if (counts.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {counts.map(([category, count]) => (
+        <span
+          key={category}
+          className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-red-500/10 text-red-300 border border-red-500/20"
+        >
+          {category}: {count}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function renderScanStatusChips(title: Title): React.ReactNode {
+  const statuses = Object.entries(title.scan_statuses ?? {})
+  if (statuses.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 mt-2">
+      {statuses.map(([category, status]) => {
+        const tone = status.status === 'done'
+          ? 'bg-green-500/10 text-green-300 border-green-500/20'
+          : status.status === 'scanning'
+            ? 'bg-plex-orange/10 text-plex-orange border-plex-orange/20'
+            : status.status === 'failed'
+              ? 'bg-red-500/10 text-red-300 border-red-500/20'
+              : 'bg-gray-500/10 text-gray-300 border-gray-500/20'
+        return (
+          <span
+            key={category}
+            className={`text-[11px] uppercase tracking-wide px-2 py-1 rounded border ${tone}`}
+            title={status.detail || `${category} ${status.status}`}
+          >
+            {category}: {status.status}
+            {status.source ? ` · ${status.source}` : ''}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+function renderSegmentMeta(segment: Segment): React.ReactNode {
+  return (
+    <div className="space-y-2 mt-2">
+      <div className="flex flex-wrap gap-2">
+        {segment.category && (
+          <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-plex-orange/15 text-plex-orange border border-plex-orange/20">
+            {segment.category}
+          </span>
+        )}
+        {segment.source && (
+          <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
+            {segment.source}
+          </span>
+        )}
+        {typeof segment.confidence === 'number' && !Number.isNaN(segment.confidence) && (
+          <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-white/5 text-gray-300 border border-plex-border">
+            {Math.round(segment.confidence * 100)}% confidence
+          </span>
+        )}
+        {segment.review_status && (
+          <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-gray-500/10 text-gray-300 border border-gray-500/20">
+            {segment.review_status}
+          </span>
+        )}
+        {segment.would_skip != null && (
+          <span
+            className={`text-[11px] uppercase tracking-wide px-2 py-1 rounded border ${
+              segment.would_skip
+                ? 'bg-green-500/10 text-green-300 border-green-500/20'
+                : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+            }`}
+          >
+            {segment.would_skip ? 'Would skip' : 'Would not skip'}
+          </span>
+        )}
+      </div>
+      {segment.text_excerpt && (
+        <p className="text-xs text-gray-300 leading-relaxed">“{segment.text_excerpt}”</p>
+      )}
     </div>
   )
 }
@@ -308,7 +439,9 @@ export default function Library() {
                 <div className="w-full flex items-center justify-center text-gray-700" style={{ height: '140px' }}><AlertTriangle size={20} /></div>
               )}
               <div className="absolute bottom-0.5 left-0.5 bg-black/70 text-xs text-gray-300 px-1 py-0.5 rounded text-[10px]">
-                {Math.round(seg.confidence * 100)}%
+                {typeof seg.confidence === 'number' && !Number.isNaN(seg.confidence)
+                  ? `${Math.round(seg.confidence * 100)}%`
+                  : 'n/a'}
               </div>
             </div>
             <div className="flex-1 p-2 flex items-center justify-between gap-2 min-w-0">
@@ -319,6 +452,7 @@ export default function Library() {
                   <span className="font-mono text-xs text-plex-orange">{msToTimecode(seg.end_ms)}</span>
                   <span className="text-xs text-gray-600">({Math.round((seg.end_ms - seg.start_ms) / 1000)}s)</span>
                 </div>
+                {renderSegmentMeta(seg)}
                 {renderLabels(seg.labels)}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -948,10 +1082,13 @@ export default function Library() {
                                               </p>
                                               <div className="flex flex-wrap items-center gap-2 mt-1">
                                                 <StatusBadge status={title.status} progress={title.progress} />
+                                                {renderAnalysisBadge(title)}
                                                 {title.finished_at && (
                                                   <span className="text-xs text-gray-500">Finished {formatFinishedAt(title.finished_at)}</span>
                                                 )}
                                               </div>
+                                              {renderScanStatusChips(title)}
+                                              {renderCategoryCounts(title)}
                                               <div className="flex flex-wrap items-center gap-1 mt-1.5">
                                                 {title.segment_count > 0 && (
                                                   <button
@@ -1048,6 +1185,7 @@ export default function Library() {
                         </p>
                         <div className="flex flex-wrap items-center gap-2 mt-1">
                           <StatusBadge status={title.status} progress={title.progress} />
+                          {renderAnalysisBadge(title)}
                           {title.media_type === 'episode' && (
                             <span className="text-xs bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded font-medium">TV</span>
                           )}
@@ -1058,6 +1196,8 @@ export default function Library() {
                             <span className="text-xs text-gray-500">Finished {formatFinishedAt(title.finished_at)}</span>
                           )}
                         </div>
+                        {renderScanStatusChips(title)}
+                        {renderCategoryCounts(title)}
                         <div className="flex flex-wrap items-center gap-1 mt-2">
                           {title.segment_count > 0 && (
                             <button

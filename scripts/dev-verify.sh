@@ -28,8 +28,9 @@ check() {
   fi
 }
 
-echo "=== Cleanplex dev smoke tests ==="
+echo "=== Leapfrog dev smoke tests ==="
 
+check "API /api/status"                "$BASE/api/status"
 check "API /api/settings"              "$BASE/api/settings"
 check "API /api/libraries"             "$BASE/api/libraries"
 check "API /api/sessions"              "$BASE/api/sessions"

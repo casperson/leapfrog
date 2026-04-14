@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Sidebar — desktop only */}
       <aside className="hidden md:flex w-56 flex-shrink-0 bg-plex-dark border-r border-plex-border flex-col">
         <div className="p-5 border-b border-plex-border">
-          <span className="text-plex-orange font-bold text-xl tracking-wide">Cleanplex</span>
+          <span className="text-plex-orange font-bold text-xl tracking-wide">Leapfrog</span>
         </div>
         <nav className="flex-1 p-3 space-y-1">
           {nav.map(({ to, icon: Icon, label }) => (

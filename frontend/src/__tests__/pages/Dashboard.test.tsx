@@ -38,7 +38,6 @@ function renderDashboard() {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers()
   mockApi.get.mockImplementation((path: string) => {
     if (path.includes('events')) return Promise.resolve(emptyEvents)
     if (path.includes('scanner-status')) return Promise.resolve(scannerIdle)
@@ -47,7 +46,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  vi.runOnlyPendingTimers()
   vi.useRealTimers()
   vi.clearAllMocks()
 })
@@ -117,21 +115,28 @@ describe('Dashboard', () => {
   })
 
   it('polls API every 5 seconds', async () => {
+    vi.useFakeTimers()
     renderDashboard()
-    await waitFor(() => expect(mockApi.get).toHaveBeenCalled())
+    await act(async () => {
+      await Promise.resolve()
+    })
     const callsBefore = mockApi.get.mock.calls.length
+    expect(callsBefore).toBeGreaterThan(0)
 
     await act(async () => {
       vi.advanceTimersByTime(5000)
+      await Promise.resolve()
     })
-    await waitFor(() => expect(mockApi.get.mock.calls.length).toBeGreaterThan(callsBefore))
+    expect(mockApi.get.mock.calls.length).toBeGreaterThan(callsBefore)
   })
 
   it('aborts in-flight requests when component unmounts', async () => {
     const abortSpy = vi.spyOn(AbortController.prototype, 'abort')
     const { unmount } = renderDashboard()
     await waitFor(() => expect(mockApi.get).toHaveBeenCalled())
+    const abortsBeforeUnmount = abortSpy.mock.calls.length
     unmount()
-    expect(abortSpy).toHaveBeenCalled()
+    expect(abortSpy.mock.calls.length).toBeGreaterThan(abortsBeforeUnmount)
+    abortSpy.mockRestore()
   })
 })

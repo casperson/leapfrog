@@ -8,7 +8,7 @@ import hashlib
 
 import pytest
 
-from cleanplex import sync
+from leapfrog import sync
 
 
 @pytest.fixture(autouse=True)

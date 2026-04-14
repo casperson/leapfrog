@@ -14,6 +14,11 @@ interface Settings {
   nudenet_model_path: string
   segment_gap_ms: string
   segment_min_hits: string
+  profanity_terms: string
+  default_profanity_threshold: string
+  profanity_merge_gap_ms: string
+  whisper_enabled: string
+  whisper_model: string
   scan_window_start: string
   scan_window_end: string
   log_level: string
@@ -50,6 +55,11 @@ const DEFAULT: Settings = {
   nudenet_model_path: '',
   segment_gap_ms: '12000',
   segment_min_hits: '1',
+  profanity_terms: '["asshole","bastard","bitch","bullshit","dammit","damn","dick","fucker","fucking","goddamn","hell","motherfucker","pissed off","shit","son of a bitch"]',
+  default_profanity_threshold: '0.5',
+  profanity_merge_gap_ms: '1500',
+  whisper_enabled: '1',
+  whisper_model: 'base',
   scan_window_start: '23:00',
   scan_window_end: '06:00',
   log_level: 'INFO',
@@ -99,8 +109,8 @@ export default function SettingsPage() {
       api.get<SyncStatus>('/api/sync/status').catch(() => null),
     ]).then(([settings, libs, labels, sync]) => {
       setForm({ ...DEFAULT, ...settings })
-      setLibraries(libs.libraries)
-      setDetectorLabels(labels.labels)
+      setLibraries(libs?.libraries ?? [])
+      setDetectorLabels(labels?.labels ?? [])
       if (sync) {
         setSyncStatus(sync)
         setSyncForm(f => ({
@@ -342,13 +352,16 @@ export default function SettingsPage() {
           <Field label="Detection Confidence Threshold" hint="Frames scoring above this value (0–1) are flagged as nudity. Lower = more sensitive.">
             <input type="number" min="0.1" max="1" step="0.05" value={form.confidence_threshold} onChange={set('confidence_threshold')} className={inputCls} />
           </Field>
+          <Field label="Default Profanity Threshold" hint="Profiles inherit this threshold unless a user-specific profanity threshold overrides it.">
+            <input type="number" min="0" max="1" step="0.05" value={form.default_profanity_threshold} onChange={set('default_profanity_threshold')} className={inputCls} />
+          </Field>
           <Field label="Scan Frame Interval (ms)" hint="How often frames are sampled during scanning. Lower catches more scenes but takes longer.">
             <input type="number" min="1000" max="20000" step="500" value={form.scan_step_ms} onChange={set('scan_step_ms')} className={inputCls} />
           </Field>
           <Field label="Scanner Workers" hint="How many titles can be scanned in parallel. Higher values use more CPU, disk, and memory.">
             <input type="number" min="1" max="12" step="1" value={form.scan_workers} onChange={set('scan_workers')} className={inputCls} />
           </Field>
-          <Field label="NudeNet Model" hint="320n is bundled and fastest. 640m is downloaded by Cleanplex automatically and then cached locally.">
+          <Field label="NudeNet Model" hint="320n is bundled and fastest. 640m is downloaded by Leapfrog automatically and then cached locally.">
             <select value={form.nudenet_model} onChange={set('nudenet_model')} className={inputCls}>
               <option value="320n">320n (default, fast)</option>
               <option value="640m">640m (higher accuracy, slower)</option>
@@ -376,8 +389,28 @@ export default function SettingsPage() {
           <Field label="Segment Merge Gap (ms)" hint="Flagged frames closer than this are merged into one segment.">
             <input type="number" min="1000" max="30000" step="500" value={form.segment_gap_ms} onChange={set('segment_gap_ms')} className={inputCls} />
           </Field>
+          <Field label="Profanity Merge Gap (ms)" hint="Caption lines closer than this are merged into one profanity segment.">
+            <input type="number" min="250" max="15000" step="250" value={form.profanity_merge_gap_ms} onChange={set('profanity_merge_gap_ms')} className={inputCls} />
+          </Field>
           <Field label="Minimum Hits Per Segment" hint="Require at least this many flagged frames in a cluster to keep a segment. Increase to reduce false positives.">
             <input type="number" min="1" max="6" step="1" value={form.segment_min_hits} onChange={set('segment_min_hits')} className={inputCls} />
+          </Field>
+          <Field label="Profanity Terms" hint="JSON list of words or phrases to match in subtitles or transcripts.">
+            <textarea
+              value={form.profanity_terms}
+              onChange={event => setForm(current => ({ ...current, profanity_terms: event.target.value }))}
+              rows={5}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Whisper Audio Fallback" hint="Used only when no usable subtitles can be found for profanity scanning.">
+            <select value={form.whisper_enabled} onChange={set('whisper_enabled')} className={inputCls}>
+              <option value="1">Enabled</option>
+              <option value="0">Disabled</option>
+            </select>
+          </Field>
+          <Field label="Whisper Model" hint="Optional local Whisper model name used when audio fallback is available.">
+            <input value={form.whisper_model} onChange={set('whisper_model')} className={inputCls} />
           </Field>
           <Field label="Skip Buffer (ms)" hint="Extra milliseconds to seek past the end of a detected segment">
             <input type="number" min="0" step="500" value={form.skip_buffer_ms} onChange={set('skip_buffer_ms')} className={inputCls} />
@@ -490,7 +523,7 @@ export default function SettingsPage() {
           <Field label="Repository" hint="Fixed shared repository used by all users.">
             <input
               type="text"
-              value={syncStatus?.github_repo || 'nazmolla/cleanplex-segments'}
+              value={syncStatus?.github_repo || 'casperson/leapfrog-segments'}
               readOnly
               className={inputCls + ' opacity-80'}
             />
