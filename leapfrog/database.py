@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
-from .domain import DEFAULT_PROFANITY_TERMS, Segment, SUPPORTED_CATEGORIES
+from .domain import (
+    DEFAULT_PROFANITY_ALLOWLIST,
+    DEFAULT_PROFANITY_TERMS,
+    SCAN_STAGE_ORDER,
+    Segment,
+    SUPPORTED_CATEGORIES,
+)
 from .logger import get_logger
+from .paths import get_legacy_thumbnails_dir, get_thumbnails_dir
 
 logger = get_logger(__name__)
 
@@ -93,6 +101,13 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     progress    REAL DEFAULT 0,
     force_scan  INTEGER DEFAULT 0,
     ignored     INTEGER DEFAULT 0,
+    queue_state TEXT    DEFAULT 'idle',
+    queue_position INTEGER,
+    queue_priority INTEGER DEFAULT 0,
+    cancel_requested INTEGER DEFAULT 0,
+    queue_reason TEXT DEFAULT '',
+    queued_at   TIMESTAMP,
+    queue_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     started_at  TIMESTAMP,
     finished_at TIMESTAMP,
     error_msg   TEXT,
@@ -152,11 +167,29 @@ CREATE TABLE IF NOT EXISTS media_scan_status (
     status         TEXT    NOT NULL,
     source         TEXT    DEFAULT '',
     detail         TEXT    DEFAULT '',
+    segment_count  INTEGER DEFAULT 0,
+    progress       REAL    DEFAULT 0,
     created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(media_id, category)
 );
 CREATE INDEX IF NOT EXISTS idx_media_scan_status_media ON media_scan_status(media_id);
+
+CREATE TABLE IF NOT EXISTS media_scan_stage_status (
+    media_id       TEXT    NOT NULL,
+    stage_key      TEXT    NOT NULL,
+    category       TEXT,
+    stage_order    INTEGER DEFAULT 0,
+    status         TEXT    NOT NULL,
+    source         TEXT    DEFAULT '',
+    detail         TEXT    DEFAULT '',
+    progress       REAL    DEFAULT 0,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(media_id, stage_key)
+);
+CREATE INDEX IF NOT EXISTS idx_media_scan_stage_status_media
+ON media_scan_stage_status(media_id, stage_order, stage_key);
 """
 
 DEFAULT_SETTINGS = {
@@ -178,10 +211,12 @@ DEFAULT_SETTINGS = {
     "nudenet_model": "320n",
     "nudenet_model_path": "",
     "profanity_terms": json.dumps(DEFAULT_PROFANITY_TERMS),
+    "profanity_allowlist": json.dumps(DEFAULT_PROFANITY_ALLOWLIST),
     "default_profanity_threshold": "0.5",
     "profanity_merge_gap_ms": "1500",
     "whisper_enabled": "1",
     "whisper_model": "base",
+    "log_buffer_capacity": "1000",
     # Segment library sharing settings
     "sync_enabled": "0",
     "sync_instance_name": "",
@@ -190,6 +225,77 @@ DEFAULT_SETTINGS = {
     "sync_verified_threshold": "2",
     "sync_timing_tolerance_ms": "2000",
 }
+
+
+def _allocate_thumbnail_destination(target_path: Path) -> Path:
+    """Return a non-conflicting destination path for a migrated thumbnail file."""
+    if not target_path.exists():
+        return target_path
+
+    suffix = target_path.suffix
+    stem = target_path.stem
+    counter = 1
+    while True:
+        candidate = target_path.with_name(f"{stem}_{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+async def _migrate_legacy_thumbnail_paths(conn: aiosqlite.Connection) -> None:
+    """Move historical thumbnail files into the configured data dir and update DB rows."""
+    legacy_dir = get_legacy_thumbnails_dir()
+    current_dir = get_thumbnails_dir()
+    if legacy_dir == current_dir:
+        return
+
+    rows = await conn.execute_fetchall(
+        """
+        SELECT id, thumbnail_path
+        FROM segments
+        WHERE COALESCE(thumbnail_path, '') != ''
+        """
+    )
+    if not rows:
+        return
+
+    current_dir.mkdir(parents=True, exist_ok=True)
+    migrated = 0
+
+    for row in rows:
+        raw_path = str(row["thumbnail_path"] or "").strip()
+        if not raw_path:
+            continue
+
+        thumbnail_path = Path(raw_path).expanduser()
+        if legacy_dir not in thumbnail_path.parents:
+            continue
+
+        destination = current_dir / thumbnail_path.name
+        updated_path: Path | None = None
+
+        if thumbnail_path.exists():
+            destination = _allocate_thumbnail_destination(destination)
+            shutil.move(str(thumbnail_path), str(destination))
+            updated_path = destination
+        elif destination.exists():
+            updated_path = destination
+
+        if updated_path is None:
+            continue
+
+        await conn.execute(
+            "UPDATE segments SET thumbnail_path=? WHERE id=?",
+            (str(updated_path), row["id"]),
+        )
+        migrated += 1
+
+    if migrated:
+        logger.info(
+            "Migrated %s legacy thumbnail path(s) into %s",
+            migrated,
+            current_dir,
+        )
 
 
 async def init_db() -> None:
@@ -219,6 +325,15 @@ async def init_db() -> None:
             # show_guid stores the Plex grandparentGuid for episodes so the
             # scan queue can group all episodes of a show together.
             "ALTER TABLE scan_jobs ADD COLUMN show_guid TEXT DEFAULT ''",
+            "ALTER TABLE scan_jobs ADD COLUMN queue_state TEXT DEFAULT 'idle'",
+            "ALTER TABLE scan_jobs ADD COLUMN queue_position INTEGER",
+            "ALTER TABLE scan_jobs ADD COLUMN queue_priority INTEGER DEFAULT 0",
+            "ALTER TABLE scan_jobs ADD COLUMN cancel_requested INTEGER DEFAULT 0",
+            "ALTER TABLE scan_jobs ADD COLUMN queue_reason TEXT DEFAULT ''",
+            "ALTER TABLE scan_jobs ADD COLUMN queued_at TIMESTAMP",
+            "ALTER TABLE scan_jobs ADD COLUMN queue_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE media_scan_status ADD COLUMN segment_count INTEGER DEFAULT 0",
+            "ALTER TABLE media_scan_status ADD COLUMN progress REAL DEFAULT 0",
         ]
         for stmt in migrations:
             try:
@@ -229,6 +344,14 @@ async def init_db() -> None:
                     # Unexpected error — surface it rather than silently continuing.
                     logger.error("Unexpected migration failure: %s — %s", stmt, exc)
                     raise
+        # Existing databases may not have the queue columns until the additive
+        # migrations above run, so create this index only after migration.
+        await conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_scan_jobs_queue
+            ON scan_jobs(queue_state, queue_priority DESC, queue_position ASC, queued_at ASC, created_at ASC)
+            """
+        )
         old_pref_table = await (
             await conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='user_category_preferences'"
@@ -250,6 +373,7 @@ async def init_db() -> None:
         await conn.execute(
             "UPDATE segments SET media_id = plex_guid WHERE COALESCE(media_id, '') = ''"
         )
+        await _migrate_legacy_thumbnail_paths(conn)
         for key, value in DEFAULT_SETTINGS.items():
             await conn.execute(
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
@@ -464,6 +588,34 @@ async def delete_segments_for_guid_category(plex_guid: str, category: str) -> in
         return cursor.rowcount
 
 
+async def get_thumbnail_paths_for_guid(plex_guid: str) -> list[str]:
+    """Return non-empty thumbnail paths for all stored segments on one title."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT thumbnail_path
+            FROM segments
+            WHERE plex_guid=? AND COALESCE(thumbnail_path, '') != ''
+            """,
+            (plex_guid,),
+        )
+        return [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
+
+
+async def get_thumbnail_paths_for_guid_category(plex_guid: str, category: str) -> list[str]:
+    """Return non-empty thumbnail paths for one title/category segment subset."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT thumbnail_path
+            FROM segments
+            WHERE plex_guid=? AND category=? AND COALESCE(thumbnail_path, '') != ''
+            """,
+            (plex_guid, category),
+        )
+        return [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
+
+
 async def get_all_segments(limit: int = 200, offset: int = 0) -> list[dict]:
     async with get_connection() as conn:
         rows = await conn.execute_fetchall(
@@ -643,19 +795,318 @@ async def upsert_scan_job(
     async with get_connection() as conn:
         await conn.execute(
             "INSERT OR IGNORE INTO scan_jobs"
-            "(plex_guid, title, file_path, rating_key, library_id, library_title, content_rating, media_type, year, show_guid) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (plex_guid, title, file_path, rating_key, library_id, library_title, content_rating, media_type, year, show_guid),
+            "("
+            "plex_guid, title, file_path, rating_key, library_id, library_title, "
+            "content_rating, media_type, year, show_guid"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                plex_guid,
+                title,
+                file_path,
+                rating_key,
+                library_id,
+                library_title,
+                content_rating,
+                media_type,
+                year,
+                show_guid,
+            ),
         )
         for category in SUPPORTED_CATEGORIES:
             await conn.execute(
                 """
-                INSERT OR IGNORE INTO media_scan_status(media_id, category, status, source, detail)
-                VALUES(?, ?, 'pending', '', '')
+                INSERT OR IGNORE INTO media_scan_status(
+                    media_id, category, status, source, detail, segment_count, progress
+                )
+                VALUES(?, ?, 'pending', '', '', 0, 0)
                 """,
                 (plex_guid, category),
             )
         await conn.commit()
+
+
+async def _get_ordered_queue_guids_conn(conn: aiosqlite.Connection) -> list[str]:
+    rows = await conn.execute_fetchall(
+        """
+        SELECT plex_guid
+        FROM scan_jobs
+        WHERE queue_state='queued'
+        ORDER BY queue_priority DESC, queue_position ASC, queued_at ASC, created_at ASC, plex_guid ASC
+        """
+    )
+    return [str(row["plex_guid"]) for row in rows]
+
+
+async def _apply_queue_order_conn(
+    conn: aiosqlite.Connection,
+    ordered_guids: list[str],
+) -> None:
+    await conn.executemany(
+        """
+        UPDATE scan_jobs
+        SET
+            queue_state='queued',
+            queue_position=?,
+            queued_at=COALESCE(queued_at, CURRENT_TIMESTAMP),
+            queue_updated_at=CURRENT_TIMESTAMP
+        WHERE plex_guid=?
+        """,
+        [(index, plex_guid) for index, plex_guid in enumerate(ordered_guids, start=1)],
+    )
+
+
+async def get_queue_snapshot() -> list[dict[str, Any]]:
+    """Return the current stable queued-job snapshot for the UI."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT *
+            FROM scan_jobs
+            WHERE queue_state='queued'
+            ORDER BY queue_priority DESC, queue_position ASC, queued_at ASC, created_at ASC, plex_guid ASC
+            """
+        )
+        return [dict(row) for row in rows]
+
+
+async def queue_scan_job(
+    plex_guid: str,
+    *,
+    to_front: bool = False,
+    priority: int = 0,
+    reason: str = "",
+) -> dict[str, Any] | None:
+    """Insert or update one job in the persisted queue."""
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        job = await (
+            await conn.execute("SELECT * FROM scan_jobs WHERE plex_guid=?", (plex_guid,))
+        ).fetchone()
+        if not job:
+            await conn.rollback()
+            return None
+        current_order = await _get_ordered_queue_guids_conn(conn)
+        if plex_guid in current_order:
+            current_order.remove(plex_guid)
+        if to_front:
+            current_order.insert(0, plex_guid)
+        else:
+            current_order.append(plex_guid)
+        await conn.execute(
+            """
+            UPDATE scan_jobs
+            SET
+                queue_state='queued',
+                queue_priority=?,
+                queue_reason=?,
+                cancel_requested=0,
+                queued_at=COALESCE(queued_at, CURRENT_TIMESTAMP),
+                queue_updated_at=CURRENT_TIMESTAMP
+            WHERE plex_guid=?
+            """,
+            (priority, reason, plex_guid),
+        )
+        await _apply_queue_order_conn(conn, current_order)
+        await conn.commit()
+        row = await (
+            await conn.execute("SELECT * FROM scan_jobs WHERE plex_guid=?", (plex_guid,))
+        ).fetchone()
+        return dict(row) if row else None
+
+
+async def replace_queue_snapshot(
+    ordered_guids: list[str],
+    *,
+    preserve_non_listed: bool = True,
+) -> list[dict[str, Any]]:
+    """Rewrite the queued ordering to match the provided guid list."""
+    normalized = [str(guid).strip() for guid in ordered_guids if str(guid).strip()]
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        current_order = await _get_ordered_queue_guids_conn(conn)
+        if preserve_non_listed:
+            tail = [guid for guid in current_order if guid not in normalized]
+            next_order = normalized + tail
+        else:
+            next_order = normalized
+        queued_guids = set(current_order)
+        if queued_guids:
+            placeholders = ",".join("?" * len(queued_guids))
+            await conn.execute(
+                f"""
+                UPDATE scan_jobs
+                SET queue_position=NULL, queue_updated_at=CURRENT_TIMESTAMP
+                WHERE plex_guid IN ({placeholders})
+                """,
+                list(queued_guids),
+            )
+        if next_order:
+            await _apply_queue_order_conn(conn, next_order)
+        await conn.commit()
+    return await get_queue_snapshot()
+
+
+async def move_queue_item(plex_guid: str, direction: str) -> list[dict[str, Any]]:
+    """Move one queued item within the ordered snapshot."""
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        order = await _get_ordered_queue_guids_conn(conn)
+        if plex_guid not in order:
+            await conn.rollback()
+            return await get_queue_snapshot()
+        current_index = order.index(plex_guid)
+        order.pop(current_index)
+        if direction == "top":
+            new_index = 0
+        elif direction == "bottom":
+            new_index = len(order)
+        elif direction == "up":
+            new_index = max(0, current_index - 1)
+        elif direction == "down":
+            new_index = min(len(order), current_index + 1)
+        else:
+            await conn.rollback()
+            raise ValueError(f"Unsupported queue direction: {direction}")
+        order.insert(new_index, plex_guid)
+        await _apply_queue_order_conn(conn, order)
+        await conn.commit()
+    return await get_queue_snapshot()
+
+
+async def cancel_queue_item(plex_guid: str) -> bool:
+    """Remove one queued item from the persisted queue."""
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        order = await _get_ordered_queue_guids_conn(conn)
+        if plex_guid not in order:
+            await conn.rollback()
+            return False
+        order.remove(plex_guid)
+        await conn.execute(
+            """
+            UPDATE scan_jobs
+            SET
+                queue_state='idle',
+                queue_position=NULL,
+                queue_priority=0,
+                queue_reason='',
+                cancel_requested=1,
+                queue_updated_at=CURRENT_TIMESTAMP
+            WHERE plex_guid=?
+            """,
+            (plex_guid,),
+        )
+        await _apply_queue_order_conn(conn, order)
+        await conn.commit()
+        return True
+
+
+async def cancel_queue_items(plex_guids: list[str]) -> int:
+    """Remove several queued items at once and return the canceled count."""
+    normalized = [str(guid).strip() for guid in plex_guids if str(guid).strip()]
+    if not normalized:
+        return 0
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        order = await _get_ordered_queue_guids_conn(conn)
+        current = set(order)
+        canceled = [guid for guid in normalized if guid in current]
+        remaining = [guid for guid in order if guid not in set(canceled)]
+        if canceled:
+            placeholders = ",".join("?" * len(canceled))
+            await conn.execute(
+                f"""
+                UPDATE scan_jobs
+                SET
+                    queue_state='idle',
+                    queue_position=NULL,
+                    queue_priority=0,
+                    queue_reason='',
+                    cancel_requested=1,
+                    queue_updated_at=CURRENT_TIMESTAMP
+                WHERE plex_guid IN ({placeholders})
+                """,
+                canceled,
+            )
+            await _apply_queue_order_conn(conn, remaining)
+        await conn.commit()
+        return len(canceled)
+
+
+async def cancel_all_queued_items() -> int:
+    """Remove every queued item and return the count."""
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        order = await _get_ordered_queue_guids_conn(conn)
+        if not order:
+            await conn.rollback()
+            return 0
+        placeholders = ",".join("?" * len(order))
+        await conn.execute(
+            f"""
+            UPDATE scan_jobs
+            SET
+                queue_state='idle',
+                queue_position=NULL,
+                queue_priority=0,
+                queue_reason='',
+                cancel_requested=1,
+                queue_updated_at=CURRENT_TIMESTAMP
+            WHERE plex_guid IN ({placeholders})
+            """,
+            order,
+        )
+        await conn.commit()
+        return len(order)
+
+
+async def get_next_ready_queue_job(*, allow_windowed_only: bool) -> dict[str, Any] | None:
+    """Atomically claim the next queued job that is ready to execute."""
+    async with get_connection() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        where_clause = "queue_state='queued'"
+        params: list[Any] = []
+        if allow_windowed_only:
+            where_clause += " AND (force_scan=1 OR 1=1)"
+        else:
+            where_clause += " AND force_scan=1"
+        row = await (
+            await conn.execute(
+                f"""
+                SELECT *
+                FROM scan_jobs
+                WHERE {where_clause}
+                ORDER BY queue_priority DESC, queue_position ASC, queued_at ASC, created_at ASC, plex_guid ASC
+                LIMIT 1
+                """,
+                params,
+            )
+        ).fetchone()
+        if not row:
+            await conn.rollback()
+            return None
+        plex_guid = str(row["plex_guid"])
+        await conn.execute(
+            """
+            UPDATE scan_jobs
+            SET
+                queue_state='idle',
+                queue_position=NULL,
+                queue_reason='',
+                queue_updated_at=CURRENT_TIMESTAMP,
+                cancel_requested=0
+            WHERE plex_guid=?
+            """,
+            (plex_guid,),
+        )
+        remaining = await _get_ordered_queue_guids_conn(conn)
+        if remaining:
+            await _apply_queue_order_conn(conn, remaining)
+        await conn.commit()
+        updated = await (
+            await conn.execute("SELECT * FROM scan_jobs WHERE plex_guid=?", (plex_guid,))
+        ).fetchone()
+        return dict(updated) if updated else dict(row)
 
 
 async def get_existing_guids(guids: list[str]) -> set[str]:
@@ -748,17 +1199,40 @@ async def update_scan_job_status(
     async with get_connection() as conn:
         if status == "scanning":
             await conn.execute(
-                "UPDATE scan_jobs SET status=?, progress=?, started_at=COALESCE(started_at, CURRENT_TIMESTAMP) WHERE plex_guid=?",
+                """
+                UPDATE scan_jobs
+                SET
+                    status=?,
+                    progress=?,
+                    started_at=COALESCE(started_at, CURRENT_TIMESTAMP),
+                    cancel_requested=0
+                WHERE plex_guid=?
+                """,
                 (status, progress, plex_guid),
             )
         elif status in ("done", "failed"):
             await conn.execute(
-                "UPDATE scan_jobs SET status=?, progress=?, finished_at=CURRENT_TIMESTAMP, error_msg=? WHERE plex_guid=?",
+                """
+                UPDATE scan_jobs
+                SET
+                    status=?,
+                    progress=?,
+                    finished_at=CURRENT_TIMESTAMP,
+                    error_msg=?,
+                    cancel_requested=0
+                WHERE plex_guid=?
+                """,
                 (status, progress, error_msg, plex_guid),
             )
         else:
             await conn.execute(
-                "UPDATE scan_jobs SET status=?, progress=? WHERE plex_guid=?",
+                """
+                UPDATE scan_jobs
+                SET
+                    status=?,
+                    progress=?
+                WHERE plex_guid=?
+                """,
                 (status, progress, plex_guid),
             )
         await conn.commit()
@@ -767,7 +1241,23 @@ async def update_scan_job_status(
 async def reset_scan_job(plex_guid: str) -> None:
     async with get_connection() as conn:
         await conn.execute(
-            "UPDATE scan_jobs SET status='pending', progress=0, started_at=NULL, finished_at=NULL, error_msg=NULL WHERE plex_guid=?",
+            """
+            UPDATE scan_jobs
+            SET
+                status='pending',
+                progress=0,
+                started_at=NULL,
+                finished_at=NULL,
+                error_msg=NULL,
+                cancel_requested=0,
+                queue_state='idle',
+                queue_position=NULL,
+                queue_priority=0,
+                queue_reason='',
+                queued_at=NULL,
+                queue_updated_at=CURRENT_TIMESTAMP
+            WHERE plex_guid=?
+            """,
             (plex_guid,),
         )
         await conn.commit()
@@ -789,6 +1279,31 @@ async def set_ignored(plex_guid: str, ignored: bool) -> None:
         await conn.execute(
             "UPDATE scan_jobs SET ignored=? WHERE plex_guid=?",
             (1 if ignored else 0, plex_guid),
+        )
+        await conn.commit()
+
+
+async def request_scan_cancel(plex_guid: str) -> bool:
+    """Mark a job for cancellation and return whether a row was updated."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            """
+            UPDATE scan_jobs
+            SET cancel_requested=1, queue_updated_at=CURRENT_TIMESTAMP
+            WHERE plex_guid=?
+            """,
+            (plex_guid,),
+        )
+        await conn.commit()
+        return cursor.rowcount > 0
+
+
+async def clear_scan_cancel_requested(plex_guid: str) -> None:
+    """Clear any previously requested scan cancellation flag."""
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE scan_jobs SET cancel_requested=0 WHERE plex_guid=?",
+            (plex_guid,),
         )
         await conn.commit()
 
@@ -834,7 +1349,10 @@ async def get_media_scan_statuses_for_media(media_id: str) -> list[dict]:
     """Return per-category scan status records for a single media item."""
     async with get_connection() as conn:
         rows = await conn.execute_fetchall(
-            "SELECT media_id, category, status, source, detail, created_at, updated_at "
+            """
+            SELECT media_id, category, status, source, detail, segment_count, progress,
+                   created_at, updated_at
+            """
             "FROM media_scan_status WHERE media_id=? ORDER BY category",
             (media_id,),
         )
@@ -849,7 +1367,8 @@ async def get_media_scan_statuses(media_ids: list[str]) -> dict[str, list[dict]]
     async with get_connection() as conn:
         rows = await conn.execute_fetchall(
             f"""
-            SELECT media_id, category, status, source, detail, created_at, updated_at
+            SELECT media_id, category, status, source, detail, segment_count, progress,
+                   created_at, updated_at
             FROM media_scan_status
             WHERE media_id IN ({placeholders})
             ORDER BY media_id, category
@@ -869,21 +1388,27 @@ async def upsert_media_scan_status(
     *,
     source: str = "",
     detail: str = "",
+    segment_count: int = 0,
+    progress: float = 0.0,
 ) -> None:
     """Insert or update category scan status for a title."""
     async with get_connection() as conn:
         await conn.execute(
             """
-            INSERT INTO media_scan_status(media_id, category, status, source, detail)
-            VALUES(?, ?, ?, ?, ?)
+            INSERT INTO media_scan_status(
+                media_id, category, status, source, detail, segment_count, progress
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(media_id, category)
             DO UPDATE SET
                 status=excluded.status,
                 source=excluded.source,
                 detail=excluded.detail,
+                segment_count=excluded.segment_count,
+                progress=excluded.progress,
                 updated_at=CURRENT_TIMESTAMP
             """,
-            (media_id, category, status, source, detail),
+            (media_id, category, status, source, detail, segment_count, progress),
         )
         await conn.commit()
 
@@ -894,11 +1419,91 @@ async def seed_media_scan_statuses(media_id: str) -> None:
         for category in SUPPORTED_CATEGORIES:
             await conn.execute(
                 """
-                INSERT OR IGNORE INTO media_scan_status(media_id, category, status, source, detail)
-                VALUES(?, ?, 'pending', '', '')
+                INSERT OR IGNORE INTO media_scan_status(
+                    media_id, category, status, source, detail, segment_count, progress
+                )
+                VALUES(?, ?, 'pending', '', '', 0, 0)
                 """,
                 (media_id, category),
             )
+        await conn.commit()
+
+
+async def reset_media_scan_state(media_id: str) -> None:
+    """Reset per-title category and stage status before a fresh scan."""
+    async with get_connection() as conn:
+        await conn.execute(
+            "DELETE FROM media_scan_stage_status WHERE media_id=?",
+            (media_id,),
+        )
+        for category in SUPPORTED_CATEGORIES:
+            await conn.execute(
+                """
+                INSERT INTO media_scan_status(
+                    media_id, category, status, source, detail, segment_count, progress
+                )
+                VALUES(?, ?, 'pending', '', '', 0, 0)
+                ON CONFLICT(media_id, category)
+                DO UPDATE SET
+                    status='pending',
+                    source='',
+                    detail='',
+                    segment_count=0,
+                    progress=0,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (media_id, category),
+            )
+        await conn.commit()
+
+
+async def get_media_scan_stage_statuses_for_media(media_id: str) -> list[dict[str, Any]]:
+    """Return ordered scan-stage rows for one media item."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT media_id, stage_key, category, stage_order, status, source, detail, progress,
+                   created_at, updated_at
+            FROM media_scan_stage_status
+            WHERE media_id=?
+            ORDER BY stage_order, stage_key
+            """,
+            (media_id,),
+        )
+        return [dict(row) for row in rows]
+
+
+async def upsert_media_scan_stage_status(
+    media_id: str,
+    stage_key: str,
+    status: str,
+    *,
+    category: str | None = None,
+    source: str = "",
+    detail: str = "",
+    progress: float = 0.0,
+) -> None:
+    """Insert or update one ordered scan-stage status row."""
+    stage_order = int(SCAN_STAGE_ORDER.get(stage_key, 999))
+    async with get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO media_scan_stage_status(
+                media_id, stage_key, category, stage_order, status, source, detail, progress
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(media_id, stage_key)
+            DO UPDATE SET
+                category=excluded.category,
+                stage_order=excluded.stage_order,
+                status=excluded.status,
+                source=excluded.source,
+                detail=excluded.detail,
+                progress=excluded.progress,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (media_id, stage_key, category, stage_order, status, source, detail, progress),
+        )
         await conn.commit()
 
 

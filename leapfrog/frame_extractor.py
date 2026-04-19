@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from typing import AsyncGenerator
 
+from .domain import SampledFrame
 from .logger import get_logger
 
 logger = get_logger(__name__)
@@ -155,6 +156,19 @@ async def extract_frames_batch(
         if proc.returncode is None:
             proc.kill()
         await proc.wait()
+
+
+async def sample_video_frames(
+    file_path: str,
+    step_ms: int,
+    duration_ms: int,
+) -> list[SampledFrame]:
+    """Return sampled frames as a materialized list for detector fan-out."""
+    frames: list[SampledFrame] = []
+    async for offset_ms, jpeg in extract_frames_batch(file_path, step_ms, duration_ms):
+        if jpeg:
+            frames.append(SampledFrame(offset_ms=offset_ms, jpeg_bytes=jpeg))
+    return frames
 
 
 async def get_duration_ms(file_path: str) -> int | None:

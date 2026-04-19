@@ -57,6 +57,9 @@ if [[ -f "$PID_FILE" ]]; then
 fi
 
 echo "[dev] Starting dev server on http://localhost:7980 (log: $DEV_LOG)"
+if [[ -f "$DEV_LOG" ]]; then
+  mv "$DEV_LOG" "${DEV_LOG}.prev"
+fi
 DEV_PID=$(
   LEAPFROG_BIN="$LEAPFROG_BIN" DEV_DIR="$DEV_DIR" DEV_LOG="$DEV_LOG" python - <<'PY'
 import os
@@ -67,7 +70,7 @@ env = os.environ.copy()
 env["LEAPFROG_DATA"] = os.environ["DEV_DIR"]
 env["LEAPFROG_PORT"] = "7980"
 
-with open(os.environ["DEV_LOG"], "ab") as log_file:
+with open(os.environ["DEV_LOG"], "wb") as log_file:
     proc = subprocess.Popen(
         command,
         stdin=subprocess.DEVNULL,

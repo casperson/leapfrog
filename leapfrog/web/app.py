@@ -18,6 +18,7 @@ from .routes.segments import router as segments_router
 from .routes.scanner_routes import router as scanner_router
 from .routes.thumbnails import router as thumbnails_router
 from .routes.sync_routes import router as sync_router
+from .routes.logs import router as logs_router
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(scanner_router)
     app.include_router(thumbnails_router)
     app.include_router(sync_router)
+    app.include_router(logs_router)
 
     # Serve built React frontend (if present)
     if STATIC_DIR.exists():

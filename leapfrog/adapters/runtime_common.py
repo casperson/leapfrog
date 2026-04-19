@@ -275,11 +275,10 @@ async def resolve_runtime_playback_context(
     preferences_resolved = True
     if user_preferences is None:
         try:
-            nudity_threshold, profanity_threshold = await get_preference_threshold_settings()
+            threshold_defaults = await get_preference_threshold_settings()
             user_preferences = await get_resolved_preferences_for_user(
                 user_id,
-                nudity_threshold=nudity_threshold,
-                profanity_threshold=profanity_threshold,
+                threshold_defaults=threshold_defaults,
             )
         except Exception as exc:
             logger.warning(
@@ -291,8 +290,7 @@ async def resolve_runtime_playback_context(
             user_preferences = resolve_user_category_preferences(
                 overall_enabled=True,
                 stored_preferences={},
-                nudity_threshold=DEFAULT_CATEGORY_THRESHOLDS["nudity"],
-                profanity_threshold=DEFAULT_CATEGORY_THRESHOLDS["profanity"],
+                threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
             )
             preferences_resolved = False
 

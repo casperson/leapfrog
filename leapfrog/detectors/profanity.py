@@ -1,11 +1,17 @@
-"""Subtitle-first profanity detector with optional Whisper fallback."""
+"""Subtitle-first profanity detector with stronger root and phrase matching."""
 
 from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 
-from ..domain import DEFAULT_PROFANITY_TERMS, MediaScanTarget, MediaSegment
+from ..domain import (
+    DEFAULT_PROFANITY_ALLOWLIST,
+    DEFAULT_PROFANITY_TERMS,
+    MediaScanTarget,
+    MediaSegment,
+)
 from ..logger import get_logger
 from ..subtitles import SubtitleCue, extract_embedded_subtitles, load_external_subtitles
 from ..transcription import WhisperTranscriber, WhisperUnavailableError
@@ -17,32 +23,86 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9\s']")
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
+@dataclass(frozen=True, slots=True)
+class ProfanityRule:
+    raw: str
+    normalized: str
+    is_phrase: bool
+    is_root: bool
+
+
 def _normalize_text(text: str) -> str:
     lowered = text.lower()
     lowered = _NON_ALNUM_RE.sub(" ", lowered)
     return _WHITESPACE_RE.sub(" ", lowered).strip()
 
 
-def _match_terms(text: str, terms: list[str]) -> list[str]:
-    normalized_text = _normalize_text(text)
-    tokens = set(normalized_text.split())
-    matches: list[str] = []
-    for term in terms:
-        normalized_term = _normalize_text(term)
-        if not normalized_term:
+def _tokenize(text: str) -> list[str]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return []
+    return [token for token in normalized.split(" ") if token]
+
+
+def _build_rules(terms: list[str]) -> list[ProfanityRule]:
+    rules: list[ProfanityRule] = []
+    seen: set[str] = set()
+    for raw_term in terms:
+        normalized = _normalize_text(raw_term)
+        if not normalized or normalized in seen:
             continue
-        if " " in normalized_term:
-            if normalized_term in normalized_text:
-                matches.append(term)
-        elif normalized_term in tokens:
-            matches.append(term)
+        seen.add(normalized)
+        is_phrase = " " in normalized
+        rules.append(
+            ProfanityRule(
+                raw=raw_term,
+                normalized=normalized,
+                is_phrase=is_phrase,
+                is_root=not is_phrase,
+            )
+        )
+    return rules
+
+
+def _token_allowed(token: str, allowlist: set[str]) -> bool:
+    return token in allowlist
+
+
+def _match_rules(
+    text: str,
+    rules: list[ProfanityRule],
+    *,
+    allowlist: set[str],
+) -> list[str]:
+    normalized_text = _normalize_text(text)
+    if not normalized_text:
+        return []
+    tokens = _tokenize(normalized_text)
+    matches: list[str] = []
+    for rule in rules:
+        if rule.is_phrase:
+            if rule.normalized in normalized_text:
+                matches.append(rule.raw)
+            continue
+        matched = False
+        for token in tokens:
+            if _token_allowed(token, allowlist):
+                continue
+            if rule.normalized == token:
+                matched = True
+                break
+            if rule.is_root and rule.normalized in token:
+                matched = True
+                break
+        if matched:
+            matches.append(rule.raw)
     return matches
 
 
 def _score_matches(matches: list[str]) -> float:
     if not matches:
         return 0.0
-    return min(1.0, 0.5 + (0.25 * len(matches)))
+    return min(1.0, 0.45 + (0.18 * len(set(matches))))
 
 
 def _merge_flagged_cues(
@@ -116,7 +176,12 @@ class ProfanityDetector:
         progress_callback: ProgressCallback | None = None,
     ) -> DetectorResult:
         """Analyze subtitles or transcript text for profanity."""
-        term_list = self._load_terms(getattr(config, "profanity_terms", []))
+        rules = _build_rules(self._load_terms(getattr(config, "profanity_terms", [])))
+        allowlist = {
+            _normalize_text(value)
+            for value in self._load_allowlist(getattr(config, "profanity_allowlist", []))
+            if _normalize_text(value)
+        }
         merge_gap_ms = int(getattr(config, "profanity_merge_gap_ms", 1500))
 
         cues = await load_external_subtitles(target.file_path)
@@ -157,7 +222,7 @@ class ProfanityDetector:
 
         flagged: list[tuple[SubtitleCue, list[str]]] = []
         for cue in cues:
-            matches = _match_terms(cue.text, term_list)
+            matches = _match_rules(cue.text, rules, allowlist=allowlist)
             if matches:
                 flagged.append((cue, matches))
 
@@ -174,17 +239,40 @@ class ProfanityDetector:
 
     def _load_terms(self, raw_terms: list[str] | str) -> list[str]:
         if isinstance(raw_terms, list):
-            return [str(item).strip() for item in raw_terms if str(item).strip()]
+            values = [str(item).strip() for item in raw_terms if str(item).strip()]
+            return values or DEFAULT_PROFANITY_TERMS.copy()
         if isinstance(raw_terms, str):
             try:
                 parsed = json.loads(raw_terms)
                 if isinstance(parsed, list):
-                    return [str(item).strip() for item in parsed if str(item).strip()]
+                    values = [str(item).strip() for item in parsed if str(item).strip()]
+                    return values or DEFAULT_PROFANITY_TERMS.copy()
             except json.JSONDecodeError:
                 pass
-            return [
+            values = [
                 line.strip()
                 for line in raw_terms.splitlines()
                 if line.strip()
             ]
+            return values or DEFAULT_PROFANITY_TERMS.copy()
         return DEFAULT_PROFANITY_TERMS.copy()
+
+    def _load_allowlist(self, raw_allowlist: list[str] | str) -> list[str]:
+        if isinstance(raw_allowlist, list):
+            values = [str(item).strip() for item in raw_allowlist if str(item).strip()]
+            return values or DEFAULT_PROFANITY_ALLOWLIST.copy()
+        if isinstance(raw_allowlist, str):
+            try:
+                parsed = json.loads(raw_allowlist)
+                if isinstance(parsed, list):
+                    values = [str(item).strip() for item in parsed if str(item).strip()]
+                    return values or DEFAULT_PROFANITY_ALLOWLIST.copy()
+            except json.JSONDecodeError:
+                pass
+            values = [
+                line.strip()
+                for line in raw_allowlist.splitlines()
+                if line.strip()
+            ]
+            return values or DEFAULT_PROFANITY_ALLOWLIST.copy()
+        return DEFAULT_PROFANITY_ALLOWLIST.copy()

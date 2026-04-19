@@ -42,7 +42,7 @@ async def get_users():
     category_preferences = build_user_category_preferences_map(
         await db.get_all_user_category_preferences()
     )
-    nudity_threshold, profanity_threshold = await get_preference_threshold_settings()
+    threshold_defaults = await get_preference_threshold_settings()
     known_usernames = sorted(
         set(filters) | set(category_preferences) | {u["username"] for u in plex_users}
     )
@@ -50,8 +50,7 @@ async def get_users():
         known_usernames,
         overall_filters=filters,
         stored_preferences_by_user=category_preferences,
-        nudity_threshold=nudity_threshold,
-        profanity_threshold=profanity_threshold,
+        threshold_defaults=threshold_defaults,
     )
 
     # Merge: if username not in DB, default enabled=True

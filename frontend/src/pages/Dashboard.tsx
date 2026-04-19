@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { Monitor, SkipForward, Clock, Wifi, WifiOff } from 'lucide-react'
+import QueueManager from '../components/QueueManager'
 
 interface Session {
   session_key: string
@@ -195,6 +196,8 @@ export default function Dashboard() {
       )}
 
       {/* Active sessions */}
+      <QueueManager />
+
       <section>
         <h2 className="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
           <Monitor size={18} className="text-plex-orange" />

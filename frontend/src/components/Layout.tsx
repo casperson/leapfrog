@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Film, Scissors, Users, Settings } from 'lucide-react'
+import { LayoutDashboard, Film, Scissors, Users, Settings, FileText } from 'lucide-react'
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/library', icon: Film, label: 'Library' },
+  { to: '/logs', icon: FileText, label: 'Logs' },
   { to: '/segments', icon: Scissors, label: 'Segments' },
   { to: '/users', icon: Users, label: 'Users' },
   { to: '/settings', icon: Settings, label: 'Settings' },

@@ -11,13 +11,14 @@ import uvicorn
 from .logger import setup_logging, get_logger
 from . import database as db
 from .config import Config
+from .paths import get_data_dir
 import leapfrog.plex_client as plex_mod
 from .watcher import session_watcher_loop, library_watcher_loop
 from .scanner import scanner_loop
 from .web.app import create_app
 from .bg_jobs import recover_stale_jobs
 
-DATA_DIR = Path(os.environ.get("LEAPFROG_DATA", str(Path.home() / ".leapfrog")))
+DATA_DIR = get_data_dir()
 logger = get_logger(__name__)
 
 
@@ -28,7 +29,7 @@ async def _amain() -> None:
     await db.init_db()
 
     config = await Config.load()
-    setup_logging(config.log_level)
+    setup_logging(config.log_level, config.log_buffer_capacity)
 
     # Mark any jobs left in running/queued state from a previous crashed process.
     await recover_stale_jobs()

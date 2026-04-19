@@ -10,6 +10,7 @@ from datetime import datetime
 from .logger import get_logger
 from . import database as db
 from . import filter_engine
+from .domain import DEFAULT_CATEGORY_THRESHOLDS
 from .preferences import get_resolved_preferences_for_users
 from .scanner import enqueue, enqueue_pending, scanner_loop
 
@@ -33,8 +34,11 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
             sessions = await client.get_active_sessions()
             resolved_preferences = await get_resolved_preferences_for_users(
                 (session.user for session in sessions),
-                nudity_threshold=config.confidence_threshold,
-                profanity_threshold=config.default_profanity_threshold,
+                threshold_defaults={
+                    **DEFAULT_CATEGORY_THRESHOLDS,
+                    "nudity": config.confidence_threshold,
+                    "profanity": config.default_profanity_threshold,
+                },
             )
 
             for session in sessions:
@@ -104,7 +108,7 @@ async def library_watcher_loop(get_config_fn, get_client_fn) -> None:
                             content_rating=item.content_rating,
                             media_type=item.media_type,
                             year=item.year,
-                            show_guid=item.show_guid,
+                            show_guid=getattr(item, "show_guid", ""),
                         )
                         await enqueue(item.plex_guid)
                         logger.info("New item queued for scan: %s", item.title)

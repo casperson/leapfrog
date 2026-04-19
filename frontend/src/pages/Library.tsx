@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api/client'
 import { Film, Tv, ChevronRight, ChevronDown, RotateCcw, Zap, Moon, RefreshCw, ExternalLink, AlertTriangle, Trash2, SkipForward, Play } from 'lucide-react'
+import TitleScanDetailPanel from '../components/TitleScanDetailPanel'
+import { CategoryDefinition, getCategoryLabel, useCategoryDefinitions } from '../lib/categories'
+import {
+  analysisStateClassName,
+  formatAnalysisState,
+  formatTimestamp,
+  scanStatusClassName,
+} from '../lib/scan'
 
 interface Library {
   id: string
@@ -14,6 +22,8 @@ interface Title {
   title: string
   status: string
   progress: number
+  queue_state?: string
+  queue_position?: number | null
   finished_at?: string | null
   thumb_url: string
   poster_url?: string
@@ -96,6 +106,11 @@ interface ShowGroup {
   poster_url: string
 }
 
+interface ReviewUser {
+  username: string
+  enabled: boolean
+}
+
 function parseEpisodeTitle(title: string): ParsedEpisodeTitle {
   const parts = title.split(' – ')
   if (parts.length >= 3) {
@@ -129,13 +144,6 @@ function StatusBadge({ status, progress }: { status: string; progress: number })
   }
 }
 
-function formatFinishedAt(value?: string | null): string {
-  if (!value) return ''
-  const dt = new Date(value)
-  if (Number.isNaN(dt.getTime())) return ''
-  return dt.toLocaleString()
-}
-
 function msToTimecode(ms: number): string {
   const s = Math.floor(ms / 1000)
   const h = Math.floor(s / 3600)
@@ -163,33 +171,16 @@ function renderLabels(labels?: string): React.ReactNode {
   )
 }
 
-function formatAnalysisState(value?: string): string {
-  switch (value) {
-    case 'scanned':
-      return 'Fully scanned'
-    case 'partially_scanned':
-      return 'Partially scanned'
-    case 'unscanned':
-    default:
-      return 'Unscanned'
-  }
-}
-
 function renderAnalysisBadge(title: Title): React.ReactNode {
   const state = title.analysis_state ?? 'unscanned'
-  const className = state === 'scanned'
-    ? 'bg-green-500/15 text-green-400'
-    : state === 'partially_scanned'
-      ? 'bg-amber-500/15 text-amber-300'
-      : 'bg-gray-700/50 text-gray-400'
   return (
-    <span className={`text-xs px-2 py-0.5 rounded-full ${className}`}>
+    <span className={`text-xs px-2 py-0.5 rounded-full ${analysisStateClassName(state)}`}>
       {formatAnalysisState(state)}
     </span>
   )
 }
 
-function renderCategoryCounts(title: Title): React.ReactNode {
+function renderCategoryCounts(title: Title, categories: CategoryDefinition[]): React.ReactNode {
   const counts = Object.entries(title.segment_counts_by_category ?? {})
   if (counts.length === 0) return null
   return (
@@ -199,33 +190,26 @@ function renderCategoryCounts(title: Title): React.ReactNode {
           key={category}
           className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-red-500/10 text-red-300 border border-red-500/20"
         >
-          {category}: {count}
+          {getCategoryLabel(category, categories)}: {count}
         </span>
       ))}
     </div>
   )
 }
 
-function renderScanStatusChips(title: Title): React.ReactNode {
+function renderScanStatusChips(title: Title, categories: CategoryDefinition[]): React.ReactNode {
   const statuses = Object.entries(title.scan_statuses ?? {})
   if (statuses.length === 0) return null
   return (
     <div className="flex flex-wrap gap-1 mt-2">
       {statuses.map(([category, status]) => {
-        const tone = status.status === 'done'
-          ? 'bg-green-500/10 text-green-300 border-green-500/20'
-          : status.status === 'scanning'
-            ? 'bg-plex-orange/10 text-plex-orange border-plex-orange/20'
-            : status.status === 'failed'
-              ? 'bg-red-500/10 text-red-300 border-red-500/20'
-              : 'bg-gray-500/10 text-gray-300 border-gray-500/20'
         return (
           <span
             key={category}
-            className={`text-[11px] uppercase tracking-wide px-2 py-1 rounded border ${tone}`}
+            className={`text-[11px] uppercase tracking-wide px-2 py-1 rounded border ${scanStatusClassName(status.status)}`}
             title={status.detail || `${category} ${status.status}`}
           >
-            {category}: {status.status}
+            {getCategoryLabel(category, categories)}: {status.status}
             {status.source ? ` · ${status.source}` : ''}
           </span>
         )
@@ -234,13 +218,13 @@ function renderScanStatusChips(title: Title): React.ReactNode {
   )
 }
 
-function renderSegmentMeta(segment: Segment): React.ReactNode {
+function renderSegmentMeta(segment: Segment, categories: CategoryDefinition[]): React.ReactNode {
   return (
     <div className="space-y-2 mt-2">
       <div className="flex flex-wrap gap-2">
         {segment.category && (
           <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-plex-orange/15 text-plex-orange border border-plex-orange/20">
-            {segment.category}
+            {getCategoryLabel(segment.category, categories)}
           </span>
         )}
         {segment.source && (
@@ -278,6 +262,7 @@ function renderSegmentMeta(segment: Segment): React.ReactNode {
 }
 
 export default function Library() {
+  const categories = useCategoryDefinitions()
   const [libraries, setLibraries] = useState<Library[]>([])
   const [selected, setSelected] = useState<Library | null>(null)
   const [titles, setTitles] = useState<Title[]>([])
@@ -302,10 +287,26 @@ export default function Library() {
   const [previewSeg, setPreviewSeg] = useState<Segment | null>(null)
   const [machineId, setMachineId] = useState('')
   const [plexBaseUrl, setPlexBaseUrl] = useState('')
+  const [reviewUsers, setReviewUsers] = useState<ReviewUser[]>([])
+  const [selectedReviewUser, setSelectedReviewUser] = useState('')
+  const [detailTitle, setDetailTitle] = useState<Title | null>(null)
 
   useEffect(() => {
     api.get<{ libraries: Library[] }>('/api/libraries').then(d => setLibraries(d.libraries))
   }, [])
+
+  useEffect(() => {
+    api.get<{ users: ReviewUser[] }>('/api/users')
+      .then(data => {
+        const users = Array.isArray(data.users) ? data.users : []
+        setReviewUsers(users)
+        if (!selectedReviewUser && users.length > 0) {
+          const preferred = users.find(user => user.enabled) ?? users[0]
+          setSelectedReviewUser(preferred.username)
+        }
+      })
+      .catch(() => {})
+  }, [selectedReviewUser])
 
   // Fetch Plex server machine identifier and base URL for building web deep links.
   useEffect(() => {
@@ -372,6 +373,10 @@ export default function Library() {
       ? `${plexBaseUrl}/web/index.html#!/server/${machineId}/details?key=%2Flibrary%2Fmetadata%2F${ratingKey}`
       : ''
 
+  const openDetail = (title: Title) => {
+    setDetailTitle(title)
+  }
+
   const toggleSegments = async (guid: string) => {
     const isOpen = expandedSegments.has(guid)
     setExpandedSegments(prev => {
@@ -383,7 +388,8 @@ export default function Library() {
     if (!isOpen && !(guid in loadedSegments)) {
       setLoadingSegments(prev => new Set(prev).add(guid))
       try {
-        const d = await api.get<{ segments: Segment[] }>(`/api/titles/${encodeURIComponent(guid)}/segments`)
+        const query = selectedReviewUser ? `?user=${encodeURIComponent(selectedReviewUser)}` : ''
+        const d = await api.get<{ segments: Segment[] }>(`/api/titles/${encodeURIComponent(guid)}/segments${query}`)
         setLoadedSegments(prev => ({ ...prev, [guid]: d.segments }))
       } catch {
         setLoadedSegments(prev => ({ ...prev, [guid]: [] }))
@@ -452,7 +458,7 @@ export default function Library() {
                   <span className="font-mono text-xs text-plex-orange">{msToTimecode(seg.end_ms)}</span>
                   <span className="text-xs text-gray-600">({Math.round((seg.end_ms - seg.start_ms) / 1000)}s)</span>
                 </div>
-                {renderSegmentMeta(seg)}
+                {renderSegmentMeta(seg, categories)}
                 {renderLabels(seg.labels)}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
@@ -738,6 +744,20 @@ export default function Library() {
     setSelectedGuids(prev => prev.filter(g => valid.has(g)))
   }, [titles])
 
+  useEffect(() => {
+    setLoadedSegments({})
+  }, [selectedReviewUser])
+
+  useEffect(() => {
+    if (!detailTitle) {
+      return
+    }
+    const refreshed = titles.find(title => title.plex_guid === detailTitle.plex_guid)
+    if (refreshed) {
+      setDetailTitle(refreshed)
+    }
+  }, [detailTitle, titles])
+
   return (
     <div className="flex gap-6 h-full">
       {/* Library list — desktop only */}
@@ -909,6 +929,18 @@ export default function Library() {
               >
                 {sortDesc ? '↓' : '↑'}
               </button>
+              {reviewUsers.length > 0 && (
+                <select
+                  value={selectedReviewUser}
+                  onChange={event => setSelectedReviewUser(event.target.value)}
+                  className="px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-300 focus:outline-none focus:border-plex-orange/50"
+                >
+                  <option value="">No review profile</option>
+                  {reviewUsers.map(user => (
+                    <option key={user.username} value={user.username}>{user.username}</option>
+                  ))}
+                </select>
+              )}
               <label className="inline-flex items-center gap-2 px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-300 select-none">
                 <input
                   type="checkbox"
@@ -1076,20 +1108,31 @@ export default function Library() {
                                               className="w-4 h-4 accent-plex-orange flex-shrink-0 mt-1"
                                             />
                                             <div className="flex-1 min-w-0">
-                                              <p className="text-sm text-gray-100 truncate">
-                                                {parsed.episode}
+                                              <div className="text-sm text-gray-100 truncate">
+                                                <button
+                                                  onClick={() => openDetail(title)}
+                                                  className="truncate text-left hover:text-plex-orange transition-colors"
+                                                >
+                                                  {parsed.episode}
+                                                </button>
                                                 {title.ignored && <span className="ml-2 text-yellow-300 text-xs font-semibold">IGNORED</span>}
-                                              </p>
+                                              </div>
                                               <div className="flex flex-wrap items-center gap-2 mt-1">
                                                 <StatusBadge status={title.status} progress={title.progress} />
                                                 {renderAnalysisBadge(title)}
                                                 {title.finished_at && (
-                                                  <span className="text-xs text-gray-500">Finished {formatFinishedAt(title.finished_at)}</span>
+                                                  <span className="text-xs text-gray-500">Finished {formatTimestamp(title.finished_at)}</span>
                                                 )}
                                               </div>
-                                              {renderScanStatusChips(title)}
-                                              {renderCategoryCounts(title)}
+                                              {renderScanStatusChips(title, categories)}
+                                              {renderCategoryCounts(title, categories)}
                                               <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                                                <button
+                                                  onClick={() => openDetail(title)}
+                                                  className="px-2 py-1 text-xs rounded border border-plex-border text-gray-300 hover:text-white hover:border-plex-orange/50 transition-colors"
+                                                >
+                                                  Details
+                                                </button>
                                                 {title.segment_count > 0 && (
                                                   <button
                                                     onClick={() => toggleSegments(title.plex_guid)}
@@ -1179,10 +1222,15 @@ export default function Library() {
                         <div className="w-16 h-24 bg-plex-border rounded flex-shrink-0" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-100 truncate">
+                        <div className="text-sm font-medium text-gray-100 truncate">
                           {title.ignored && <span className="text-yellow-400 mr-1">[IGNORED]</span>}
-                          {title.title}
-                        </p>
+                          <button
+                            onClick={() => openDetail(title)}
+                            className="truncate text-left hover:text-plex-orange transition-colors"
+                          >
+                            {title.title}
+                          </button>
+                        </div>
                         <div className="flex flex-wrap items-center gap-2 mt-1">
                           <StatusBadge status={title.status} progress={title.progress} />
                           {renderAnalysisBadge(title)}
@@ -1193,12 +1241,18 @@ export default function Library() {
                             <span className="text-xs text-gray-600 bg-white/5 px-1.5 py-0.5 rounded">{title.content_rating}</span>
                           )}
                           {title.finished_at && (
-                            <span className="text-xs text-gray-500">Finished {formatFinishedAt(title.finished_at)}</span>
+                            <span className="text-xs text-gray-500">Finished {formatTimestamp(title.finished_at)}</span>
                           )}
                         </div>
-                        {renderScanStatusChips(title)}
-                        {renderCategoryCounts(title)}
+                        {renderScanStatusChips(title, categories)}
+                        {renderCategoryCounts(title, categories)}
                         <div className="flex flex-wrap items-center gap-1 mt-2">
+                          <button
+                            onClick={() => openDetail(title)}
+                            className="px-2 py-1 text-xs rounded border border-plex-border text-gray-300 hover:text-white hover:border-plex-orange/50 transition-colors"
+                          >
+                            Details
+                          </button>
                           {title.segment_count > 0 && (
                             <button
                               onClick={() => toggleSegments(title.plex_guid)}
@@ -1261,6 +1315,23 @@ export default function Library() {
           </>
         )}
       </div>
+
+      {detailTitle && (
+        <div className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={() => setDetailTitle(null)}>
+          <div
+            className="w-full max-w-5xl max-h-[90vh] overflow-y-auto bg-plex-darker border-t border-plex-border sm:border sm:rounded-xl"
+            onClick={event => event.stopPropagation()}
+          >
+            <TitleScanDetailPanel
+              plexGuid={detailTitle.plex_guid}
+              title={detailTitle.title}
+              categories={categories}
+              reviewUser={selectedReviewUser || null}
+              onClose={() => setDetailTitle(null)}
+            />
+          </div>
+        </div>
+      )}
 
       {previewSeg && (
         <div className="fixed inset-0 z-50 bg-black/90 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setPreviewSeg(null)}>

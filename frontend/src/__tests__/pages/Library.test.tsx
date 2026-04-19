@@ -71,12 +71,28 @@ const scannerIdle = {
 }
 
 function renderLibrary() {
-  return render(<MemoryRouter><Library /></MemoryRouter>)
+  return render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Library />
+    </MemoryRouter>,
+  )
 }
 
 beforeEach(() => {
   mockApi.get.mockImplementation((path: string) => {
     if (path.includes('scanner-status')) return Promise.resolve(scannerIdle)
+    if (path.includes('/api/users')) return Promise.resolve({ users: [{ username: 'alice', enabled: true }] })
+    if (path.includes('/api/settings/categories')) {
+      return Promise.resolve({
+        categories: [
+          { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.6 },
+          { key: 'sexual_content', label: 'Sexual Content', description: 'Skip detected sexual activity or suggestive intimate scenes.', default_threshold: 0.55 },
+          { key: 'profanity', label: 'Profanity', description: 'Skip subtitle or transcript profanity matches.', default_threshold: 0.5 },
+          { key: 'violence', label: 'Violence', description: 'Skip detected violence, blood, or weapon scenes.', default_threshold: 0.55 },
+          { key: 'drugs', label: 'Drugs', description: 'Skip detected drug use or paraphernalia scenes.', default_threshold: 0.55 },
+        ],
+      })
+    }
     if (path.includes('libraries') && !path.includes('titles')) return Promise.resolve({ libraries })
     if (path.includes('/segments')) return Promise.resolve({ segments })
     if (path.includes('titles')) return Promise.resolve({ titles })
@@ -165,7 +181,7 @@ describe('Library', () => {
     await waitFor(() => screen.getByText('Movie A'))
     expect(screen.getByText('Fully scanned')).toBeInTheDocument()
     expect(screen.getByText(/nudity: done/i)).toBeInTheDocument()
-    expect(screen.getByText('profanity: 1')).toBeInTheDocument()
+    expect(screen.getByText('Profanity: 1')).toBeInTheDocument()
   })
 
   it('renders segment metadata when segments are expanded', async () => {
@@ -181,7 +197,7 @@ describe('Library', () => {
       fireEvent.click(document.querySelector('[title="Toggle segments"]') as Element)
     })
 
-    await waitFor(() => expect(screen.getByText('profanity')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Profanity')).toBeInTheDocument())
     expect(screen.getByText('subtitles')).toBeInTheDocument()
     expect(screen.getByText('90% confidence')).toBeInTheDocument()
     expect(screen.getByText('Would skip')).toBeInTheDocument()
@@ -195,6 +211,18 @@ describe('Library', () => {
     }))
     mockApi.get.mockImplementation((path: string) => {
       if (path.includes('scanner-status')) return Promise.resolve(scannerIdle)
+      if (path.includes('/api/users')) return Promise.resolve({ users: [{ username: 'alice', enabled: true }] })
+      if (path.includes('/api/settings/categories')) {
+        return Promise.resolve({
+          categories: [
+            { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.6 },
+            { key: 'sexual_content', label: 'Sexual Content', description: 'Skip detected sexual activity or suggestive intimate scenes.', default_threshold: 0.55 },
+            { key: 'profanity', label: 'Profanity', description: 'Skip subtitle or transcript profanity matches.', default_threshold: 0.5 },
+            { key: 'violence', label: 'Violence', description: 'Skip detected violence, blood, or weapon scenes.', default_threshold: 0.55 },
+            { key: 'drugs', label: 'Drugs', description: 'Skip detected drug use or paraphernalia scenes.', default_threshold: 0.55 },
+          ],
+        })
+      }
       if (path.includes('libraries') && !path.includes('titles')) return Promise.resolve({ libraries })
       if (path.includes('titles')) return Promise.resolve({ titles: manyTitles })
       return Promise.resolve({})

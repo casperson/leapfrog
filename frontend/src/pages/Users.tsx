@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { UserCircle2, ShieldCheck, ShieldOff } from 'lucide-react'
-
-const FILTER_CATEGORIES = ['nudity', 'profanity', 'violence', 'drugs'] as const
+import {
+  CategoryDefinition,
+  getCategoryDescription,
+  getCategoryLabel,
+  useCategoryDefinitions,
+} from '../lib/categories'
 
 interface CategoryPreference {
   enabled: boolean
@@ -19,69 +23,45 @@ interface User {
 function defaultPreference(category: string): CategoryPreference {
   return {
     enabled: category === 'nudity',
-    threshold: category === 'nudity' ? 0.6 : 0.5,
+    threshold: category === 'nudity' ? 0.6 : 0.55,
   }
 }
 
-function getCategoryLabel(category: string): string {
-  switch (category) {
-    case 'nudity':
-      return 'Nudity'
-    case 'profanity':
-      return 'Profanity'
-    case 'violence':
-      return 'Violence'
-    case 'drugs':
-      return 'Drugs'
-    default:
-      return category.charAt(0).toUpperCase() + category.slice(1)
-  }
-}
-
-function getCategoryHint(category: string): string {
-  switch (category) {
-    case 'nudity':
-      return 'Skip detected nudity scenes.'
-    case 'profanity':
-      return 'Skip subtitle or transcript profanity matches.'
-    case 'violence':
-      return 'Reserved for a future detector.'
-    case 'drugs':
-      return 'Reserved for a future detector.'
-    default:
-      return `Skip ${category} segments for this profile.`
-  }
-}
-
-function normalizeCategories(categories: Record<string, CategoryPreference> | undefined): Record<string, CategoryPreference> {
+function normalizeCategories(
+  categoryDefinitions: CategoryDefinition[],
+  categories: Record<string, CategoryPreference> | undefined,
+): Record<string, CategoryPreference> {
   const merged: Record<string, CategoryPreference> = {}
-  for (const category of FILTER_CATEGORIES) {
-    merged[category] = {
-      ...defaultPreference(category),
-      ...(categories?.[category] ?? {}),
+  for (const definition of categoryDefinitions) {
+    merged[definition.key] = {
+      threshold: definition.default_threshold,
+      enabled: defaultPreference(definition.key).enabled,
+      ...(categories?.[definition.key] ?? {}),
     }
   }
   return merged
 }
 
-function normalizeUser(user: User): User {
+function normalizeUser(user: User, categoryDefinitions: CategoryDefinition[]): User {
   return {
     ...user,
-    categories: normalizeCategories(user.categories),
+    categories: normalizeCategories(categoryDefinitions, user.categories),
   }
 }
 
 export default function UsersPage() {
+  const categories = useCategoryDefinitions()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     api.get<{ users: User[] }>('/api/users').then(data => {
-      setUsers(data.users.map(normalizeUser))
+      const nextUsers = Array.isArray(data.users) ? data.users : []
+      setUsers(nextUsers.map(user => normalizeUser(user, categories)))
       setLoading(false)
     })
-  }, [])
+  }, [categories])
 
   const setSavingState = (key: string, value: boolean) => {
     setSaving(current => ({ ...current, [key]: value }))
@@ -108,12 +88,16 @@ export default function UsersPage() {
         if (user.username !== username) {
           return user
         }
+        const basePreference = {
+          enabled: defaultPreference(category).enabled,
+          threshold: categories.find(entry => entry.key === category)?.default_threshold ?? defaultPreference(category).threshold,
+        }
         return {
           ...user,
           categories: {
             ...user.categories,
             [category]: {
-              ...defaultPreference(category),
+              ...basePreference,
               ...user.categories[category],
               ...next,
             },
@@ -196,20 +180,23 @@ export default function UsersPage() {
                 </button>
               </div>
 
-                <div className="grid gap-3 md:grid-cols-2">
-                {FILTER_CATEGORIES.map(category => {
-                  const preference = user.categories[category]
-                  const savingKey = `${user.username}:${category}`
+              <div className="grid gap-3 md:grid-cols-2">
+                {categories.map(category => {
+                  const preference = user.categories[category.key] ?? {
+                    enabled: false,
+                    threshold: category.default_threshold,
+                  }
+                  const savingKey = `${user.username}:${category.key}`
                   return (
                     <div
-                      key={category}
+                      key={category.key}
                       className="rounded-lg border border-plex-border bg-plex-darker/70 px-4 py-3"
                     >
-                      <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-medium text-gray-100">{getCategoryLabel(category)}</p>
+                          <p className="text-sm font-medium text-gray-100">{getCategoryLabel(category.key, categories)}</p>
                           <p className="text-xs text-gray-500">
-                            {getCategoryHint(category)}
+                            {getCategoryDescription(category.key, categories)}
                           </p>
                         </div>
                         <button
@@ -218,8 +205,8 @@ export default function UsersPage() {
                               ...preference,
                               enabled: !preference.enabled,
                             }
-                            setCategoryLocal(user.username, category, next)
-                            void saveCategory(user.username, category, next)
+                            setCategoryLocal(user.username, category.key, next)
+                            void saveCategory(user.username, category.key, next)
                           }}
                           disabled={saving[savingKey]}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
@@ -234,7 +221,7 @@ export default function UsersPage() {
                         </button>
                       </div>
 
-                      <label className="block text-xs text-gray-500 mb-1">Threshold</label>
+                      <label className="mb-1 block text-xs text-gray-500">Threshold</label>
                       <input
                         type="number"
                         min="0"
@@ -243,10 +230,10 @@ export default function UsersPage() {
                         value={preference.threshold}
                         onChange={event => {
                           const nextValue = Number(event.target.value)
-                          setCategoryLocal(user.username, category, { threshold: nextValue })
+                          setCategoryLocal(user.username, category.key, { threshold: nextValue })
                         }}
-                        onBlur={() => void saveCategory(user.username, category, preference)}
-                        className="w-full px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-100 focus:outline-none focus:border-plex-orange/60 transition-colors"
+                        onBlur={() => void saveCategory(user.username, category.key, preference)}
+                        className="w-full rounded-lg border border-plex-border bg-plex-card px-3 py-2 text-sm text-gray-100 transition-colors focus:border-plex-orange/60 focus:outline-none"
                       />
                     </div>
                   )

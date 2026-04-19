@@ -3,6 +3,7 @@ import json
 import mimetypes
 import os
 import time
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
@@ -86,17 +87,42 @@ def _plex_image_proxy_url(path: str) -> str:
     return f"/api/plex-image?path={quote(path, safe='')}"
 
 
-def _summarize_scan_state(status_rows: list[dict]) -> str:
+def _delete_thumbnail_files(paths: list[str]) -> None:
+    """Best-effort thumbnail cleanup for removed segment rows."""
+    for path in {str(value).strip() for value in paths if str(value).strip()}:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except Exception as exc:
+            logger.debug("Could not delete thumbnail %s: %s", path, exc)
+
+
+def _summarize_scan_state(
+    status_rows: list[dict],
+    *,
+    job: dict | None = None,
+    segment_count: int = 0,
+) -> str:
     if not status_rows:
+        if job and job.get("queue_state") == "queued":
+            return "queued"
         return "unscanned"
-    done_categories = {
-        row["category"] for row in status_rows if row.get("status") == "done"
-    }
-    if not done_categories:
-        return "unscanned"
-    if len(done_categories) < len(SUPPORTED_CATEGORIES):
+    statuses = {str(row.get("status") or "") for row in status_rows}
+    if "failed" in statuses:
+        return "failed"
+    terminal = {"done", "unavailable", "canceled"}
+    if any(status in terminal for status in statuses) and any(status not in terminal for status in statuses):
         return "partially_scanned"
-    return "scanned"
+    if job and job.get("status") == "scanning":
+        return "scanning"
+    if "running" in statuses:
+        return "scanning"
+    if statuses <= {"pending"}:
+        if job and job.get("queue_state") == "queued":
+            return "queued"
+        return "unscanned"
+    if any(status not in terminal for status in statuses):
+        return "partially_scanned"
+    return "scanned_flagged" if segment_count > 0 else "scanned_clean"
 
 
 # ── Libraries / titles tree ───────────────────────────────────────────────────
@@ -155,17 +181,18 @@ async def sync_library(library_id: str):
                 # Unrated checkbox is ticked (saves "" in scan_ratings).
                 if (item.content_rating or "") not in scan_ratings:
                     continue
-            await db.upsert_scan_job(
-                plex_guid=item.plex_guid,
-                title=item.title,
-                file_path=item.file_path,
-                rating_key=item.rating_key,
+                await db.upsert_scan_job(
+                    plex_guid=item.plex_guid,
+                    title=item.title,
+                    file_path=item.file_path,
+                    rating_key=item.rating_key,
                 library_id=item.library_id,
                 library_title=item.library_title,
-                content_rating=item.content_rating,
-                media_type=item.media_type,
-                year=item.year,
-            )
+                    content_rating=item.content_rating,
+                    media_type=item.media_type,
+                    year=item.year,
+                    show_guid=getattr(item, "show_guid", ""),
+                )
             added += 1
 
         logger.info(f"Library {library_id} synced: {added} new titles added")
@@ -235,6 +262,10 @@ async def get_titles_in_library(library_id: str):
             "title": job["title"],
             "status": job["status"],
             "progress": job["progress"],
+            "queue_state": job.get("queue_state", "idle"),
+            "queue_position": job.get("queue_position"),
+            "queue_priority": job.get("queue_priority", 0),
+            "cancel_requested": bool(job.get("cancel_requested", 0)),
             "finished_at": job.get("finished_at"),
             "thumb_url": thumb_url,
             "poster_url": poster_url,
@@ -253,11 +284,17 @@ async def get_titles_in_library(library_id: str):
                     "status": row["status"],
                     "source": row["source"],
                     "detail": row["detail"],
+                    "segment_count": row.get("segment_count", 0),
+                    "progress": row.get("progress", 0),
                     "updated_at": row["updated_at"],
                 }
                 for row in scan_statuses.get(job["plex_guid"], [])
             },
-            "analysis_state": _summarize_scan_state(scan_statuses.get(job["plex_guid"], [])),
+            "analysis_state": _summarize_scan_state(
+                scan_statuses.get(job["plex_guid"], []),
+                job=job,
+                segment_count=seg_counts.get(job["plex_guid"], 0),
+            ),
         })
     return {"titles": result}
 
@@ -281,7 +318,11 @@ async def get_plex_image(path: str):
 
 
 @router.get("/titles/{plex_guid:path}/segments")
-async def get_segments_for_title(plex_guid: str, user: str | None = None):
+async def get_segments_for_title(
+    plex_guid: str,
+    user: str | None = None,
+    category: list[str] | None = Query(default=None),
+):
     """Return all segments for a specific title with all detected labels."""
     global _scan_labels_cache
     now = time.monotonic()
@@ -297,13 +338,19 @@ async def get_segments_for_title(plex_guid: str, user: str | None = None):
         _scan_labels_cache = (now, scan_labels_raw_str)
     scan_labels_raw = json.loads(scan_labels_raw_str)
     enabled_labels = set(scan_labels_raw) if isinstance(scan_labels_raw, list) else set()
+    category_filter = {value.strip() for value in category or [] if value.strip()}
+    if category_filter:
+        segments = [
+            segment
+            for segment in segments
+            if str(segment.get("category") or "") in category_filter
+        ]
     effective_segment_ids: set[int] = set()
     if user:
-        nudity_threshold, profanity_threshold = await get_preference_threshold_settings()
+        threshold_defaults = await get_preference_threshold_settings()
         preferences = await get_resolved_preferences_for_user(
             user,
-            nudity_threshold=nudity_threshold,
-            profanity_threshold=profanity_threshold,
+            threshold_defaults=threshold_defaults,
         )
         effective_segment_ids = {
             int(seg["id"])
@@ -313,7 +360,7 @@ async def get_segments_for_title(plex_guid: str, user: str | None = None):
     result = []
     for seg in segments:
         labels = seg.get("labels", "") or ""
-        if enabled_labels and labels:
+        if enabled_labels and labels and str(seg.get("category") or "nudity") == "nudity":
             filtered = [l.strip() for l in labels.split(",") if l.strip() in enabled_labels]
             labels = ",".join(filtered)
         result.append({
@@ -338,6 +385,71 @@ async def get_segments_for_title(plex_guid: str, user: str | None = None):
             "would_skip": int(seg["id"]) in effective_segment_ids if user else None,
         })
     return {"segments": result}
+
+
+async def _build_scan_detail_payload(plex_guid: str, user: str | None = None) -> dict:
+    job = await db.get_scan_job_by_guid(plex_guid)
+    segments = await db.get_segments_for_guid(plex_guid)
+    if not job and not segments:
+        raise HTTPException(status_code=404, detail="Title not found")
+
+    status_rows = await db.get_media_scan_statuses_for_media(plex_guid)
+    stage_rows = await db.get_media_scan_stage_statuses_for_media(plex_guid)
+    counts_by_category = {
+        category: 0 for category in SUPPORTED_CATEGORIES
+    }
+    for row in status_rows:
+        category_key = str(row.get("category") or "")
+        if category_key in counts_by_category:
+            counts_by_category[category_key] = int(row.get("segment_count") or 0)
+    if not any(counts_by_category.values()):
+        for segment in segments:
+            category_key = str(segment.get("category") or "nudity")
+            counts_by_category[category_key] = counts_by_category.get(category_key, 0) + 1
+
+    preference_resolution_success: bool | None = None
+    effective_segment_count: int | None = None
+    if user:
+        try:
+            threshold_defaults = await get_preference_threshold_settings()
+            preferences = await get_resolved_preferences_for_user(
+                user,
+                threshold_defaults=threshold_defaults,
+            )
+            preference_resolution_success = True
+            effective_segment_count = len(get_effective_skip_segments(segments, preferences))
+        except Exception:
+            preference_resolution_success = False
+            effective_segment_count = None
+
+    queued_snapshot = await db.get_queue_snapshot()
+    queued_entry = next((row for row in queued_snapshot if row["plex_guid"] == plex_guid), None)
+    total_segment_count = sum(counts_by_category.values())
+
+    return {
+        "media_id": plex_guid,
+        "title": (job or {}).get("title") or (segments[0].get("title") if segments else "") or "",
+        "analysis_state": _summarize_scan_state(
+            status_rows,
+            job=job,
+            segment_count=total_segment_count,
+        ),
+        "segment_count": total_segment_count,
+        "segment_counts_by_category": counts_by_category,
+        "scan_statuses": status_rows,
+        "stage_statuses": stage_rows,
+        "last_scan_time": (job or {}).get("finished_at"),
+        "export_available": bool(job or segments),
+        "preference_resolution_success": preference_resolution_success,
+        "effective_segment_count": effective_segment_count,
+        "queue": {
+            "state": (queued_entry or job or {}).get("queue_state", "idle"),
+            "position": (queued_entry or job or {}).get("queue_position"),
+            "priority": (queued_entry or job or {}).get("queue_priority", 0),
+            "cancel_requested": bool((queued_entry or job or {}).get("cancel_requested", 0)),
+        },
+        "job_status": (job or {}).get("status", "unknown"),
+    }
 
 
 @router.get("/titles/{plex_guid:path}/export")
@@ -391,43 +503,36 @@ async def get_sidecar_for_title(
 @router.get("/titles/{plex_guid:path}/scan-status")
 async def get_scan_status_for_title(plex_guid: str, user: str | None = None):
     """Return per-category scan status and segment counts for one title."""
-    job = await db.get_scan_job_by_guid(plex_guid)
-    segments = await db.get_segments_for_guid(plex_guid)
-    if not job and not segments:
-        raise HTTPException(status_code=404, detail="Title not found")
-
-    status_rows = await db.get_media_scan_statuses_for_media(plex_guid)
-    counts_by_category: dict[str, int] = {}
-    for segment in segments:
-        category = str(segment.get("category") or "nudity")
-        counts_by_category[category] = counts_by_category.get(category, 0) + 1
-
-    preference_resolution_success: bool | None = None
-    effective_segment_count: int | None = None
-    if user:
-        try:
-            nudity_threshold, profanity_threshold = await get_preference_threshold_settings()
-            preferences = await get_resolved_preferences_for_user(
-                user,
-                nudity_threshold=nudity_threshold,
-                profanity_threshold=profanity_threshold,
-            )
-            preference_resolution_success = True
-            effective_segment_count = len(get_effective_skip_segments(segments, preferences))
-        except Exception:
-            preference_resolution_success = False
-            effective_segment_count = None
-
+    payload = await _build_scan_detail_payload(plex_guid, user)
     return {
-        "media_id": plex_guid,
-        "title": (job or {}).get("title") or (segments[0].get("title") if segments else "") or "",
-        "analysis_state": _summarize_scan_state(status_rows),
-        "segment_counts_by_category": counts_by_category,
-        "scan_statuses": status_rows,
-        "last_scan_time": (job or {}).get("finished_at"),
-        "export_available": bool(job or segments),
-        "preference_resolution_success": preference_resolution_success,
-        "effective_segment_count": effective_segment_count,
+        "media_id": payload["media_id"],
+        "title": payload["title"],
+        "analysis_state": payload["analysis_state"],
+        "segment_counts_by_category": payload["segment_counts_by_category"],
+        "scan_statuses": payload["scan_statuses"],
+        "last_scan_time": payload["last_scan_time"],
+        "export_available": payload["export_available"],
+        "preference_resolution_success": payload["preference_resolution_success"],
+        "effective_segment_count": payload["effective_segment_count"],
+        "queue": payload["queue"],
+        "job_status": payload["job_status"],
+    }
+
+
+@router.get("/titles/{plex_guid:path}/scan-details")
+async def get_scan_details_for_title(plex_guid: str, user: str | None = None):
+    """Return rich per-title scan detail including per-stage status."""
+    return await _build_scan_detail_payload(plex_guid, user)
+
+
+@router.get("/titles/{plex_guid:path}/scan-timeline")
+async def get_scan_timeline_for_title(plex_guid: str):
+    """Return the ordered stage timeline for a title scan."""
+    detail = await _build_scan_detail_payload(plex_guid, None)
+    return {
+        "media_id": detail["media_id"],
+        "title": detail["title"],
+        "timeline": detail["stage_statuses"],
     }
 
 
@@ -511,10 +616,12 @@ async def delete_segment(segment_id: int):
     if not seg:
         raise HTTPException(status_code=404, detail="Segment not found")
 
+    thumbnail_path = str(seg.get("thumbnail_path") or "").strip()
     deleted = await db.delete_segment(segment_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Segment not found")
 
+    _delete_thumbnail_files([thumbnail_path])
     _refresh_leapfrog_summary_for_guid(seg["plex_guid"])
 
     return {"ok": True}
@@ -523,7 +630,9 @@ async def delete_segment(segment_id: int):
 @router.delete("/titles/{plex_guid:path}/segments")
 async def delete_all_segments_for_title(plex_guid: str):
     """Delete all segments for a specific title."""
+    thumbnail_paths = await db.get_thumbnail_paths_for_guid(plex_guid)
     deleted = await db.delete_segments_for_guid(plex_guid)
+    _delete_thumbnail_files(thumbnail_paths)
     _refresh_leapfrog_summary_for_guid(plex_guid)
     return {"ok": True, "deleted": deleted}
 

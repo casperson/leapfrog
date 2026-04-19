@@ -1,0 +1,44 @@
+Traceback (most recent call last):
+  File "/Users/bcasperson/dev/leapfrog/.venv/bin/leapfrog", line 6, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Users/bcasperson/dev/leapfrog/leapfrog/main.py", line 78, in main
+    asyncio.run(_amain())
+    ~~~~~~~~~~~^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/Users/bcasperson/dev/leapfrog/leapfrog/main.py", line 28, in _amain
+    await db.init_db()
+  File "/Users/bcasperson/dev/leapfrog/leapfrog/database.py", line 237, in init_db
+    await conn.executescript(SCHEMA)
+  File "/Users/bcasperson/dev/leapfrog/.venv/lib/python3.14/site-packages/aiosqlite/core.py", line 255, in executescript
+    cursor = await self._execute(self._conn.executescript, sql_script)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bcasperson/dev/leapfrog/.venv/lib/python3.14/site-packages/aiosqlite/core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "/Users/bcasperson/dev/leapfrog/.venv/lib/python3.14/site-packages/aiosqlite/core.py", line 63, in _connection_worker_thread
+    result = function()
+sqlite3.OperationalError: no such column: queue_state
+2026-04-19 18:48:44 [INFO] leapfrog.main: Leapfrog starting — data dir: /Users/bcasperson/.leapfrog-dev
+2026-04-19 18:48:44 [WARNING] leapfrog.main: Plex not yet configured — open the web UI to set up.
+2026-04-19 18:48:44 [INFO] leapfrog.main: Web UI available at http://0.0.0.0:7980
+2026-04-19 18:48:44 [INFO] leapfrog.scanner: Starting scanner pool with 2 worker(s)
+2026-04-19 18:48:44 [INFO] leapfrog.scanner: Scanner paused
+2026-04-19 18:56:03 [INFO] leapfrog.main: Leapfrog starting — data dir: /Users/bcasperson/.leapfrog-dev
+2026-04-19 18:56:03 [WARNING] leapfrog.main: Plex not yet configured — open the web UI to set up.
+2026-04-19 18:56:03 [INFO] leapfrog.main: Web UI available at http://0.0.0.0:7980
+2026-04-19 18:56:03 [INFO] leapfrog.scanner: Starting scanner pool with 2 worker(s)
+2026-04-19 18:56:03 [INFO] leapfrog.scanner: Scanner paused
+2026-04-19 19:18:19 [INFO] leapfrog.main: Leapfrog starting — data dir: /Users/bcasperson/.leapfrog-dev
+2026-04-19 19:18:19 [WARNING] leapfrog.main: Plex not yet configured — open the web UI to set up.
+2026-04-19 19:18:19 [INFO] leapfrog.main: Web UI available at http://0.0.0.0:7980
+2026-04-19 19:18:19 [INFO] leapfrog.scanner: Starting scanner pool with 2 worker(s)
+2026-04-19 19:18:19 [INFO] leapfrog.scanner: Scanner paused

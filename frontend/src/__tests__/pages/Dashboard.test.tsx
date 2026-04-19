@@ -29,9 +29,18 @@ const scannerIdle = {
   paused: false,
 }
 
+const queueSnapshot = {
+  jobs: [],
+  queue_size: 0,
+  current: null,
+  currents: [],
+  active_scans: [],
+  paused: false,
+}
+
 function renderDashboard() {
   return render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Dashboard />
     </MemoryRouter>
   )
@@ -40,6 +49,7 @@ function renderDashboard() {
 beforeEach(() => {
   mockApi.get.mockImplementation((path: string) => {
     if (path.includes('events')) return Promise.resolve(emptyEvents)
+    if (path.includes('/api/scan/queue')) return Promise.resolve(queueSnapshot)
     if (path.includes('scanner-status')) return Promise.resolve(scannerIdle)
     return Promise.resolve(emptySessions)
   })
@@ -81,6 +91,7 @@ describe('Dashboard', () => {
     }
     mockApi.get.mockImplementation((path: string) => {
       if (path.includes('events')) return Promise.resolve(emptyEvents)
+      if (path.includes('/api/scan/queue')) return Promise.resolve(queueSnapshot)
       if (path.includes('scanner-status')) return Promise.resolve(scannerIdle)
       return Promise.resolve({ sessions: [session] })
     })
@@ -96,6 +107,7 @@ describe('Dashboard', () => {
     }
     mockApi.get.mockImplementation((path: string) => {
       if (path.includes('events')) return Promise.resolve(emptyEvents)
+      if (path.includes('/api/scan/queue')) return Promise.resolve(queueSnapshot)
       if (path.includes('scanner-status')) return Promise.resolve(scannerActive)
       return Promise.resolve(emptySessions)
     })
@@ -107,6 +119,7 @@ describe('Dashboard', () => {
     const paused = { ...scannerIdle, paused: true }
     mockApi.get.mockImplementation((path: string) => {
       if (path.includes('events')) return Promise.resolve(emptyEvents)
+      if (path.includes('/api/scan/queue')) return Promise.resolve(queueSnapshot)
       if (path.includes('scanner-status')) return Promise.resolve(paused)
       return Promise.resolve(emptySessions)
     })

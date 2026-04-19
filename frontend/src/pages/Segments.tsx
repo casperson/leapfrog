@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { Film, Tv, ChevronRight, ChevronDown, Trash2, AlertTriangle, SkipForward, Play } from 'lucide-react'
+import TitleScanDetailPanel from '../components/TitleScanDetailPanel'
+import { CategoryDefinition, getCategoryLabel, useCategoryDefinitions } from '../lib/categories'
+import {
+  analysisStateClassName,
+  formatAnalysisState,
+  formatTimestamp,
+  shouldShowTitleInSegments,
+} from '../lib/scan'
 
 interface Library {
   id: string
@@ -12,9 +20,22 @@ interface Title {
   plex_guid: string
   title: string
   status: string
+  progress?: number
   finished_at?: string | null
   thumb_url: string
   segment_count: number
+  queue_state?: string
+  queue_position?: number | null
+  analysis_state?: string
+  scan_statuses?: Record<string, {
+    status: string
+    source: string
+    detail: string
+    segment_count?: number
+    progress?: number
+    updated_at?: string
+  }>
+  segment_counts_by_category?: Record<string, number>
 }
 
 interface Segment {
@@ -36,6 +57,7 @@ interface Segment {
   labels?: string
   text_excerpt?: string
   review_status?: string
+  would_skip?: boolean | null
 }
 
 interface ScannerStatus {
@@ -70,6 +92,11 @@ interface ShowGroup {
   totalSegments: number
 }
 
+interface ReviewUser {
+  username: string
+  enabled: boolean
+}
+
 function parseShowInfo(title: string): { show: string; season: string; episode: string } {
   const parts = title.split(' – ')
   if (parts.length >= 3) {
@@ -84,13 +111,6 @@ function msToTimecode(ms: number): string {
   const m = Math.floor((s % 3600) / 60)
   const sec = s % 60
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
-
-function formatFinishedAt(value?: string | null): string {
-  if (!value) return ''
-  const dt = new Date(value)
-  if (Number.isNaN(dt.getTime())) return ''
-  return dt.toLocaleString()
 }
 
 function renderLabels(labels?: string): React.ReactNode {
@@ -123,12 +143,12 @@ function renderLabels(labels?: string): React.ReactNode {
   )
 }
 
-function renderCategoryMeta(segment: Segment): React.ReactNode {
+function renderCategoryMeta(segment: Segment, categories: CategoryDefinition[]): React.ReactNode {
   return (
     <div className="space-y-2 mt-2">
       <div className="flex flex-wrap gap-2">
         <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-plex-orange/15 text-plex-orange border border-plex-orange/20">
-          {segment.category}
+          {getCategoryLabel(segment.category, categories)}
         </span>
         <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
           {segment.source}
@@ -136,6 +156,15 @@ function renderCategoryMeta(segment: Segment): React.ReactNode {
         {segment.review_status && (
           <span className="text-[11px] uppercase tracking-wide px-2 py-1 rounded bg-gray-500/10 text-gray-300 border border-gray-500/20">
             {segment.review_status}
+          </span>
+        )}
+        {segment.would_skip != null && (
+          <span className={`text-[11px] uppercase tracking-wide px-2 py-1 rounded border ${
+            segment.would_skip
+              ? 'bg-green-500/10 text-green-300 border-green-500/20'
+              : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+          }`}>
+            {segment.would_skip ? 'Would skip' : 'Would not skip'}
           </span>
         )}
       </div>
@@ -149,6 +178,7 @@ function renderCategoryMeta(segment: Segment): React.ReactNode {
 }
 
 export default function Segments() {
+  const categories = useCategoryDefinitions()
   const [libraries, setLibraries] = useState<Library[]>([])
   const [selectedLib, setSelectedLib] = useState<Library | null>(null)
   const [titles, setTitles] = useState<Title[]>([])
@@ -165,6 +195,8 @@ export default function Segments() {
   const [expandedShows, setExpandedShows] = useState<Set<string>>(new Set())
   const [expandedSeasons, setExpandedSeasons] = useState<Set<string>>(new Set())
   const [scannerStatus, setScannerStatus] = useState<ScannerStatus | null>(null)
+  const [reviewUsers, setReviewUsers] = useState<ReviewUser[]>([])
+  const [selectedReviewUser, setSelectedReviewUser] = useState('')
   const previewVideoRef = useRef<HTMLVideoElement | null>(null)
 
   const toggleShow = (show: string) => {
@@ -241,6 +273,19 @@ export default function Segments() {
     api.get<{ libraries: Library[] }>('/api/libraries').then(d => setLibraries(d.libraries))
   }, [])
 
+  useEffect(() => {
+    api.get<{ users: ReviewUser[] }>('/api/users')
+      .then(data => {
+        const users = Array.isArray(data.users) ? data.users : []
+        setReviewUsers(users)
+        if (!selectedReviewUser && users.length > 0) {
+          const preferred = users.find(user => user.enabled) ?? users[0]
+          setSelectedReviewUser(preferred.username)
+        }
+      })
+      .catch(() => {})
+  }, [selectedReviewUser])
+
   // Poll scanner status every 3s so Segments page mirrors live scan activity.
   // AbortController prevents stale responses from overwriting newer state.
   useEffect(() => {
@@ -269,8 +314,7 @@ export default function Segments() {
     setLoadingTitles(true)
     try {
       const d = await api.get<{ titles: Title[] }>(`/api/libraries/${lib.id}/titles`)
-      // Only show titles that currently have at least one segment.
-      setTitles(d.titles.filter(t => t.segment_count > 0))
+      setTitles(d.titles.filter(shouldShowTitleInSegments))
     } finally {
       setLoadingTitles(false)
     }
@@ -281,7 +325,8 @@ export default function Segments() {
     setExpandedEpisodes(new Set())
     setLoadingSegs(true)
     try {
-      const d = await api.get<{ segments: Segment[] }>(`/api/titles/${encodeURIComponent(title.plex_guid)}/segments`)
+      const query = selectedReviewUser ? `?user=${encodeURIComponent(selectedReviewUser)}` : ''
+      const d = await api.get<{ segments: Segment[] }>(`/api/titles/${encodeURIComponent(title.plex_guid)}/segments${query}`)
       setSegments(d.segments)
     } finally {
       setLoadingSegs(false)
@@ -294,7 +339,7 @@ export default function Segments() {
       await api.delete(`/api/segments/${id}`)
       if (selectedTitle && selectedLib) {
         const d = await api.get<{ titles: Title[] }>(`/api/libraries/${selectedLib.id}/titles`)
-        const visibleTitles = d.titles.filter(t => t.segment_count > 0)
+        const visibleTitles = d.titles.filter(shouldShowTitleInSegments)
         setTitles(visibleTitles)
 
         const stillVisible = visibleTitles.some(t => t.plex_guid === selectedTitle.plex_guid)
@@ -302,7 +347,8 @@ export default function Segments() {
           setSelectedTitle(null)
           setSegments([])
         } else {
-          const segData = await api.get<{ segments: Segment[] }>(`/api/titles/${encodeURIComponent(selectedTitle.plex_guid)}/segments`)
+          const query = selectedReviewUser ? `?user=${encodeURIComponent(selectedReviewUser)}` : ''
+          const segData = await api.get<{ segments: Segment[] }>(`/api/titles/${encodeURIComponent(selectedTitle.plex_guid)}/segments${query}`)
           setSegments(segData.segments)
         }
       }
@@ -319,7 +365,7 @@ export default function Segments() {
       setSegments([])
       if (selectedLib) {
         const d = await api.get<{ titles: Title[] }>(`/api/libraries/${selectedLib.id}/titles`)
-        setTitles(d.titles.filter(t => t.segment_count > 0))
+        setTitles(d.titles.filter(shouldShowTitleInSegments))
       }
       setSelectedTitle(null)
       setConfirmDeleteAll(false)
@@ -350,6 +396,23 @@ export default function Segments() {
     setPreviewSeg(null)
   }
 
+  useEffect(() => {
+    if (!selectedTitle) {
+      return
+    }
+    void selectTitle(selectedTitle)
+  }, [selectedReviewUser])
+
+  useEffect(() => {
+    if (!selectedTitle) {
+      return
+    }
+    const refreshed = titles.find(title => title.plex_guid === selectedTitle.plex_guid)
+    if (refreshed) {
+      setSelectedTitle(refreshed)
+    }
+  }, [selectedTitle, titles])
+
   return (
     <div className="flex gap-4 h-full overflow-hidden">
       {/* Library tree - desktop: side panel; mobile: collapsed above content */}
@@ -374,7 +437,7 @@ export default function Segments() {
                   {loadingTitles ? (
                     <div className="text-xs text-gray-600 px-2 py-1">Loading...</div>
                   ) : titles.length === 0 ? (
-                    <div className="text-xs text-gray-600 px-2 py-1">No scanned titles</div>
+                    <div className="text-xs text-gray-600 px-2 py-1">No titles with saved or in-progress scan data</div>
                   ) : lib.type === 'show' ? (
                     // TV: Show → Season → Episode hierarchy
                     buildShowGroups().map(showGroup => (
@@ -411,6 +474,9 @@ export default function Segments() {
                                   }`}
                                 >
                                   <span className="truncate flex-1">{parseShowInfo(t.title).episode}</span>
+                                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${analysisStateClassName(t.analysis_state)}`}>
+                                    {formatAnalysisState(t.analysis_state)}
+                                  </span>
                                   <span className="flex-shrink-0 text-gray-600">{t.segment_count}</span>
                                 </button>
                               ))}
@@ -432,6 +498,9 @@ export default function Segments() {
                         }`}
                       >
                         <span className="truncate flex-1">{t.title}</span>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${analysisStateClassName(t.analysis_state)}`}>
+                          {formatAnalysisState(t.analysis_state)}
+                        </span>
                         <span className="flex-shrink-0 text-gray-600">{t.segment_count}</span>
                       </button>
                     ))
@@ -492,6 +561,18 @@ export default function Segments() {
               </select>
             )}
           </div>
+          {reviewUsers.length > 0 && (
+            <select
+              value={selectedReviewUser}
+              onChange={event => setSelectedReviewUser(event.target.value)}
+              className="px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-200 focus:outline-none focus:border-plex-orange/60"
+            >
+              <option value="">No review profile</option>
+              {reviewUsers.map(user => (
+                <option key={user.username} value={user.username}>{user.username}</option>
+              ))}
+            </select>
+          )}
         </div>
         {scannerStatus && scannerStatus.active_scans.length > 0 && (
           <div className="mb-3 bg-plex-card border border-plex-orange/30 rounded-xl px-4 py-3">
@@ -539,12 +620,24 @@ export default function Segments() {
                 )}
                 <div>
                   <h2 className="text-lg font-semibold text-gray-100">{selectedTitle.title}</h2>
-                  <p className="text-sm text-gray-500">{segments.length} segment{segments.length !== 1 ? 's' : ''} detected</p>
+                  <p className="text-sm text-gray-500">{segments.length} saved segment{segments.length !== 1 ? 's' : ''}</p>
                   {selectedTitle.finished_at && (
-                    <p className="text-xs text-gray-500 mt-0.5">Scan finished: {formatFinishedAt(selectedTitle.finished_at)}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Scan finished: {formatTimestamp(selectedTitle.finished_at)}</p>
                   )}
                 </div>
               </div>
+              {reviewUsers.length > 0 && (
+                <select
+                  value={selectedReviewUser}
+                  onChange={event => setSelectedReviewUser(event.target.value)}
+                  className="px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-200 focus:outline-none focus:border-plex-orange/60"
+                >
+                  <option value="">No review profile</option>
+                  {reviewUsers.map(user => (
+                    <option key={user.username} value={user.username}>{user.username}</option>
+                  ))}
+                </select>
+              )}
               {segments.length > 0 && (
                 <button
                   onClick={() => setConfirmDeleteAll(true)}
@@ -556,11 +649,19 @@ export default function Segments() {
               )}
             </div>
 
+            <TitleScanDetailPanel
+              plexGuid={selectedTitle.plex_guid}
+              title={selectedTitle.title}
+              categories={categories}
+              reviewUser={selectedReviewUser || null}
+              compact
+            />
+
             {loadingSegs ? (
               <div className="text-gray-500 text-sm">Loading segments...</div>
             ) : segments.length === 0 ? (
               <div className="bg-plex-card border border-plex-border rounded-xl p-8 text-center text-gray-500 text-sm">
-                No segments found for this title
+                No saved segments for this title yet. Scan detail above still shows queued, partial, clean, or failed detector work.
               </div>
             ) : selectedLib?.type === 'show' ? (
               // TV show view — grouped by episode
@@ -620,7 +721,7 @@ export default function Segments() {
                                 <p className="text-xs text-gray-500">
                                   Detected {new Date(seg.created_at).toLocaleDateString()}
                                 </p>
-                                {renderCategoryMeta(seg)}
+                                {renderCategoryMeta(seg, categories)}
                                 {renderLabels(seg.labels)}
                               </div>
                               <div className="flex items-center gap-2 flex-shrink-0">
@@ -694,7 +795,7 @@ export default function Segments() {
                         <p className="text-xs text-gray-500">
                           Detected {new Date(seg.created_at).toLocaleDateString()}
                         </p>
-                        {renderCategoryMeta(seg)}
+                        {renderCategoryMeta(seg, categories)}
                         {renderLabels(seg.labels)}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">

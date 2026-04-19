@@ -7,6 +7,7 @@ from typing import Any
 
 from . import database as db
 from .domain import (
+    CATEGORY_DEFINITIONS,
     DEFAULT_CATEGORY_THRESHOLDS,
     PREFERENCE_CATEGORIES,
     Segment,
@@ -17,14 +18,18 @@ def resolve_user_category_preferences(
     *,
     overall_enabled: bool,
     stored_preferences: dict[str, dict],
-    nudity_threshold: float,
-    profanity_threshold: float,
+    threshold_defaults: dict[str, float] | None = None,
 ) -> dict[str, dict[str, float | bool]]:
     """Return effective category preferences for a single user."""
-    defaults = {
-        "nudity": nudity_threshold,
-        "profanity": profanity_threshold,
-    }
+    defaults = dict(DEFAULT_CATEGORY_THRESHOLDS)
+    if threshold_defaults:
+        defaults.update(
+            {
+                str(category): float(value)
+                for category, value in threshold_defaults.items()
+                if category in PREFERENCE_CATEGORIES
+            }
+        )
     categories = set(PREFERENCE_CATEGORIES) | set(stored_preferences)
     has_stored_preferences = bool(stored_preferences)
     resolved: dict[str, dict[str, float | bool]] = {}
@@ -71,8 +76,7 @@ def resolve_preferences_for_users(
     *,
     overall_filters: dict[str, bool],
     stored_preferences_by_user: dict[str, dict[str, dict[str, Any]]],
-    nudity_threshold: float,
-    profanity_threshold: float,
+    threshold_defaults: dict[str, float] | None = None,
 ) -> dict[str, dict[str, dict[str, float | bool]]]:
     """Resolve effective category preferences for multiple users at once."""
     resolved: dict[str, dict[str, dict[str, float | bool]]] = {}
@@ -80,14 +84,13 @@ def resolve_preferences_for_users(
         resolved[user_id] = resolve_user_category_preferences(
             overall_enabled=overall_filters.get(user_id, True),
             stored_preferences=stored_preferences_by_user.get(user_id, {}),
-            nudity_threshold=nudity_threshold,
-            profanity_threshold=profanity_threshold,
+            threshold_defaults=threshold_defaults,
         )
     return resolved
 
 
-async def get_preference_threshold_settings() -> tuple[float, float]:
-    """Return the default nudity and profanity thresholds from settings."""
+async def get_preference_threshold_settings() -> dict[str, float]:
+    """Return per-category default thresholds used for user preference resolution."""
     nudity_threshold = float(
         await db.get_setting(
             "confidence_threshold",
@@ -100,14 +103,29 @@ async def get_preference_threshold_settings() -> tuple[float, float]:
             str(DEFAULT_CATEGORY_THRESHOLDS["profanity"]),
         )
     )
-    return nudity_threshold, profanity_threshold
+    defaults = dict(DEFAULT_CATEGORY_THRESHOLDS)
+    defaults["nudity"] = nudity_threshold
+    defaults["profanity"] = profanity_threshold
+    return defaults
+
+
+def get_category_metadata() -> list[dict[str, str | float]]:
+    """Return the canonical backend category metadata for API payloads."""
+    return [
+        {
+            "key": definition.key,
+            "label": definition.label,
+            "description": definition.description,
+            "default_threshold": definition.default_threshold,
+        }
+        for definition in CATEGORY_DEFINITIONS
+    ]
 
 
 async def get_resolved_preferences_for_users(
     user_ids: Iterable[str],
     *,
-    nudity_threshold: float,
-    profanity_threshold: float,
+    threshold_defaults: dict[str, float] | None = None,
 ) -> dict[str, dict[str, dict[str, float | bool]]]:
     """Load and resolve effective playback preferences for multiple users."""
     overall_filters = build_user_filter_map(await db.get_all_user_filters())
@@ -118,16 +136,14 @@ async def get_resolved_preferences_for_users(
         user_ids,
         overall_filters=overall_filters,
         stored_preferences_by_user=stored_preferences,
-        nudity_threshold=nudity_threshold,
-        profanity_threshold=profanity_threshold,
+        threshold_defaults=threshold_defaults,
     )
 
 
 async def get_resolved_preferences_for_user(
     user_id: str,
     *,
-    nudity_threshold: float,
-    profanity_threshold: float,
+    threshold_defaults: dict[str, float] | None = None,
 ) -> dict[str, dict[str, float | bool | None]]:
     """Load and resolve effective playback preferences for one user."""
     overall_filter = await db.get_user_filter(user_id)
@@ -137,8 +153,7 @@ async def get_resolved_preferences_for_user(
     return resolve_user_category_preferences(
         overall_enabled=overall_filter is None or bool(overall_filter["enabled"]),
         stored_preferences=stored_preferences,
-        nudity_threshold=nudity_threshold,
-        profanity_threshold=profanity_threshold,
+        threshold_defaults=threshold_defaults,
     )
 
 

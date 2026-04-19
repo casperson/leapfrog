@@ -49,6 +49,60 @@ async def test_get_segments_for_title_returns_extended_fields(http_client):
     assert segment["text_excerpt"] == "a profanity example"
 
 
+async def test_get_segments_for_title_supports_category_filter(http_client):
+    await db.insert_segment(
+        "guid-seg-filter",
+        "Movie",
+        start_ms=2000,
+        end_ms=6000,
+        category="profanity",
+        source="subtitles",
+        confidence=0.95,
+        text_excerpt="a profanity example",
+    )
+    await db.insert_segment(
+        "guid-seg-filter",
+        "Movie",
+        start_ms=8000,
+        end_ms=12000,
+        category="violence",
+        source="semantic_clip",
+        confidence=0.8,
+        labels="fight,weapon",
+    )
+
+    resp = await http_client.get(
+        "/api/titles/guid-seg-filter/segments",
+        params=[("category", "violence")],
+    )
+
+    assert resp.status_code == 200
+    segments = resp.json()["segments"]
+    assert len(segments) == 1
+    assert segments[0]["category"] == "violence"
+
+
+async def test_get_segments_for_title_preserves_semantic_labels_outside_nudenet_filter(http_client):
+    await db.set_setting("scan_labels", '["FEMALE_BREAST_EXPOSED"]')
+    await db.insert_segment(
+        "guid-seg-semantic-labels",
+        "Movie",
+        start_ms=8000,
+        end_ms=12000,
+        category="violence",
+        source="semantic_clip",
+        confidence=0.8,
+        labels="fight,weapon",
+    )
+
+    resp = await http_client.get("/api/titles/guid-seg-semantic-labels/segments")
+
+    assert resp.status_code == 200
+    segments = resp.json()["segments"]
+    assert len(segments) == 1
+    assert segments[0]["labels"] == "fight,weapon"
+
+
 async def test_get_segments_for_title_can_report_whether_user_would_skip(http_client):
     await db.insert_segment(
         "guid-would-skip",
@@ -224,6 +278,93 @@ async def test_get_scan_status_for_title_can_report_preference_resolution(http_c
     assert payload["effective_segment_count"] == 1
 
 
+async def test_scan_status_includes_partially_scanned_titles_with_zero_segments(http_client):
+    await db.upsert_scan_job(
+        plex_guid="guid-partial-zero",
+        title="Partial Zero Movie",
+        file_path="/partial-zero.mkv",
+        rating_key="204",
+        library_id="lib1",
+        library_title="Movies",
+    )
+    await db.upsert_media_scan_status(
+        "guid-partial-zero",
+        "nudity",
+        "done",
+        source="nudenet",
+        detail="No segments",
+        segment_count=0,
+        progress=1.0,
+    )
+    await db.upsert_media_scan_status(
+        "guid-partial-zero",
+        "profanity",
+        "running",
+        source="subtitles",
+        detail="Detector running.",
+        segment_count=0,
+        progress=0.4,
+    )
+
+    resp = await http_client.get("/api/titles/guid-partial-zero/scan-status")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["analysis_state"] == "partially_scanned"
+    assert payload["segment_counts_by_category"]["nudity"] == 0
+
+
+async def test_scan_details_returns_stage_statuses_and_queue_state(http_client):
+    await db.upsert_scan_job(
+        plex_guid="guid-scan-detail",
+        title="Scan Detail Movie",
+        file_path="/scan-detail.mkv",
+        rating_key="205",
+        library_id="lib1",
+        library_title="Movies",
+    )
+    await db.queue_scan_job("guid-scan-detail")
+    await db.upsert_media_scan_stage_status(
+        "guid-scan-detail",
+        "prepare",
+        "done",
+        source="scanner",
+        detail="Prepared",
+        progress=1.0,
+    )
+
+    resp = await http_client.get("/api/titles/guid-scan-detail/scan-details")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["queue"]["state"] == "queued"
+    assert payload["stage_statuses"][0]["stage_key"] == "prepare"
+
+
+async def test_scan_timeline_returns_stage_rows(http_client):
+    await db.upsert_scan_job(
+        plex_guid="guid-scan-timeline",
+        title="Scan Timeline Movie",
+        file_path="/scan-timeline.mkv",
+        rating_key="206",
+        library_id="lib1",
+        library_title="Movies",
+    )
+    await db.upsert_media_scan_stage_status(
+        "guid-scan-timeline",
+        "prepare",
+        "done",
+        source="scanner",
+        detail="Prepared",
+        progress=1.0,
+    )
+
+    resp = await http_client.get("/api/titles/guid-scan-timeline/scan-timeline")
+
+    assert resp.status_code == 200
+    assert resp.json()["timeline"][0]["stage_key"] == "prepare"
+
+
 # ── DELETE /api/segments/{segment_id} ─────────────────────────────────────────
 
 async def test_delete_segment_returns_ok(http_client):
@@ -247,6 +388,22 @@ async def test_delete_segment_actually_removes_row(http_client):
     assert await db.get_segment_by_id(seg_id) is None
 
 
+async def test_delete_segment_removes_thumbnail_file(http_client, tmp_path):
+    thumbnail_path = tmp_path / "segment-thumb.jpg"
+    thumbnail_path.write_bytes(b"thumb")
+    seg_id = await db.insert_segment(
+        "guid-del-thumb",
+        "M",
+        start_ms=0,
+        end_ms=1000,
+        thumbnail_path=str(thumbnail_path),
+    )
+    with patch("leapfrog.web.routes.segments._refresh_leapfrog_summary_for_guid"):
+        resp = await http_client.delete(f"/api/segments/{seg_id}")
+    assert resp.status_code == 200
+    assert thumbnail_path.exists() is False
+
+
 # ── DELETE /api/titles/{plex_guid}/segments ───────────────────────────────────
 
 async def test_delete_all_segments_for_title(http_client):
@@ -257,6 +414,32 @@ async def test_delete_all_segments_for_title(http_client):
     assert resp.status_code == 200
     assert resp.json()["deleted"] == 2
     assert await db.get_segments_for_guid("guid-bulk") == []
+
+
+async def test_delete_all_segments_for_title_removes_thumbnail_files(http_client, tmp_path):
+    first_thumb = tmp_path / "bulk-thumb-1.jpg"
+    second_thumb = tmp_path / "bulk-thumb-2.jpg"
+    first_thumb.write_bytes(b"thumb-1")
+    second_thumb.write_bytes(b"thumb-2")
+    await db.insert_segment(
+        "guid-bulk-thumb",
+        "M",
+        start_ms=0,
+        end_ms=1000,
+        thumbnail_path=str(first_thumb),
+    )
+    await db.insert_segment(
+        "guid-bulk-thumb",
+        "M",
+        start_ms=2000,
+        end_ms=3000,
+        thumbnail_path=str(second_thumb),
+    )
+    with patch("leapfrog.web.routes.segments._refresh_leapfrog_summary_for_guid"):
+        resp = await http_client.delete("/api/titles/guid-bulk-thumb/segments")
+    assert resp.status_code == 200
+    assert first_thumb.exists() is False
+    assert second_thumb.exists() is False
 
 
 async def test_delete_all_segments_returns_zero_when_none(http_client):

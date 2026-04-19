@@ -23,10 +23,12 @@ class Config:
     segment_gap_ms: int = 12000
     segment_min_hits: int = 1
     profanity_terms: list[str] = field(default_factory=list)
+    profanity_allowlist: list[str] = field(default_factory=list)
     default_profanity_threshold: float = 0.5
     profanity_merge_gap_ms: int = 1500
     whisper_enabled: bool = True
     whisper_model: str = "base"
+    log_buffer_capacity: int = 1000
     scan_ratings: list[str] = field(default_factory=list)  # empty = scan all ratings
     scan_labels: list[str] = field(default_factory=lambda: [
         "FEMALE_BREAST_EXPOSED",
@@ -70,10 +72,12 @@ class Config:
             segment_gap_ms=int(s.get("segment_gap_ms", "12000")),
             segment_min_hits=int(s.get("segment_min_hits", "1")),
             profanity_terms=_labels(s.get("profanity_terms", "[]")),
+            profanity_allowlist=_labels(s.get("profanity_allowlist", "[]")),
             default_profanity_threshold=float(s.get("default_profanity_threshold", "0.5")),
             profanity_merge_gap_ms=int(s.get("profanity_merge_gap_ms", "1500")),
             whisper_enabled=s.get("whisper_enabled", "1") == "1",
             whisper_model=s.get("whisper_model", "base"),
+            log_buffer_capacity=max(1, int(s.get("log_buffer_capacity", "1000"))),
             scan_ratings=_labels(s.get("scan_ratings", "[]")),
             scan_labels=_labels(s.get("scan_labels", "[]")),
             scan_window_start=_time(s.get("scan_window_start", "23:00")),

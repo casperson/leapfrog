@@ -1,10 +1,11 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ...logger import get_logger
+from ...logger import configure_log_buffer, get_logger
 from ... import database as db
 import leapfrog.plex_client as plex_mod
 from ... import scanner as scan_mod
+from ...preferences import get_category_metadata
 from .segments import _invalidate_scan_labels_cache
 
 logger = get_logger(__name__)
@@ -49,10 +50,12 @@ class SettingsPayload(BaseModel):
     segment_gap_ms: str | None = None
     segment_min_hits: str | None = None
     profanity_terms: str | None = None
+    profanity_allowlist: str | None = None
     default_profanity_threshold: str | None = None
     profanity_merge_gap_ms: str | None = None
     whisper_enabled: str | None = None
     whisper_model: str | None = None
+    log_buffer_capacity: str | None = None
     scan_window_start: str | None = None
     scan_window_end: str | None = None
     log_level: str | None = None
@@ -69,6 +72,12 @@ class ValidateModelPathPayload(BaseModel):
 @router.get("")
 async def get_settings():
     return await db.get_all_settings()
+
+
+@router.get("/categories")
+async def get_categories():
+    """Return the canonical category metadata for backend/frontend consumers."""
+    return {"categories": get_category_metadata()}
 
 
 @router.get("/plex-server-id")
@@ -110,6 +119,9 @@ async def update_settings(payload: SettingsPayload):
         token = settings.get("plex_token", "")
         if url and token:
             plex_mod.init_client(url, token)
+
+    if "log_buffer_capacity" in data:
+        configure_log_buffer(int(data["log_buffer_capacity"]))
     
     # Restart scanner pool if worker count changed
     if scan_workers_changed:

@@ -24,6 +24,7 @@ def _target() -> MediaScanTarget:
 def _config(**kwargs):
     defaults = {
         "profanity_terms": ["shit", "bad phrase"],
+        "profanity_allowlist": ["shitake"],
         "profanity_merge_gap_ms": 1500,
         "whisper_enabled": True,
         "whisper_model": "base",
@@ -132,3 +133,39 @@ async def test_profanity_detector_marks_whisper_unavailable():
     assert result.status == "unavailable"
     assert result.source == "whisper"
     assert "whisper missing" in result.detail
+
+
+async def test_profanity_detector_matches_root_term_derivations():
+    detector = ProfanityDetector()
+    cues = [SubtitleCue(start_ms=1000, end_ms=2000, text="That motherfucker ran away.")]
+    with patch(
+        "leapfrog.detectors.profanity.load_external_subtitles",
+        new=AsyncMock(return_value=cues),
+    ), patch(
+        "leapfrog.detectors.profanity.extract_embedded_subtitles",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await detector.scan(_target(), _config(profanity_terms=["fuck"]))
+
+    assert result.status == "done"
+    assert len(result.segments) == 1
+    assert result.segments[0].labels == "fuck"
+
+
+async def test_profanity_detector_allowlist_reduces_false_positives():
+    detector = ProfanityDetector()
+    cues = [SubtitleCue(start_ms=1000, end_ms=2000, text="We cooked a shitake mushroom soup.")]
+    with patch(
+        "leapfrog.detectors.profanity.load_external_subtitles",
+        new=AsyncMock(return_value=cues),
+    ), patch(
+        "leapfrog.detectors.profanity.extract_embedded_subtitles",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await detector.scan(
+            _target(),
+            _config(profanity_terms=["shit"], profanity_allowlist=["shitake"]),
+        )
+
+    assert result.status == "done"
+    assert result.segments == []

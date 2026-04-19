@@ -38,6 +38,7 @@ Every change — regardless of size — must follow these rules. No exceptions.
 |---|---|
 | `database.py` | All SQL — no raw queries outside this file |
 | `scanner.py` | Frame extraction, NudeNet inference, segment writing |
+| `logger.py` | Process logging plus bounded in-memory replay for the web log console |
 | `plex_client.py` | All Plex API calls — no `plexapi` imports elsewhere |
 | `filter_engine.py` | Playback position checks and seek decisions |
 | `watcher.py` | Polling loops only — no business logic |
@@ -236,7 +237,7 @@ These rules are invariants. Breaking them requires an explicit discussion issue 
 ### 5.4 Scanner
 
 - **One NudeNet detector per thread.** Use `threading.local()` — never instantiate inside a tight frame loop.
-- **Scanner global state (`_queued_guids`, `_current_scan_guids`, `_paused`) is guarded by a lock** before mutation.
+- **Scanner global state (`_current_guids`, `_skip_requested_guids`, queue wakeups, and pause/restart flags) must remain coherent with the persisted queue model.** Guard shared async mutations with the scanner state lock.
 - **Segments are clustered before DB insert.** Never insert a raw frame-level row; always cluster via `_cluster_frames` / `_flush_cluster`.
 
 ### 5.5 Frontend

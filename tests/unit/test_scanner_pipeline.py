@@ -9,7 +9,7 @@ import pytest
 
 from leapfrog import database as db
 from leapfrog.detectors.base import DetectorResult
-from leapfrog.domain import MediaSegment
+from leapfrog.domain import MediaSegment, SampledFrame
 import leapfrog.scanner as scanner
 
 
@@ -49,7 +49,7 @@ async def test_scan_video_persists_detector_results(tmp_path):
 
     nudity_detector = MagicMock()
     nudity_detector.category = "nudity"
-    nudity_detector.scan = AsyncMock(
+    nudity_detector.scan_frames = AsyncMock(
         return_value=DetectorResult(
             category="nudity",
             source="nudenet",
@@ -88,11 +88,51 @@ async def test_scan_video_persists_detector_results(tmp_path):
             ],
         )
     )
+    sexual_detector = MagicMock()
+    sexual_detector.scan_frames = AsyncMock(
+        return_value=DetectorResult(
+            category="sexual_content",
+            source="semantic_clip",
+            status="done",
+            segments=[],
+        )
+    )
+    violence_detector = MagicMock()
+    violence_detector.scan_frames = AsyncMock(
+        return_value=DetectorResult(
+            category="violence",
+            source="semantic_clip",
+            status="done",
+            segments=[],
+        )
+    )
+    drugs_detector = MagicMock()
+    drugs_detector.scan_frames = AsyncMock(
+        return_value=DetectorResult(
+            category="drugs",
+            source="semantic_clip",
+            status="done",
+            segments=[],
+        )
+    )
 
     mock_client = MagicMock()
     mock_client.update_leapfrog_summary = AsyncMock(return_value=True)
+    frames = [SampledFrame(offset_ms=0, jpeg_bytes=b"jpeg")]
 
-    with patch("leapfrog.scanner.NudityDetector", return_value=nudity_detector), patch(
+    with patch("leapfrog.scanner.get_duration_ms", new=AsyncMock(return_value=10000)), patch(
+        "leapfrog.scanner.sample_video_frames",
+        new=AsyncMock(return_value=frames),
+    ) as sample_frames, patch("leapfrog.scanner.NudityDetector", return_value=nudity_detector), patch(
+        "leapfrog.scanner.SexualContentDetector",
+        return_value=sexual_detector,
+    ), patch(
+        "leapfrog.scanner.ViolenceDetector",
+        return_value=violence_detector,
+    ), patch(
+        "leapfrog.scanner.DrugsDetector",
+        return_value=drugs_detector,
+    ), patch(
         "leapfrog.scanner.ProfanityDetector",
         return_value=profanity_detector,
     ), patch(
@@ -105,8 +145,117 @@ async def test_scan_video_persists_detector_results(tmp_path):
     assert {segment["category"] for segment in segments} == {"nudity", "profanity"}
 
     statuses = await db.get_media_scan_statuses_for_media("guid-scan")
-    assert {row["status"] for row in statuses} == {"done"}
+    status_by_category = {row["category"]: row for row in statuses}
+    assert status_by_category["nudity"]["status"] == "done"
+    assert status_by_category["profanity"]["status"] == "done"
+    assert status_by_category["sexual_content"]["status"] == "done"
+    assert status_by_category["violence"]["status"] == "done"
+    assert status_by_category["drugs"]["status"] == "done"
     assert any(
         row["category"] == "profanity" and row["source"] == "subtitles"
         for row in statuses
     )
+    stage_rows = await db.get_media_scan_stage_statuses_for_media("guid-scan")
+    assert any(row["stage_key"] == "prepare" for row in stage_rows)
+    sample_frames.assert_awaited_once()
+
+
+async def test_scan_video_replaces_category_segments_and_deletes_stale_thumbnails(tmp_path):
+    media_path = tmp_path / "movie-replace.mkv"
+    media_path.write_bytes(b"fake")
+    stale_thumbnail = tmp_path / "stale-violence.jpg"
+    stale_thumbnail.write_bytes(b"old-thumb")
+    await db.upsert_scan_job(
+        plex_guid="guid-replace",
+        title="Movie Replace",
+        file_path=str(media_path),
+        rating_key="102",
+        library_id="lib-1",
+        library_title="Movies",
+    )
+    await db.insert_segment(
+        "guid-replace",
+        "Movie Replace",
+        start_ms=4000,
+        end_ms=8000,
+        category="violence",
+        source="semantic_clip",
+        confidence=0.8,
+        thumbnail_path=str(stale_thumbnail),
+        labels="fight",
+    )
+
+    empty_image_result = DetectorResult(
+        category="nudity",
+        source="nudenet",
+        status="done",
+        segments=[],
+    )
+    nudity_detector = MagicMock()
+    nudity_detector.category = "nudity"
+    nudity_detector.scan_frames = AsyncMock(return_value=empty_image_result)
+    sexual_detector = MagicMock()
+    sexual_detector.scan_frames = AsyncMock(
+        return_value=DetectorResult(
+            category="sexual_content",
+            source="semantic_clip",
+            status="done",
+            segments=[],
+        )
+    )
+    violence_detector = MagicMock()
+    violence_detector.scan_frames = AsyncMock(
+        return_value=DetectorResult(
+            category="violence",
+            source="semantic_clip",
+            status="done",
+            segments=[],
+        )
+    )
+    drugs_detector = MagicMock()
+    drugs_detector.scan_frames = AsyncMock(
+        return_value=DetectorResult(
+            category="drugs",
+            source="semantic_clip",
+            status="done",
+            segments=[],
+        )
+    )
+    profanity_detector = MagicMock()
+    profanity_detector.category = "profanity"
+    profanity_detector.scan = AsyncMock(
+        return_value=DetectorResult(
+            category="profanity",
+            source="subtitles",
+            status="done",
+            segments=[],
+        )
+    )
+
+    mock_client = MagicMock()
+    mock_client.update_leapfrog_summary = AsyncMock(return_value=True)
+
+    with patch("leapfrog.scanner.get_duration_ms", new=AsyncMock(return_value=10000)), patch(
+        "leapfrog.scanner.sample_video_frames",
+        new=AsyncMock(return_value=[SampledFrame(offset_ms=0, jpeg_bytes=b"jpeg")]),
+    ), patch("leapfrog.scanner.NudityDetector", return_value=nudity_detector), patch(
+        "leapfrog.scanner.SexualContentDetector",
+        return_value=sexual_detector,
+    ), patch(
+        "leapfrog.scanner.ViolenceDetector",
+        return_value=violence_detector,
+    ), patch(
+        "leapfrog.scanner.DrugsDetector",
+        return_value=drugs_detector,
+    ), patch(
+        "leapfrog.scanner.ProfanityDetector",
+        return_value=profanity_detector,
+    ), patch(
+        "leapfrog.scanner.plex_mod.get_client",
+        return_value=mock_client,
+    ):
+        await scanner.scan_video("guid-replace", _config())
+
+    assert stale_thumbnail.exists() is False
+    segments = await db.get_segments_for_guid("guid-replace")
+    assert [segment["category"] for segment in segments] == []

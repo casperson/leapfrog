@@ -6,20 +6,19 @@ import asyncio
 import os
 import tempfile
 import threading
-from pathlib import Path
 from typing import Callable
 
 import httpx
 
-from ..domain import MediaScanTarget, MediaSegment
-from ..frame_extractor import extract_frames_batch, get_duration_ms
+from ..domain import MediaScanTarget, SampledFrame
+from ..frame_extractor import get_duration_ms, sample_video_frames
 from ..logger import get_logger
+from ..paths import get_models_dir
 from .base import DetectorResult, ProgressCallback
+from .image_common import FrameHit, cluster_frame_hits
 
 logger = get_logger(__name__)
 
-THUMBNAILS_DIR: Path = Path.home() / ".leapfrog" / "thumbnails"
-MODELS_DIR: Path = Path.home() / ".leapfrog" / "models"
 NUDENET_640_MODEL_FILENAME = "640m.onnx"
 NUDENET_640_DOWNLOAD_URLS = [
     "https://github.com/notAI-tech/NudeNet/releases/download/v3/640m.onnx",
@@ -38,7 +37,7 @@ def _get_detector(model_name: str = "320n", model_path: str = ""):
     requested_resolution = 640 if model_name_normalized.startswith("640") else 320
     selected_model_path = (model_path or "").strip()
     if requested_resolution == 640 and not selected_model_path:
-        candidate = MODELS_DIR / NUDENET_640_MODEL_FILENAME
+        candidate = get_models_dir() / NUDENET_640_MODEL_FILENAME
         if candidate.is_file() and candidate.stat().st_size > 0:
             selected_model_path = str(candidate)
         else:
@@ -73,8 +72,9 @@ def _get_detector(model_name: str = "320n", model_path: str = ""):
 
 def ensure_local_640m_model() -> str:
     """Blocking download of the NudeNet 640m model."""
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    target = MODELS_DIR / NUDENET_640_MODEL_FILENAME
+    models_dir = get_models_dir()
+    models_dir.mkdir(parents=True, exist_ok=True)
+    target = models_dir / NUDENET_640_MODEL_FILENAME
     if target.is_file() and target.stat().st_size > 0:
         return str(target)
 
@@ -102,7 +102,7 @@ def ensure_local_640m_model() -> str:
 
 async def ensure_640m_model_async() -> str:
     """Ensure the 640m model file exists before a scan starts."""
-    target = MODELS_DIR / NUDENET_640_MODEL_FILENAME
+    target = get_models_dir() / NUDENET_640_MODEL_FILENAME
     if target.is_file() and target.stat().st_size > 0:
         return str(target)
 
@@ -180,9 +180,24 @@ class NudityDetector:
                 status="failed",
                 detail="Could not determine video duration.",
             )
-
         step_ms = max(1000, int(getattr(config, "scan_step_ms", 5000)))
-        total_steps = max(1, duration_ms // step_ms)
+        frames = await sample_video_frames(target.file_path, step_ms, duration_ms)
+        return await self.scan_frames(
+            target,
+            frames,
+            config,
+            progress_callback=progress_callback,
+        )
+
+    async def scan_frames(
+        self,
+        target: MediaScanTarget,
+        frames: list[SampledFrame],
+        config,
+        progress_callback: ProgressCallback | None = None,
+    ) -> DetectorResult:
+        """Run NudeNet inference over shared sampled frames."""
+        total_steps = max(1, len(frames))
         gap_ms = max(1000, int(getattr(config, "segment_gap_ms", 12000)))
         min_hits = max(1, int(getattr(config, "segment_min_hits", 1)))
         threshold = float(getattr(config, "confidence_threshold", 0.6))
@@ -199,52 +214,8 @@ class NudityDetector:
                 )
                 nudenet_model = "320n"
 
-        THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
-
-        segments: list[MediaSegment] = []
-        cluster_start_ms: int | None = None
-        cluster_prev_ms = 0
-        cluster_hit_count = 0
-        cluster_best_jpeg = b""
-        cluster_best_score = 0.0
-        cluster_detected_labels: list[str] = []
-
-        async def flush_cluster() -> None:
-            nonlocal cluster_start_ms, cluster_prev_ms, cluster_hit_count
-            nonlocal cluster_best_jpeg, cluster_best_score, cluster_detected_labels
-
-            if cluster_start_ms is None:
-                return
-            if cluster_hit_count >= min_hits:
-                thumb_path = ""
-                if cluster_best_jpeg:
-                    filename = f"{target.media_id.replace('/', '_')}_{cluster_start_ms}.jpg"
-                    full_path = THUMBNAILS_DIR / filename
-                    full_path.write_bytes(cluster_best_jpeg)
-                    thumb_path = str(full_path)
-                segments.append(
-                    MediaSegment(
-                        media_id=target.media_id,
-                        title=target.title,
-                        start_ms=cluster_start_ms,
-                        end_ms=cluster_prev_ms + gap_ms,
-                        category=self.category,
-                        source="nudenet",
-                        confidence=cluster_best_score,
-                        thumbnail_path=thumb_path,
-                        labels=",".join(cluster_detected_labels),
-                    )
-                )
-
-            cluster_start_ms = None
-            cluster_prev_ms = 0
-            cluster_hit_count = 0
-            cluster_best_jpeg = b""
-            cluster_best_score = 0.0
-            cluster_detected_labels = []
-
-        async for offset_ms, jpeg in extract_frames_batch(target.file_path, step_ms, duration_ms):
-            idx = offset_ms // step_ms
+        hits: list[FrameHit] = []
+        for idx, frame in enumerate(frames):
             if self._should_abort and self._should_abort(target.media_id):
                 return DetectorResult(
                     category=self.category,
@@ -272,47 +243,35 @@ class NudityDetector:
                     detail="Scan window ended during scan.",
                 )
 
-            if jpeg:
-                is_match, score, labels = await asyncio.to_thread(
-                    _classify_frame,
-                    jpeg,
-                    threshold,
-                    enabled_labels,
-                    nudenet_model,
-                    nudenet_model_path,
+            is_match, score, labels = await asyncio.to_thread(
+                _classify_frame,
+                frame.jpeg_bytes,
+                threshold,
+                enabled_labels,
+                nudenet_model,
+                nudenet_model_path,
+            )
+            if is_match:
+                hits.append(
+                    FrameHit(
+                        offset_ms=frame.offset_ms,
+                        confidence=score,
+                        labels=labels.copy(),
+                        jpeg_bytes=frame.jpeg_bytes,
+                    )
                 )
-                if is_match:
-                    if cluster_start_ms is None:
-                        cluster_start_ms = offset_ms
-                        cluster_prev_ms = offset_ms
-                        cluster_hit_count = 1
-                        cluster_best_jpeg = jpeg
-                        cluster_best_score = score
-                        cluster_detected_labels = labels.copy()
-                    elif offset_ms - cluster_prev_ms > gap_ms:
-                        await flush_cluster()
-                        cluster_start_ms = offset_ms
-                        cluster_prev_ms = offset_ms
-                        cluster_hit_count = 1
-                        cluster_best_jpeg = jpeg
-                        cluster_best_score = score
-                        cluster_detected_labels = labels.copy()
-                    else:
-                        cluster_prev_ms = offset_ms
-                        cluster_hit_count += 1
-                        if score > cluster_best_score:
-                            cluster_best_jpeg = jpeg
-                            cluster_best_score = score
-                            cluster_detected_labels = labels.copy()
-                        else:
-                            for label in labels:
-                                if label not in cluster_detected_labels:
-                                    cluster_detected_labels.append(label)
 
             if progress_callback and idx % 30 == 0:
                 await progress_callback((idx + 1) / total_steps)
 
-        await flush_cluster()
+        segments = cluster_frame_hits(
+            target=target,
+            category=self.category,
+            source="nudenet",
+            hits=hits,
+            gap_ms=gap_ms,
+            min_hits=min_hits,
+        )
         if progress_callback:
             await progress_callback(1.0)
         return DetectorResult(

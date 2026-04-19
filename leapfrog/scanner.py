@@ -4,14 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections import defaultdict
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import leapfrog.plex_client as plex_mod
 
 from . import database as db
-from .detectors import NudityDetector, ProfanityDetector
+from .detectors import (
+    DrugsDetector,
+    NudityDetector,
+    ProfanityDetector,
+    SexualContentDetector,
+    ViolenceDetector,
+)
 from .detectors.nudity import ensure_640m_model_async, ensure_local_640m_model
-from .domain import MediaScanTarget
+from .domain import MediaScanTarget, SUPPORTED_CATEGORIES
+from .frame_extractor import get_duration_ms, sample_video_frames
 from .logger import get_logger
 
 if TYPE_CHECKING:
@@ -19,24 +28,24 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-_scan_queue: asyncio.Queue[str] = asyncio.Queue()
-_force_scan_queue: asyncio.Queue[str] = asyncio.Queue()
 _paused: bool = False
 _current_guids: set[str] = set()
-_queued_normal: set[str] = set()
-_queued_force: set[str] = set()
 _queue_wakeup_event: asyncio.Event = asyncio.Event()
 _skip_requested_guids: set[str] = set()
 _worker_pool_size: int = 1
 _restart_requested: bool = False
+_queue_size_snapshot: int = 0
 
-# Guards all read-check-modify operations on _current_guids, _queued_normal,
-# and _queued_force to prevent duplicate or lost entries under concurrent workers.
 _state_lock = asyncio.Lock()
 
 
 def get_queue_size() -> int:
-    return _scan_queue.qsize() + _force_scan_queue.qsize()
+    return _queue_size_snapshot
+
+
+async def _refresh_queue_size_snapshot() -> None:
+    global _queue_size_snapshot
+    _queue_size_snapshot = len(await db.get_queue_snapshot())
 
 
 def get_worker_pool_size() -> int:
@@ -47,6 +56,7 @@ async def request_scanner_restart() -> None:
     """Signal scanner to restart worker pool with updated config."""
     global _restart_requested
     _restart_requested = True
+    _queue_wakeup_event.set()
     logger.info("Scanner restart requested")
 
 
@@ -72,119 +82,77 @@ def resume_scanner() -> None:
     logger.info("Scanner resumed")
 
 
-async def force_scan_job(plex_guid: str) -> None:
-    """Prioritize a title for immediate scanning by moving it to the force-scan queue.
+def is_paused() -> bool:
+    return _paused
 
-    DB flag is set outside the lock; queue state mutations are guarded by _state_lock
-    to prevent duplicate entries under concurrent API calls.
-    """
+
+async def force_scan_job(plex_guid: str) -> None:
+    """Prioritize a title for immediate scanning in the persisted queue."""
     await db.set_force_scan(plex_guid, True)
     async with _state_lock:
         if plex_guid in _current_guids:
             logger.info("Force scan requested for %s, already scanning", plex_guid)
             return
-        if plex_guid in _queued_force:
-            logger.info("Force scan requested for %s, already at top priority", plex_guid)
-            return
-        # Remove from normal queue if already there, so it goes to force queue instead.
-        if plex_guid in _queued_normal:
-            _queued_normal.discard(plex_guid)
-            logger.info("Moved %s from normal queue to force queue", plex_guid)
-        await _force_scan_queue.put(plex_guid)
-        _queued_force.add(plex_guid)
+    queued = await db.queue_scan_job(
+        plex_guid,
+        to_front=True,
+        priority=100,
+        reason="force_scan",
+    )
+    if queued:
+        await _refresh_queue_size_snapshot()
         _queue_wakeup_event.set()
     logger.warning("Force scan activated for %s — will scan immediately", plex_guid)
 
 
-def is_paused() -> bool:
-    return _paused
-
-
 async def enqueue(plex_guid: str) -> None:
-    # Hold _state_lock across the whole check-then-put to prevent two concurrent
-    # callers from both passing the guard and inserting duplicates.
     async with _state_lock:
         if plex_guid in _current_guids:
             logger.debug("Skipping enqueue for %s: already scanning", plex_guid)
             return
-        if plex_guid in _queued_force or plex_guid in _queued_normal:
-            logger.debug("Skipping enqueue for %s: already queued", plex_guid)
-            return
-        await _scan_queue.put(plex_guid)
-        _queued_normal.add(plex_guid)
+    queued = await db.queue_scan_job(plex_guid, to_front=False, priority=0, reason="scan")
+    if queued:
+        await _refresh_queue_size_snapshot()
         _queue_wakeup_event.set()
 
 
 async def enqueue_pending() -> None:
-    """Drain the normal queue and re-enqueue all pending jobs in priority order.
-
-    Safe to call at any time (e.g. on startup or via the reorder-queue API).
-    Already-scanning titles (in _current_guids) are not affected.
-
-    Order:
-      1. Movies — most recently added first (descending integer rating_key).
-      2. TV episodes — grouped by show_guid so all episodes of a show are
-         contiguous; shows ordered by their highest rating_key descending
-         (most recently added show first); episodes within each show
-         ordered by rating_key ascending (episode order).
-
-    Ignored titles are excluded; they remain pending in the DB so they can
-    be un-ignored later without a fresh Plex sync.
-    """
-    # Drain the normal queue and clear tracking set so we can re-enqueue in order.
-    # Force-queue and _current_guids are intentionally left untouched.
-    async with _state_lock:
-        while not _scan_queue.empty():
-            try:
-                _scan_queue.get_nowait()
-            except Exception:
-                break
-        _queued_normal.clear()
-
+    """Rebuild the persisted queue order for all pending scan jobs."""
     jobs = await db.get_scan_jobs(status="pending")
-    active = [j for j in jobs if not j.get("ignored")]
+    active = [job for job in jobs if not job.get("ignored")]
 
-    movies = [j for j in active if j.get("media_type") != "episode"]
-    episodes = [j for j in active if j.get("media_type") == "episode"]
+    movies = [job for job in active if job.get("media_type") != "episode"]
+    episodes = [job for job in active if job.get("media_type") == "episode"]
 
-    # Movies: newest Plex item first.
-    movies.sort(key=lambda j: int(j.get("rating_key") or 0), reverse=True)
-
-    # TV: group episodes by show_guid; fall back to the show name portion of
-    # the title ("ShowName – Season – Episode") when show_guid is absent.
-    from collections import defaultdict
+    movies.sort(key=lambda job: int(job.get("rating_key") or 0), reverse=True)
 
     show_buckets: dict[str, list[dict]] = defaultdict(list)
-    for ep in episodes:
-        key = ep.get("show_guid") or ep.get("title", "").split(" – ")[0]
-        show_buckets[key].append(ep)
+    for episode in episodes:
+        bucket_key = episode.get("show_guid") or episode.get("title", "").split(" – ")[0]
+        show_buckets[str(bucket_key)].append(episode)
 
-    # Within each show sort by rating_key asc (episode order).
     for bucket in show_buckets.values():
-        bucket.sort(key=lambda j: int(j.get("rating_key") or 0))
+        bucket.sort(key=lambda job: int(job.get("rating_key") or 0))
 
-    # Order shows by the highest rating_key in each bucket desc
-    # (most recently added show comes first).
     ordered_shows = sorted(
         show_buckets.values(),
-        key=lambda eps: max(int(j.get("rating_key") or 0) for j in eps),
+        key=lambda eps: max(int(job.get("rating_key") or 0) for job in eps),
         reverse=True,
     )
 
-    ordered = movies + [ep for eps in ordered_shows for ep in eps]
-
-    enqueued = 0
-    for job in ordered:
-        await enqueue(job["plex_guid"])
-        enqueued += 1
-    if enqueued:
+    ordered = movies + [episode for bucket in ordered_shows for episode in bucket]
+    queued_guids = [job["plex_guid"] for job in ordered if job["plex_guid"] not in _current_guids]
+    await db.replace_queue_snapshot(queued_guids)
+    await _refresh_queue_size_snapshot()
+    if queued_guids:
         logger.info(
             "Queued %d pending scan jobs (%d movies, %d episodes, %d ignored skipped)",
-            enqueued,
+            len(queued_guids),
             len(movies),
             len(episodes),
             len(jobs) - len(active),
         )
+    _queue_wakeup_event.set()
 
 
 def _ensure_local_640m_model() -> str:
@@ -195,6 +163,15 @@ def _ensure_local_640m_model() -> str:
 async def _ensure_640m_model_async() -> str:
     """Backward-compatible wrapper for scanner code paths."""
     return await ensure_640m_model_async()
+
+
+def _delete_thumbnail_files(paths: list[str]) -> None:
+    """Best-effort thumbnail cleanup for replaced detector output."""
+    for path in {str(value).strip() for value in paths if str(value).strip()}:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except Exception as exc:
+            logger.debug("Could not delete thumbnail %s: %s", path, exc)
 
 
 def _cluster_frames(
@@ -240,24 +217,30 @@ def request_skip_scan(plex_guid: str) -> bool:
     logger.info("Skip requested for active scan: %s", plex_guid)
     return True
 
+async def _mark_prepare_failed(plex_guid: str, detail: str) -> None:
+    await db.upsert_media_scan_stage_status(
+        plex_guid,
+        "prepare",
+        "failed",
+        source="scanner",
+        detail=detail,
+        progress=1.0,
+    )
+
 
 async def scan_video(plex_guid: str, config) -> None:
     _skip_requested_guids.discard(plex_guid)
+    await db.clear_scan_cancel_requested(plex_guid)
 
     job = await db.get_scan_job_by_guid(plex_guid)
     if not job:
         logger.warning("No scan job found for guid %s", plex_guid)
         return
 
-    # Check if title is marked as ignored
-    is_ignored = bool(job.get("ignored", 0))
-    if is_ignored:
+    if bool(job.get("ignored", 0)):
         logger.info("Skipping ignored title: %s", job["title"])
         return
 
-    # Enforce scan_ratings: skip titles whose content rating is not in the configured list.
-    # This check must live here (not just in the watcher) because enqueue_pending() re-queues
-    # all pending jobs on startup without re-checking ratings.
     scan_ratings: set[str] = set(config.scan_ratings) if config.scan_ratings else set()
     if scan_ratings:
         job_rating = (job.get("content_rating") or "").strip()
@@ -270,34 +253,57 @@ async def scan_video(plex_guid: str, config) -> None:
             )
             return
 
-    # Safety check: Don't scan outside window unless force-scanned
     is_force_scan = bool(job.get("force_scan", 0))
     if not is_force_scan and not config.is_scan_window():
-        logger.warning("Attempted to scan outside scan window (not force-scanned): %s. Re-queueing.", job["title"])
+        logger.warning(
+            "Attempted to scan outside scan window (not force-scanned): %s. Re-queueing.",
+            job["title"],
+        )
         await db.update_scan_job_status(plex_guid, "pending")
         await enqueue(plex_guid)
         return
 
-    file_path = job["file_path"]
-    title = job["title"]
+    file_path = str(job["file_path"])
+    title = str(job["title"])
     rating_key = str(job.get("rating_key") or "")
 
     if not os.path.isfile(file_path):
+        await _mark_prepare_failed(plex_guid, "File not found")
         logger.error("Video file not found: %s", file_path)
         await db.update_scan_job_status(plex_guid, "failed", error_msg="File not found")
         return
 
     async with _state_lock:
         _current_guids.add(plex_guid)
-    await db.seed_media_scan_statuses(plex_guid)
+    await db.reset_media_scan_state(plex_guid)
+    await db.upsert_media_scan_stage_status(
+        plex_guid,
+        "prepare",
+        "running",
+        source="scanner",
+        detail="Preparing scan job.",
+        progress=0.0,
+    )
     await db.update_scan_job_status(plex_guid, "scanning", progress=0.0)
     logger.info("Scanning: %s", title)
+
+    stage_total = len(SUPPORTED_CATEGORIES) + 2
 
     try:
         if str(getattr(config, "nudenet_model", "320n")).startswith("640") and not str(
             getattr(config, "nudenet_model_path", "")
         ):
             await _ensure_640m_model_async()
+
+        await db.upsert_media_scan_stage_status(
+            plex_guid,
+            "prepare",
+            "done",
+            source="scanner",
+            detail="Scan job prepared.",
+            progress=1.0,
+        )
+        await db.update_scan_job_status(plex_guid, "scanning", progress=1 / stage_total)
 
         target = MediaScanTarget(
             media_id=plex_guid,
@@ -307,53 +313,137 @@ async def scan_video(plex_guid: str, config) -> None:
             rating_key=rating_key,
             force_scan=is_force_scan,
         )
-        detectors = [
-            NudityDetector(
+        image_detectors = {
+            "nudity": NudityDetector(
                 should_abort=lambda media_id: media_id in _skip_requested_guids,
                 should_pause=lambda: _paused,
                 should_stop_for_window=lambda: not config.is_scan_window(),
             ),
-            ProfanityDetector(),
-        ]
+            "sexual_content": SexualContentDetector(
+                should_abort=lambda media_id: media_id in _skip_requested_guids,
+                should_pause=lambda: _paused,
+                should_stop_for_window=lambda: not config.is_scan_window(),
+            ),
+            "violence": ViolenceDetector(
+                should_abort=lambda media_id: media_id in _skip_requested_guids,
+                should_pause=lambda: _paused,
+                should_stop_for_window=lambda: not config.is_scan_window(),
+            ),
+            "drugs": DrugsDetector(
+                should_abort=lambda media_id: media_id in _skip_requested_guids,
+                should_pause=lambda: _paused,
+                should_stop_for_window=lambda: not config.is_scan_window(),
+            ),
+        }
+        detectors = {
+            "profanity": ProfanityDetector(),
+        }
         segments_inserted = 0
-        last_progress = 0.0
+        last_progress = 1 / stage_total
+        duration_ms = await get_duration_ms(file_path)
+        if not duration_ms:
+            raise RuntimeError("Could not determine video duration.")
+        step_ms = max(1000, int(getattr(config, "scan_step_ms", 5000)))
+        frames = await sample_video_frames(file_path, step_ms, duration_ms)
 
-        for index, detector in enumerate(detectors):
-            await db.upsert_media_scan_status(
+        for stage_index, category in enumerate(SUPPORTED_CATEGORIES, start=1):
+            detector = image_detectors.get(category) or detectors.get(category)
+
+            await db.upsert_media_scan_stage_status(
                 plex_guid,
-                detector.category,
-                "scanning",
+                category,
+                "running",
+                category=category,
                 source="",
                 detail="Detector running.",
+                progress=0.0,
+            )
+            await db.upsert_media_scan_status(
+                plex_guid,
+                category,
+                "running",
+                source="",
+                detail="Detector running.",
+                segment_count=0,
+                progress=0.0,
             )
 
-            async def report(detector_progress: float, detector_index: int = index) -> None:
+            async def report(detector_progress: float, stage_offset: int = stage_index) -> None:
                 nonlocal last_progress
-                last_progress = (detector_index + detector_progress) / len(detectors)
+                clamped = min(1.0, max(0.0, detector_progress))
+                last_progress = (stage_offset + clamped) / stage_total
+                await db.upsert_media_scan_stage_status(
+                    plex_guid,
+                    category,
+                    "running",
+                    category=category,
+                    source="",
+                    detail="Detector running.",
+                    progress=clamped,
+                )
+                await db.upsert_media_scan_status(
+                    plex_guid,
+                    category,
+                    "running",
+                    source="",
+                    detail="Detector running.",
+                    segment_count=0,
+                    progress=clamped,
+                )
                 await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
 
-            result = await detector.scan(target, config, progress_callback=report)
+            if category in image_detectors:
+                result = await image_detectors[category].scan_frames(
+                    target,
+                    frames,
+                    config,
+                    progress_callback=report,
+                )
+            else:
+                result = await detector.scan(target, config, progress_callback=report)
 
             if result.status == "pending_skip":
                 _skip_requested_guids.discard(plex_guid)
+                await db.upsert_media_scan_stage_status(
+                    plex_guid,
+                    category,
+                    "pending",
+                    category=category,
+                    source=result.source,
+                    detail=result.detail,
+                    progress=1.0,
+                )
                 await db.upsert_media_scan_status(
                     plex_guid,
-                    result.category,
+                    category,
                     "pending",
                     source=result.source,
                     detail=result.detail,
+                    segment_count=0,
+                    progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
                 logger.info("Scan of '%s' skipped by user request", title)
                 return
 
             if result.status == "pending_pause":
+                await db.upsert_media_scan_stage_status(
+                    plex_guid,
+                    category,
+                    "pending",
+                    category=category,
+                    source=result.source,
+                    detail=result.detail,
+                    progress=1.0,
+                )
                 await db.upsert_media_scan_status(
                     plex_guid,
-                    result.category,
+                    category,
                     "pending",
                     source=result.source,
                     detail=result.detail,
+                    segment_count=0,
+                    progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
                 await enqueue(plex_guid)
@@ -361,12 +451,23 @@ async def scan_video(plex_guid: str, config) -> None:
                 return
 
             if result.status == "pending_window":
+                await db.upsert_media_scan_stage_status(
+                    plex_guid,
+                    category,
+                    "pending",
+                    category=category,
+                    source=result.source,
+                    detail=result.detail,
+                    progress=1.0,
+                )
                 await db.upsert_media_scan_status(
                     plex_guid,
-                    result.category,
+                    category,
                     "pending",
                     source=result.source,
                     detail=result.detail,
+                    segment_count=0,
+                    progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
                 await enqueue(plex_guid)
@@ -376,26 +477,55 @@ async def scan_video(plex_guid: str, config) -> None:
                 return
 
             if result.status == "failed":
+                await db.upsert_media_scan_stage_status(
+                    plex_guid,
+                    category,
+                    "failed",
+                    category=category,
+                    source=result.source,
+                    detail=result.detail,
+                    progress=1.0,
+                )
                 await db.upsert_media_scan_status(
                     plex_guid,
-                    result.category,
+                    category,
                     "failed",
                     source=result.source,
                     detail=result.detail,
+                    segment_count=0,
+                    progress=1.0,
                 )
                 raise RuntimeError(result.detail or f"{result.category} detector failed")
 
             if result.status == "unavailable":
+                await db.upsert_media_scan_stage_status(
+                    plex_guid,
+                    category,
+                    "unavailable",
+                    category=category,
+                    source=result.source,
+                    detail=result.detail,
+                    progress=1.0,
+                )
                 await db.upsert_media_scan_status(
                     plex_guid,
-                    result.category,
+                    category,
                     "unavailable",
                     source=result.source,
                     detail=result.detail,
+                    segment_count=0,
+                    progress=1.0,
                 )
+                last_progress = (stage_index + 1) / stage_total
+                await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
                 continue
 
+            stale_thumbnail_paths = await db.get_thumbnail_paths_for_guid_category(
+                plex_guid,
+                result.category,
+            )
             await db.delete_segments_for_guid_category(plex_guid, result.category)
+            _delete_thumbnail_files(stale_thumbnail_paths)
             if result.segments:
                 await db.insert_segments(
                     plex_guid,
@@ -416,16 +546,47 @@ async def scan_video(plex_guid: str, config) -> None:
                         for segment in result.segments
                     ],
                 )
-            segments_inserted += len(result.segments)
+
+            segment_count = len(result.segments)
+            segments_inserted += segment_count
+            await db.upsert_media_scan_stage_status(
+                plex_guid,
+                category,
+                "done",
+                category=category,
+                source=result.source,
+                detail=result.detail or f"Found {segment_count} segment(s).",
+                progress=1.0,
+            )
             await db.upsert_media_scan_status(
                 plex_guid,
-                result.category,
+                category,
                 "done",
                 source=result.source,
-                detail=result.detail or f"Found {len(result.segments)} segment(s).",
+                detail=result.detail or f"Found {segment_count} segment(s).",
+                segment_count=segment_count,
+                progress=1.0,
             )
+            last_progress = (stage_index + 1) / stage_total
+            await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
 
+        await db.upsert_media_scan_stage_status(
+            plex_guid,
+            "finalize",
+            "running",
+            source="scanner",
+            detail="Finalizing scan results.",
+            progress=0.0,
+        )
         await db.update_scan_job_status(plex_guid, "done", progress=1.0)
+        await db.upsert_media_scan_stage_status(
+            plex_guid,
+            "finalize",
+            "done",
+            source="scanner",
+            detail=f"Scan complete with {segments_inserted} segment(s).",
+            progress=1.0,
+        )
 
         if rating_key:
             try:
@@ -441,61 +602,36 @@ async def scan_video(plex_guid: str, config) -> None:
         logger.info("Scan complete: %s — found %d segment(s)", title, segments_inserted)
 
     except Exception as exc:
+        await db.upsert_media_scan_stage_status(
+            plex_guid,
+            "finalize",
+            "failed",
+            source="scanner",
+            detail=str(exc),
+            progress=1.0,
+        )
         logger.error("Scan failed for %s: %s", title, exc)
         await db.update_scan_job_status(plex_guid, "failed", error_msg=str(exc))
     finally:
+        await db.clear_scan_cancel_requested(plex_guid)
         async with _state_lock:
             _current_guids.discard(plex_guid)
 
 
 async def _scanner_worker_loop(worker_id: int, get_config_fn) -> None:
-    """Single scanner worker — scans queued jobs and respects pause/scan window."""
+    """Single scanner worker — scans persisted queued jobs and respects pause/window."""
     while True:
         config = await get_config_fn()
-
-        try:
-            # Prioritize explicit force-scan requests ahead of normal queue items.
-            try:
-                plex_guid = _force_scan_queue.get_nowait()
-                async with _state_lock:
-                    _queued_force.discard(plex_guid)
-            except asyncio.QueueEmpty:
-                plex_guid = await asyncio.wait_for(_scan_queue.get(), timeout=30)
-                async with _state_lock:
-                    _queued_normal.discard(plex_guid)
-        except asyncio.TimeoutError:
-            # Queue is empty, respect scan window
-            if not config.is_scan_window():
-                if not _paused:
-                    pause_scanner()
-            else:
-                if _paused:
-                    resume_scanner()
-            try:
-                await asyncio.wait_for(_queue_wakeup_event.wait(), timeout=60)
-            except asyncio.TimeoutError:
-                pass
-            _queue_wakeup_event.clear()
-            continue
-
-        job = await db.get_scan_job_by_guid(plex_guid)
-        if not job or job["status"] not in ("pending", "scanning"):
-            logger.debug(f"Skipping {plex_guid}: not found or wrong status")
-            continue
-
-        # Check if this job should run: is_force_scan OR within scan window
-        is_force_scan = bool(job.get("force_scan", 0))
         in_window = config.is_scan_window()
 
-        if not is_force_scan and not in_window:
-            # Outside window and not force-scan, re-queue and wait
-            logger.debug(f"Job {plex_guid} outside scan window and not force-scan, re-queuing")
-            await enqueue(plex_guid)
-            if not _paused:
-                pause_scanner()
-            # If a force-scan job arrived, don't sleep; process it immediately.
-            if not _force_scan_queue.empty():
-                continue
+        job = await db.get_next_ready_queue_job(allow_windowed_only=in_window)
+        if job is None:
+            await _refresh_queue_size_snapshot()
+            if not in_window:
+                if not _paused:
+                    pause_scanner()
+            elif _paused:
+                resume_scanner()
             try:
                 await asyncio.wait_for(_queue_wakeup_event.wait(), timeout=60)
             except asyncio.TimeoutError:
@@ -503,24 +639,25 @@ async def _scanner_worker_loop(worker_id: int, get_config_fn) -> None:
             _queue_wakeup_event.clear()
             continue
 
+        await _refresh_queue_size_snapshot()
         if _paused:
             resume_scanner()
 
+        plex_guid = str(job["plex_guid"])
         logger.info(
             "Worker %d starting scan of %s (force_scan=%s, in_window=%s)",
             worker_id,
             plex_guid,
-            is_force_scan,
+            bool(job.get("force_scan", 0)),
             in_window,
         )
         await scan_video(plex_guid, config)
-        
-        # Clear force_scan flag after job completes
-        if is_force_scan:
-            await db.set_force_scan(plex_guid, False)
-            logger.info(f"Cleared force_scan for {plex_guid}")
 
-        await asyncio.sleep(1)  # Brief pause between scans
+        if bool(job.get("force_scan", 0)):
+            await db.set_force_scan(plex_guid, False)
+            logger.info("Cleared force_scan for %s", plex_guid)
+
+        await asyncio.sleep(1)
 
 
 async def scanner_loop(get_config_fn) -> None:
@@ -528,8 +665,6 @@ async def scanner_loop(get_config_fn) -> None:
     global _worker_pool_size, _restart_requested
 
     while True:
-        # Re-apply queue ordering on every start/restart so settings changes
-        # (or an explicit reorder-queue API call) take effect immediately.
         await enqueue_pending()
 
         config = await get_config_fn()
@@ -538,17 +673,12 @@ async def scanner_loop(get_config_fn) -> None:
         _restart_requested = False
         logger.info("Starting scanner pool with %d worker(s)", worker_count)
 
-        # Create worker tasks
         worker_tasks = [
-            asyncio.create_task(_scanner_worker_loop(i + 1, get_config_fn))
-            for i in range(worker_count)
+            asyncio.create_task(_scanner_worker_loop(index + 1, get_config_fn))
+            for index in range(worker_count)
         ]
 
         try:
-            # Run workers until restart or unexpected completion.
-            # timeout=5 ensures _restart_requested is polled promptly even while
-            # all workers are mid-scan (workers never complete normally, so without
-            # a timeout asyncio.wait would block indefinitely).
             while not _restart_requested:
                 done, _ = await asyncio.wait(
                     worker_tasks,
@@ -556,21 +686,17 @@ async def scanner_loop(get_config_fn) -> None:
                     timeout=5.0,
                 )
                 if done:
-                    # A worker unexpectedly completed; restart the pool
                     logger.warning("Worker task completed unexpectedly, restarting pool")
                     break
 
-            # Restart requested or worker failed; cancel all tasks
             logger.info("Shutting down worker pool for restart")
             for task in worker_tasks:
                 if not task.done():
                     task.cancel()
-            # Wait for all tasks to complete/cancel
             try:
                 await asyncio.gather(*worker_tasks)
             except asyncio.CancelledError:
                 pass
-            # Loop continues, which will pick up config changes and restart
 
         except Exception as exc:
             logger.error("Scanner pool error: %s", exc)
@@ -581,4 +707,4 @@ async def scanner_loop(get_config_fn) -> None:
                 await asyncio.gather(*worker_tasks)
             except asyncio.CancelledError:
                 pass
-            await asyncio.sleep(5)  # Backoff before retry
+            await asyncio.sleep(5)

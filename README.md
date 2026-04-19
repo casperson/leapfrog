@@ -6,12 +6,18 @@ This repository is derived from [Cleanplex](https://github.com/nazmolla/Cleanple
 
 ## Current capabilities
 
-- Background nudity and sexual-content detection with `ffmpeg` frame extraction plus NudeNet
+- Local-first offline scanning on the Plex server machine with no cloud inference in the playback path
+- Canonical category taxonomy across backend, frontend, export, and tests:
+  `nudity`, `sexual_content`, `profanity`, `violence`, `drugs`
+- Background nudity detection with `ffmpeg` frame extraction plus local NudeNet
+- Prompt-driven local image classification for `sexual_content`, `violence`, and `drugs` on the shared sampled-frame pipeline
 - Subtitle-first profanity detection with deterministic word and phrase matching
 - Optional Whisper audio fallback when subtitles are unavailable and the local Whisper dependency is installed
-- Per-user profile controls for `nudity` and `profanity`, including category toggles and thresholds
+- Per-user profile controls for all five categories, including toggles and thresholds
 - Server-side playback enforcement through Plex session polling and seek commands
-- Browser UI for scan settings, segment review, scan status, and linked-user preferences
+- Browser UI for scan settings, queue management, title scan detail, segment review, live logs, and linked-user preferences
+
+Leapfrog keeps scanning, segment storage, playback filtering, and UI review local to the server box. Optional GitHub-based segment sync remains manual and is not required for scanning or playback.
 
 ## How Leapfrog works
 
@@ -24,9 +30,15 @@ Leapfrog watches Plex libraries for new items, stores them as `scan_jobs`, and q
 Each queued media file runs through detector-specific scanners:
 
 - `nudity`
-  Extracts frames with `ffmpeg`, scores them with NudeNet, clusters hits into segments, and stores thumbnails for review.
+  Extracts frames with `ffmpeg`, scores them with NudeNet, clusters hits into segments, and stores thumbnails plus NudeNet labels for review.
+- `sexual_content`
+  Reuses the same sampled frames and applies local prompt-based scoring for intimate or sexual scenes that do not depend on nudity hits.
 - `profanity`
   Loads external subtitles first, falls back to embedded subtitles, and only then attempts Whisper transcription if enabled and available.
+- `violence`
+  Reuses the same sampled frames and applies local prompt-based scoring for fights, blood, and weapons.
+- `drugs`
+  Reuses the same sampled frames and applies local prompt-based scoring for drug use and paraphernalia.
 
 All detectors emit the same segment shape:
 
@@ -36,7 +48,9 @@ All detectors emit the same segment shape:
 - `category`
 - `source`
 - `confidence`
+- `labels`
 - `text_excerpt`
+- `thumbnail_path`
 - `review_status`
 
 ### 3. Playback enforcement
@@ -50,6 +64,12 @@ When Plex sessions are active, Leapfrog:
 
 Playback-time filtering is still a database lookup plus a server-side seek. No ML inference runs in the playback hot path.
 
+### 4. Scan status, queue, and logs
+
+- Scan status is persisted per title and per category, plus an ordered stage timeline (`prepare`, the five categories, `finalize`).
+- The scan queue is durable and mutable: titles can be moved to the top or bottom, reordered, canceled individually, canceled in batches, or canceled while active.
+- The web UI includes a live logging console backed by a bounded in-memory replay buffer plus SSE updates.
+
 ## Configuration
 
 All settings are available in the web UI at `http://your-server:7979/settings`.
@@ -59,19 +79,22 @@ Important settings:
 - Plex URL and Plex token
 - Poll interval
 - NudeNet confidence threshold
+- Category default thresholds exposed through canonical category metadata
 - Profanity term list
+- Profanity allowlist for known false positives
 - Default profanity threshold
 - Whisper fallback on/off and model name
+- Log buffer capacity for the live console
 - Scan frame interval and worker count
-- Segment merge settings for nudity and profanity
+- Segment merge settings for image and subtitle detectors
 
 ## Per-user preferences
 
 Each linked Plex profile has:
 
 - a master server-side filtering toggle,
-- a `nudity` toggle and threshold,
-- a `profanity` toggle and threshold.
+- a toggle and threshold for each canonical category,
+- effective skip evaluation based on stored segments rather than runtime inference.
 
 If a user disables a category, those segments stay stored in the database but are ignored during playback enforcement for that user.
 
@@ -135,6 +158,7 @@ The resulting wheel and sdist are written to `dist/`.
 bash scripts/dev-start.sh
 bash scripts/dev-verify.sh
 bash scripts/dev-stop.sh
+cd frontend && npm test
 cd frontend && npm run build
 ```
 
@@ -145,6 +169,17 @@ cd frontend && npm run build
 Whisper fallback is designed to be optional. If you want audio transcription fallback, install a compatible local Whisper package into the same virtual environment and keep the setting enabled in the UI.
 
 If Whisper is unavailable, Leapfrog records the profanity scan status as unavailable instead of breaking nudity scanning or playback enforcement.
+
+## Queue and review UI
+
+- `Dashboard`
+  Shows active scans, the mutable queue manager, and live operational status.
+- `Library`
+  Shows titles even when a scan is partial or clean with zero saved segments, and opens per-title scan detail.
+- `Segments`
+  Shows stored segments with category, source, confidence, labels, excerpts, thumbnails, and whether the selected user would currently skip them.
+- `Logs`
+  Shows bounded recent history plus live SSE updates from the local logging buffer.
 
 ## Adding a detector
 
@@ -169,6 +204,7 @@ Runtime adapters now share one contract and one canonical segment format:
 See:
 
 - [docs/adapter-model.md](docs/adapter-model.md)
+- [docs/local-first-scan-flow.md](docs/local-first-scan-flow.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/testing-and-release.md](docs/testing-and-release.md)
 
@@ -180,6 +216,8 @@ See:
   Queueing and detector orchestration
 - `leapfrog/detectors/`
   Category-specific scanners
+- `leapfrog/logger.py`
+  Process logging plus bounded replay for the UI log console
 - `leapfrog/filter_engine.py`
   Playback-time segment selection and seek behavior
 - `leapfrog/web/routes/`

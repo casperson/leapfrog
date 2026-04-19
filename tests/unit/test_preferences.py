@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from leapfrog.domain import Segment
+from leapfrog.domain import DEFAULT_CATEGORY_THRESHOLDS, PREFERENCE_CATEGORIES, SUPPORTED_CATEGORIES, Segment
 from leapfrog.preferences import (
     build_user_category_preferences_map,
     build_user_filter_map,
@@ -14,15 +14,26 @@ from leapfrog.preferences import (
 )
 
 
+def test_canonical_category_sets_match():
+    assert SUPPORTED_CATEGORIES == PREFERENCE_CATEGORIES
+    assert SUPPORTED_CATEGORIES == (
+        "nudity",
+        "sexual_content",
+        "profanity",
+        "violence",
+        "drugs",
+    )
+
+
 def test_resolve_user_category_preferences_defaults_to_nudity_only_without_saved_preferences():
     resolved = resolve_user_category_preferences(
         overall_enabled=True,
         stored_preferences={},
-        nudity_threshold=0.6,
-        profanity_threshold=0.5,
+        threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
     assert resolved["nudity"]["enabled"] is True
     assert resolved["nudity"]["threshold"] == 0.6
+    assert resolved["sexual_content"]["enabled"] is False
     assert resolved["profanity"]["enabled"] is False
     assert resolved["profanity"]["threshold"] == 0.5
 
@@ -31,10 +42,10 @@ def test_resolve_user_category_preferences_disables_unspecified_categories_once_
     resolved = resolve_user_category_preferences(
         overall_enabled=True,
         stored_preferences={"profanity": {"enabled": True, "threshold": 0.7}},
-        nudity_threshold=0.6,
-        profanity_threshold=0.5,
+        threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
     assert resolved["nudity"]["enabled"] is False
+    assert resolved["sexual_content"]["enabled"] is False
     assert resolved["profanity"]["enabled"] is True
     assert resolved["profanity"]["threshold"] == 0.7
 
@@ -115,8 +126,7 @@ def test_resolve_preferences_for_users_reuses_shared_filter_inputs():
         stored_preferences_by_user={
             "alice": {"profanity": {"enabled": True, "threshold": 0.8}},
         },
-        nudity_threshold=0.6,
-        profanity_threshold=0.5,
+        threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
 
     assert resolved["alice"]["profanity"]["enabled"] is True

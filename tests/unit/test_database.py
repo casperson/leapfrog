@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from leapfrog import database as db
@@ -234,6 +236,39 @@ async def test_get_segment_by_id():
 async def test_get_segment_by_id_returns_none_for_missing():
     row = await db.get_segment_by_id(99999)
     assert row is None
+
+
+async def test_init_db_migrates_legacy_thumbnail_paths_into_configured_data_dir(tmp_path, monkeypatch):
+    home_dir = tmp_path / "home"
+    legacy_thumbnail_dir = home_dir / ".leapfrog" / "thumbnails"
+    legacy_thumbnail_dir.mkdir(parents=True)
+    legacy_thumbnail = legacy_thumbnail_dir / "legacy-thumb.jpg"
+    legacy_thumbnail.write_bytes(b"legacy-thumb")
+
+    db_path = tmp_path / "migration.db"
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.delenv("LEAPFROG_DATA", raising=False)
+    db.set_db_path(db_path)
+    await db.init_db()
+
+    seg_id = await db.insert_segment(
+        "guid-legacy-thumb",
+        "Movie",
+        start_ms=0,
+        end_ms=1000,
+        thumbnail_path=str(legacy_thumbnail),
+    )
+
+    current_data_dir = tmp_path / "custom-data"
+    monkeypatch.setenv("LEAPFROG_DATA", str(current_data_dir))
+    await db.init_db()
+
+    row = await db.get_segment_by_id(seg_id)
+    assert row is not None
+    migrated_path = Path(row["thumbnail_path"])
+    assert migrated_path == current_data_dir / "thumbnails" / "legacy-thumb.jpg"
+    assert migrated_path.exists() is True
+    assert legacy_thumbnail.exists() is False
 
 
 async def test_get_segments_grouped_by_title():

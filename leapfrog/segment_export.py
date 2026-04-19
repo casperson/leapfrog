@@ -136,11 +136,10 @@ async def build_canonical_media_export(
     job = await db.get_scan_job_by_guid(plex_guid)
     raw_segments = await db.get_segments_for_guid(plex_guid)
     if user_id:
-        nudity_threshold, profanity_threshold = await get_preference_threshold_settings()
+        threshold_defaults = await get_preference_threshold_settings()
         preferences = await get_resolved_preferences_for_user(
             user_id,
-            nudity_threshold=nudity_threshold,
-            profanity_threshold=profanity_threshold,
+            threshold_defaults=threshold_defaults,
         )
         raw_segments = get_effective_skip_segments(raw_segments, preferences)
     canonical_segments = filter_canonical_segments(

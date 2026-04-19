@@ -23,11 +23,10 @@ async def get_sessions():
         return {"sessions": [], "error": "Plex not configured"}
 
     sessions = await client.get_active_sessions()
-    nudity_threshold, profanity_threshold = await get_preference_threshold_settings()
+    threshold_defaults = await get_preference_threshold_settings()
     resolved_preferences = await get_resolved_preferences_for_users(
         (session.user for session in sessions),
-        nudity_threshold=nudity_threshold,
-        profanity_threshold=profanity_threshold,
+        threshold_defaults=threshold_defaults,
     )
     result = []
     for s in sessions:

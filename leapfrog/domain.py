@@ -5,30 +5,97 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-SUPPORTED_CATEGORIES = ("nudity", "profanity")
-PREFERENCE_CATEGORIES = ("nudity", "profanity", "violence", "drugs")
+
+@dataclass(frozen=True, slots=True)
+class CategoryDefinition:
+    key: str
+    label: str
+    description: str
+    default_threshold: float
+
+
+CATEGORY_DEFINITIONS = (
+    CategoryDefinition(
+        key="nudity",
+        label="Nudity",
+        description="Exposed body-part nudity detected from sampled frames.",
+        default_threshold=0.6,
+    ),
+    CategoryDefinition(
+        key="sexual_content",
+        label="Sexual Content",
+        description="Sexual activity or intimate content that may not include nudity.",
+        default_threshold=0.5,
+    ),
+    CategoryDefinition(
+        key="profanity",
+        label="Profanity",
+        description="Profanity matched from subtitles or local transcript fallback.",
+        default_threshold=0.5,
+    ),
+    CategoryDefinition(
+        key="violence",
+        label="Violence",
+        description="Violence, weapons, blood, or similar harmful acts detected from frames.",
+        default_threshold=0.5,
+    ),
+    CategoryDefinition(
+        key="drugs",
+        label="Drugs",
+        description="Drug use or paraphernalia detected from sampled frames.",
+        default_threshold=0.5,
+    ),
+)
+SUPPORTED_CATEGORIES = tuple(definition.key for definition in CATEGORY_DEFINITIONS)
+PREFERENCE_CATEGORIES = SUPPORTED_CATEGORIES
 DEFAULT_PROFANITY_TERMS = [
     "asshole",
     "bastard",
     "bitch",
     "bullshit",
+    "cock",
+    "cocksucker",
     "dammit",
     "damn",
     "dick",
+    "fag",
+    "faggot",
+    "fuck",
     "fucker",
     "fucking",
     "goddamn",
     "hell",
+    "mother fucker",
     "motherfucker",
+    "piss",
     "pissed off",
-    "shit",
+    "prick",
+    "slut",
     "son of a bitch",
+    "shit",
+    "whore",
+]
+
+DEFAULT_PROFANITY_ALLOWLIST = [
+    "cockatiel",
+    "cockatoo",
+    "shitake",
 ]
 DEFAULT_CATEGORY_THRESHOLDS = {
-    "nudity": 0.6,
-    "profanity": 0.5,
-    "violence": 0.5,
-    "drugs": 0.5,
+    definition.key: definition.default_threshold for definition in CATEGORY_DEFINITIONS
+}
+
+SCAN_STAGE_DEFINITIONS = (
+    {"key": "prepare", "order": 10, "label": "Prepare"},
+    {"key": "nudity", "order": 20, "label": "Nudity"},
+    {"key": "sexual_content", "order": 30, "label": "Sexual Content"},
+    {"key": "profanity", "order": 40, "label": "Profanity"},
+    {"key": "violence", "order": 50, "label": "Violence"},
+    {"key": "drugs", "order": 60, "label": "Drugs"},
+    {"key": "finalize", "order": 70, "label": "Finalize"},
+)
+SCAN_STAGE_ORDER = {
+    str(stage["key"]): int(stage["order"]) for stage in SCAN_STAGE_DEFINITIONS
 }
 
 
@@ -40,6 +107,12 @@ class MediaScanTarget:
     file_path: str
     rating_key: str
     force_scan: bool = False
+
+
+@dataclass(slots=True)
+class SampledFrame:
+    offset_ms: int
+    jpeg_bytes: bytes
 
 
 @dataclass(slots=True, init=False)
@@ -163,3 +236,5 @@ class ScanStatusRecord:
     status: str
     source: str = ""
     detail: str = ""
+    segment_count: int = 0
+    progress: float = 0.0
