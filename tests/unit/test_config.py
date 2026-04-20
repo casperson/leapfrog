@@ -21,6 +21,8 @@ async def test_config_load_returns_defaults():
     assert config.confidence_threshold == pytest.approx(0.6)
     assert config.skip_buffer_ms == 3000
     assert config.scan_workers == 2
+    assert config.semantic_model_repo == "Xenova/clip-vit-base-patch32"
+    assert config.semantic_model_variant == "int8"
     assert config.log_level == "INFO"
 
 

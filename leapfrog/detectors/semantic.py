@@ -14,6 +14,10 @@ from ..domain import MediaScanTarget, SampledFrame
 from ..frame_extractor import get_duration_ms, sample_video_frames
 from ..logger import get_logger
 from .base import DetectorResult, ProgressCallback
+from .clip_onnx import (
+    SemanticModelUnavailableError,
+    get_shared_clip_backend,
+)
 from .image_common import FrameHit, cluster_frame_hits
 
 logger = get_logger(__name__)
@@ -21,56 +25,84 @@ logger = get_logger(__name__)
 SEMANTIC_PROMPT_BANK: dict[str, dict[str, tuple[str, ...]]] = {
     "sexual_content": {
         "kissing": (
-            "two people kissing in a romantic scene",
-            "close intimate kiss between adults",
+            "a movie frame of two adults kissing passionately",
+            "a romantic close-up kiss between adults",
+            "an intimate kiss in a film scene",
         ),
         "intimate_touch": (
-            "suggestive touching in a bedroom scene",
-            "romantic intimate physical contact between adults",
+            "a movie scene with intimate touching between adults",
+            "romantic intimate physical contact in a bedroom scene",
+            "suggestive caressing between adults in a film scene",
         ),
         "bed_intimacy": (
-            "adult couple embracing in bed",
-            "sexual situation without explicit nudity",
+            "an adult couple embracing in bed in a movie scene",
+            "a sexual situation without explicit nudity in a film frame",
+            "a movie frame showing implied sexual activity without nudity",
         ),
     },
     "violence": {
         "fight": (
-            "physical fight between people",
-            "punching, kicking, or brawling action scene",
+            "a movie frame of a physical fight between people",
+            "an action scene with punching kicking or brawling",
+            "a violent struggle in a film scene",
         ),
         "blood": (
-            "visible blood in a violent scene",
-            "bloody injury or gore",
+            "visible blood in a violent movie scene",
+            "a bloody injury or gore in a film frame",
+            "a wound with visible blood during violence",
         ),
         "weapon": (
-            "weapon pointed during an attack",
-            "gun, knife, or other weapon in a violent confrontation",
+            "a weapon pointed during an attack in a movie scene",
+            "a gun knife or other weapon in a violent confrontation",
+            "an armed threat in a film frame",
         ),
     },
     "drugs": {
         "smoke": (
-            "drug smoke or inhaled substance use",
-            "smoking a suspicious substance",
+            "drug smoke or inhaled substance use in a movie scene",
+            "someone smoking a suspicious substance in a film frame",
+            "recreational drug smoking in a close-up",
         ),
         "needle": (
-            "drug injection with a needle",
-            "needle used for substance abuse",
+            "drug injection with a needle in a movie scene",
+            "a needle used for substance abuse in a film frame",
+            "someone injecting an illicit drug",
         ),
         "pill": (
-            "misuse of pills or tablets",
-            "substance abuse with pills",
+            "misuse of pills or tablets in a movie scene",
+            "substance abuse with pills in a film frame",
+            "someone abusing prescription pills",
         ),
         "drug_paraphernalia": (
-            "drug paraphernalia on a table",
-            "baggies, pipes, syringes, or powder for drugs",
+            "drug paraphernalia on a table in a movie scene",
+            "baggies pipes syringes or powder used for drugs",
+            "a close-up of illicit drug equipment",
         ),
     },
 }
 
+SEMANTIC_NEGATIVE_PROMPTS: dict[str, tuple[str, ...]] = {
+    "sexual_content": (
+        "a neutral movie scene with no romance or intimacy",
+        "people having an ordinary conversation in a film scene",
+        "a landscape or room with no people touching",
+    ),
+    "violence": (
+        "a calm movie scene with no fighting or weapons",
+        "people standing peacefully in a film frame",
+        "a neutral conversation scene with no blood or attack",
+    ),
+    "drugs": (
+        "an ordinary movie scene with no drugs or paraphernalia",
+        "a clean table with common household objects only",
+        "people talking with no smoking injection or pills",
+    ),
+}
+
 SEMANTIC_LABEL_THRESHOLDS: dict[str, float] = {
-    "sexual_content": 0.58,
-    "violence": 0.58,
-    "drugs": 0.58,
+    "sexual_content": 0.30,
+    "violence": 0.28,
+    "drugs": 0.30,
 }
 
 
@@ -81,6 +113,7 @@ class SemanticPromptBackend(Protocol):
         self,
         jpeg_bytes: bytes,
         prompt_bank: dict[str, tuple[str, ...]],
+        negative_prompts: tuple[str, ...] = (),
     ) -> dict[str, float]:
         """Return scores keyed by prompt label for one frame."""
 
@@ -177,7 +210,7 @@ class SemanticCategoryDetector:
         should_stop_for_window: Callable[[], bool] | None = None,
     ) -> None:
         self.category = category
-        self._backend = backend or HeuristicSemanticBackend()
+        self._backend = backend
         self._should_abort = should_abort
         self._should_pause = should_pause
         self._should_stop_for_window = should_stop_for_window
@@ -213,6 +246,7 @@ class SemanticCategoryDetector:
         progress_callback: ProgressCallback | None = None,
     ) -> DetectorResult:
         prompt_bank = SEMANTIC_PROMPT_BANK[self.category]
+        negative_prompts = SEMANTIC_NEGATIVE_PROMPTS[self.category]
         threshold = float(
             getattr(
                 config,
@@ -223,6 +257,7 @@ class SemanticCategoryDetector:
         gap_ms = max(1000, int(getattr(config, "segment_gap_ms", 12000)))
         min_hits = max(1, int(getattr(config, "segment_min_hits", 1)))
         total_steps = max(1, len(frames))
+        backend = self._backend or get_semantic_backend(config)
 
         hits: list[FrameHit] = []
         for idx, frame in enumerate(frames):
@@ -252,11 +287,20 @@ class SemanticCategoryDetector:
                     status="pending_window",
                     detail="Scan window ended during scan.",
                 )
-            scores = await asyncio.to_thread(
-                self._backend.score_frame,
-                frame.jpeg_bytes,
-                prompt_bank,
-            )
+            try:
+                scores = await asyncio.to_thread(
+                    backend.score_frame,
+                    frame.jpeg_bytes,
+                    prompt_bank,
+                    negative_prompts,
+                )
+            except SemanticModelUnavailableError as exc:
+                return DetectorResult(
+                    category=self.category,
+                    source=self.source,
+                    status="failed",
+                    detail=str(exc),
+                )
             matched_labels = [
                 label
                 for label, score in scores.items()
@@ -290,7 +334,10 @@ class SemanticCategoryDetector:
             source=self.source,
             status="done",
             segments=segments,
-            detail=f"Scored {len(frames)} sampled frame(s) against {len(prompt_bank)} prompt labels.",
+            detail=(
+                f"Scored {len(frames)} sampled frame(s) with local ONNX CLIP "
+                f"against {len(prompt_bank)} prompt labels."
+            ),
         )
 
 
@@ -346,3 +393,18 @@ class DrugsDetector(SemanticCategoryDetector):
             should_pause=should_pause,
             should_stop_for_window=should_stop_for_window,
         )
+
+
+def get_semantic_backend(config) -> SemanticPromptBackend:
+    """Return the shared semantic ONNX backend for the current configuration."""
+    return get_shared_clip_backend(
+        model_repo=str(getattr(config, "semantic_model_repo", "Xenova/clip-vit-base-patch32")),
+        processor_repo=str(getattr(config, "semantic_processor_repo", "openai/clip-vit-base-patch32")),
+        variant=str(getattr(config, "semantic_model_variant", "int8")),
+    )
+
+
+async def ensure_semantic_model_async(config) -> None:
+    """Ensure the semantic ONNX model files are available locally."""
+    backend = get_semantic_backend(config)
+    await asyncio.to_thread(backend.ensure_ready)

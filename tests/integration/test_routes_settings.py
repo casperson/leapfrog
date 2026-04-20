@@ -110,6 +110,18 @@ async def test_validate_model_path_320n_always_ok(http_client):
     assert resp.json()["ok"] is True
 
 
+async def test_prepare_semantic_model_returns_ok_when_backend_prepares(http_client):
+    with patch(
+        "leapfrog.web.routes.settings.ensure_semantic_model_async",
+        new=AsyncMock(),
+    ) as mock_prepare:
+        resp = await http_client.post("/api/settings/prepare-semantic-model")
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    mock_prepare.assert_awaited_once()
+
+
 # ── GET /api/users ─────────────────────────────────────────────────────────────
 
 async def test_get_users_returns_empty_when_no_plex_no_filters(http_client):

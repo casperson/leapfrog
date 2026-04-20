@@ -25,7 +25,14 @@ async def reset_scanner_state():
     scanner._queue_size_snapshot = 0
 
 
-async def _make_job(guid: str, *, rating_key: str = "1", media_type: str = "movie", show_guid: str = ""):
+async def _make_job(
+    guid: str,
+    *,
+    rating_key: str = "1",
+    media_type: str = "movie",
+    show_guid: str = "",
+    content_rating: str = "",
+):
     await db.upsert_scan_job(
         plex_guid=guid,
         title=guid,
@@ -33,6 +40,7 @@ async def _make_job(guid: str, *, rating_key: str = "1", media_type: str = "movi
         rating_key=rating_key,
         library_id="lib",
         library_title="Library",
+        content_rating=content_rating,
         media_type=media_type,
         show_guid=show_guid,
     )
@@ -74,6 +82,21 @@ async def test_enqueue_pending_orders_movies_before_episodes():
     ordered = [job["plex_guid"] for job in queued]
     assert ordered.index("mov1") < ordered.index("ep1")
     assert ordered.index("mov2") < ordered.index("ep1")
+
+
+async def test_enqueue_pending_prioritizes_r_rated_titles_first():
+    await _make_job("pg13-movie", rating_key="20", content_rating="PG-13")
+    await _make_job("r-movie", rating_key="10", content_rating="R")
+    await _make_job("unrated-movie", rating_key="30", content_rating="")
+
+    await scanner.enqueue_pending()
+
+    queued = await db.get_queue_snapshot()
+    assert [job["plex_guid"] for job in queued] == [
+        "r-movie",
+        "unrated-movie",
+        "pg13-movie",
+    ]
 
 
 def test_is_paused_initially_false():

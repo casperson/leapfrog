@@ -20,7 +20,9 @@ Leapfrog is organized around a server-side media-filtering execution loop: Plex 
 - `leapfrog/detectors/nudity.py`
   Runs the existing frame extraction plus NudeNet path and emits `nudity` segments.
 - `leapfrog/detectors/semantic.py`
-  Reuses shared sampled frames for `sexual_content`, `violence`, and `drugs` with a local prompt-based semantic backend.
+  Reuses shared sampled frames for `sexual_content`, `violence`, and `drugs` with the semantic prompt bank and detector orchestration.
+- `leapfrog/detectors/clip_onnx.py`
+  Runs the local ONNX CLIP text and vision encoders, manages model downloads into app storage, and caches prompt plus frame embeddings.
 - `leapfrog/detectors/profanity.py`
   Loads subtitles first, falls back to Whisper when available, performs deterministic profanity matching, and emits `profanity` segments.
 - `leapfrog/subtitles.py`
@@ -55,7 +57,7 @@ The canonical segment record now keeps the original `plex_guid`-based storage fo
 
 - `scanner.py` extracts sampled JPEG frames once per title and fans them out to all image-based detectors.
 - Nudity detection still uses local NudeNet and emits thumbnail-backed segments with `category="nudity"` and `source="nudenet"`.
-- Sexual-content, violence, and drugs detection reuse the same sampled frames through `leapfrog/detectors/semantic.py`. The current backend is a prompt-configurable local heuristic scorer, with a centralized prompt bank so a stronger local CLIP-style backend can replace it later.
+- Sexual-content, violence, and drugs detection reuse the same sampled frames through `leapfrog/detectors/semantic.py` and `leapfrog/detectors/clip_onnx.py`. The current backend is a real local ONNX CLIP zero-shot scorer using cached text embeddings and shared frame embeddings.
 - Profanity detection runs separately from the video frame classifier path. It prefers external or embedded subtitles, then falls back to Whisper transcription if enabled and available. It stores matched caption/transcript excerpts in the segment row.
 
 ## Playback enforcement

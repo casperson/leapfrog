@@ -33,15 +33,21 @@ Leapfrog keeps all inference local to the Plex server machine.
 - `nudity`
   Uses local NudeNet on sampled frames.
 - `sexual_content`
-  Uses the shared local semantic prompt scorer on sampled frames.
+  Uses shared local ONNX CLIP zero-shot scoring on sampled frames.
 - `violence`
-  Uses the shared local semantic prompt scorer on sampled frames.
+  Uses shared local ONNX CLIP zero-shot scoring on sampled frames.
 - `drugs`
-  Uses the shared local semantic prompt scorer on sampled frames.
+  Uses shared local ONNX CLIP zero-shot scoring on sampled frames.
 - `profanity`
   Uses subtitles first, then embedded subtitles, then optional local Whisper fallback.
 
-The current semantic detector backend is a prompt-configurable local heuristic scorer in `leapfrog/detectors/semantic.py`. The prompt bank is centralized so a stronger local CLIP-style backend can replace it later without changing the scanner contract.
+The semantic detector backend now lives across `leapfrog/detectors/semantic.py` and `leapfrog/detectors/clip_onnx.py`:
+
+- the prompt bank remains centralized in `semantic.py`
+- local CLIP text and vision encoders run through ONNX Runtime
+- prompt embeddings are cached per label bank
+- image embeddings are cached and reused across `sexual_content`, `violence`, and `drugs`
+- model files are cached locally under `LEAPFROG_DATA/models/`
 
 ## Shared frame pipeline
 

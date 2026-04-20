@@ -87,6 +87,8 @@ export default function SettingsPage() {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [validatingModel, setValidatingModel] = useState(false)
   const [modelValidationResult, setModelValidationResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [preparingSemanticModel, setPreparingSemanticModel] = useState(false)
+  const [semanticModelResult, setSemanticModelResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [showToken, setShowToken] = useState(false)
   const [libraries, setLibraries] = useState<Library[]>([])
   const [detectorLabels, setDetectorLabels] = useState<string[]>([])
@@ -270,6 +272,19 @@ export default function SettingsPage() {
     }
   }
 
+  const prepareSemanticModel = async () => {
+    setPreparingSemanticModel(true)
+    setSemanticModelResult(null)
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>('/api/settings/prepare-semantic-model')
+      setSemanticModelResult(r)
+    } catch (e) {
+      setSemanticModelResult({ ok: false, message: 'Semantic model request failed' })
+    } finally {
+      setPreparingSemanticModel(false)
+    }
+  }
+
   const restartScanner = async () => {
     setRestarting(true)
     setRestarted(false)
@@ -382,6 +397,25 @@ export default function SettingsPage() {
                 <span className={`flex items-center gap-1.5 text-xs ${modelValidationResult.ok ? 'text-green-400' : 'text-red-400'}`}>
                   {modelValidationResult.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
                   {modelValidationResult.message}
+                </span>
+              )}
+            </div>
+          </Field>
+          <Field label="Prepare Semantic Model" hint="Optional: pre-download the local ONNX CLIP model used for sexual content, violence, and drugs detection. It will otherwise auto-download on first semantic scan.">
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={prepareSemanticModel}
+                disabled={preparingSemanticModel}
+                className="px-3 py-2 text-xs bg-plex-card border border-plex-border rounded-lg text-gray-300 hover:border-plex-orange/50 hover:text-white transition-colors disabled:opacity-40 flex items-center gap-2"
+              >
+                {preparingSemanticModel && <Loader2 size={13} className="animate-spin" />}
+                Download/Check semantic model
+              </button>
+              {semanticModelResult && (
+                <span className={`flex items-center gap-1.5 text-xs ${semanticModelResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                  {semanticModelResult.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                  {semanticModelResult.message}
                 </span>
               )}
             </div>

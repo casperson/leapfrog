@@ -3,8 +3,10 @@ from pydantic import BaseModel
 
 from ...logger import configure_log_buffer, get_logger
 from ... import database as db
+from ...config import Config
 import leapfrog.plex_client as plex_mod
 from ... import scanner as scan_mod
+from ...detectors.semantic import ensure_semantic_model_async
 from ...preferences import get_category_metadata
 from .segments import _invalidate_scan_labels_cache
 
@@ -47,11 +49,17 @@ class SettingsPayload(BaseModel):
     scan_workers: str | None = None
     nudenet_model: str | None = None
     nudenet_model_path: str | None = None
+    semantic_model_repo: str | None = None
+    semantic_processor_repo: str | None = None
+    semantic_model_variant: str | None = None
     segment_gap_ms: str | None = None
     segment_min_hits: str | None = None
     profanity_terms: str | None = None
     profanity_allowlist: str | None = None
     default_profanity_threshold: str | None = None
+    sexual_content_detection_threshold: str | None = None
+    violence_detection_threshold: str | None = None
+    drugs_detection_threshold: str | None = None
     profanity_merge_gap_ms: str | None = None
     whisper_enabled: str | None = None
     whisper_model: str | None = None
@@ -177,4 +185,22 @@ async def validate_model_path(payload: ValidateModelPathPayload):
         return {
             "ok": False,
             "message": f"Model could not be prepared: {exc}",
+        }
+
+
+@router.post("/prepare-semantic-model")
+async def prepare_semantic_model():
+    """Download and validate the local semantic ONNX model assets."""
+    try:
+        config = await Config.load()
+        await ensure_semantic_model_async(config)
+        return {
+            "ok": True,
+            "message": "Semantic ONNX model is ready in local app storage.",
+        }
+    except Exception as exc:
+        logger.warning("Semantic model preparation failed: %s", exc)
+        return {
+            "ok": False,
+            "message": f"Semantic model could not be prepared: {exc}",
         }

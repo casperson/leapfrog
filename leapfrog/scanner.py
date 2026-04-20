@@ -19,6 +19,7 @@ from .detectors import (
     ViolenceDetector,
 )
 from .detectors.nudity import ensure_640m_model_async, ensure_local_640m_model
+from .detectors.semantic import ensure_semantic_model_async, get_semantic_backend
 from .domain import MediaScanTarget, SUPPORTED_CATEGORIES
 from .frame_extractor import get_duration_ms, sample_video_frames
 from .logger import get_logger
@@ -124,7 +125,13 @@ async def enqueue_pending() -> None:
     movies = [job for job in active if job.get("media_type") != "episode"]
     episodes = [job for job in active if job.get("media_type") == "episode"]
 
-    movies.sort(key=lambda job: int(job.get("rating_key") or 0), reverse=True)
+    movies.sort(
+        key=lambda job: (
+            _content_rating_scan_priority(job),
+            int(job.get("rating_key") or 0),
+        ),
+        reverse=True,
+    )
 
     show_buckets: dict[str, list[dict]] = defaultdict(list)
     for episode in episodes:
@@ -136,7 +143,10 @@ async def enqueue_pending() -> None:
 
     ordered_shows = sorted(
         show_buckets.values(),
-        key=lambda eps: max(int(job.get("rating_key") or 0) for job in eps),
+        key=lambda eps: (
+            max(_content_rating_scan_priority(job) for job in eps),
+            max(int(job.get("rating_key") or 0) for job in eps),
+        ),
         reverse=True,
     )
 
@@ -172,6 +182,14 @@ def _delete_thumbnail_files(paths: list[str]) -> None:
             Path(path).unlink(missing_ok=True)
         except Exception as exc:
             logger.debug("Could not delete thumbnail %s: %s", path, exc)
+
+
+def _content_rating_scan_priority(job: dict) -> int:
+    """Return the default scan-order priority bucket for a job."""
+    rating = str(job.get("content_rating") or "").strip().upper()
+    if rating == "R":
+        return 1
+    return 0
 
 
 def _cluster_frames(
@@ -294,6 +312,7 @@ async def scan_video(plex_guid: str, config) -> None:
             getattr(config, "nudenet_model_path", "")
         ):
             await _ensure_640m_model_async()
+        await ensure_semantic_model_async(config)
 
         await db.upsert_media_scan_stage_status(
             plex_guid,
@@ -313,6 +332,7 @@ async def scan_video(plex_guid: str, config) -> None:
             rating_key=rating_key,
             force_scan=is_force_scan,
         )
+        semantic_backend = get_semantic_backend(config)
         image_detectors = {
             "nudity": NudityDetector(
                 should_abort=lambda media_id: media_id in _skip_requested_guids,
@@ -320,16 +340,19 @@ async def scan_video(plex_guid: str, config) -> None:
                 should_stop_for_window=lambda: not config.is_scan_window(),
             ),
             "sexual_content": SexualContentDetector(
+                backend=semantic_backend,
                 should_abort=lambda media_id: media_id in _skip_requested_guids,
                 should_pause=lambda: _paused,
                 should_stop_for_window=lambda: not config.is_scan_window(),
             ),
             "violence": ViolenceDetector(
+                backend=semantic_backend,
                 should_abort=lambda media_id: media_id in _skip_requested_guids,
                 should_pause=lambda: _paused,
                 should_stop_for_window=lambda: not config.is_scan_window(),
             ),
             "drugs": DrugsDetector(
+                backend=semantic_backend,
                 should_abort=lambda media_id: media_id in _skip_requested_guids,
                 should_pause=lambda: _paused,
                 should_stop_for_window=lambda: not config.is_scan_window(),

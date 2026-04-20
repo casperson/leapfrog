@@ -79,6 +79,18 @@ describe('Settings', () => {
     })
   })
 
+  it('calls semantic model prep endpoint from settings', async () => {
+    mockApi.post.mockResolvedValue({ ok: true, message: 'Semantic ONNX model is ready in local app storage.' })
+    renderSettings()
+
+    await waitFor(() => expect(screen.getByText('Settings')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Download/Check semantic model'))
+
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith('/api/settings/prepare-semantic-model')
+    )
+  })
+
   it('upload polling terminates after MAX_POLLS without timing out infinitely', async () => {
     // Simulate an upload job that stays 'running' indefinitely — the loop must stop
     let pollCount = 0

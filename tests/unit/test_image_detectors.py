@@ -46,7 +46,12 @@ class FakeBackend:
     def __init__(self, scores_by_bytes: dict[bytes, dict[str, float]]) -> None:
         self._scores_by_bytes = scores_by_bytes
 
-    def score_frame(self, jpeg_bytes: bytes, prompt_bank: dict[str, tuple[str, ...]]) -> dict[str, float]:
+    def score_frame(
+        self,
+        jpeg_bytes: bytes,
+        prompt_bank: dict[str, tuple[str, ...]],
+        negative_prompts: tuple[str, ...] = (),
+    ) -> dict[str, float]:
         scores = self._scores_by_bytes.get(jpeg_bytes, {})
         return {label: float(scores.get(label, 0.0)) for label in prompt_bank}
 

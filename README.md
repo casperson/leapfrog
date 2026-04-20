@@ -10,7 +10,7 @@ This repository is derived from [Cleanplex](https://github.com/nazmolla/Cleanple
 - Canonical category taxonomy across backend, frontend, export, and tests:
   `nudity`, `sexual_content`, `profanity`, `violence`, `drugs`
 - Background nudity detection with `ffmpeg` frame extraction plus local NudeNet
-- Prompt-driven local image classification for `sexual_content`, `violence`, and `drugs` on the shared sampled-frame pipeline
+- ONNX-backed local CLIP zero-shot classification for `sexual_content`, `violence`, and `drugs` on the shared sampled-frame pipeline
 - Subtitle-first profanity detection with deterministic word and phrase matching
 - Optional Whisper audio fallback when subtitles are unavailable and the local Whisper dependency is installed
 - Per-user profile controls for all five categories, including toggles and thresholds
@@ -32,13 +32,13 @@ Each queued media file runs through detector-specific scanners:
 - `nudity`
   Extracts frames with `ffmpeg`, scores them with NudeNet, clusters hits into segments, and stores thumbnails plus NudeNet labels for review.
 - `sexual_content`
-  Reuses the same sampled frames and applies local prompt-based scoring for intimate or sexual scenes that do not depend on nudity hits.
+  Reuses the same sampled frames and applies local ONNX CLIP scoring for intimate or sexual scenes that do not depend on nudity hits.
 - `profanity`
   Loads external subtitles first, falls back to embedded subtitles, and only then attempts Whisper transcription if enabled and available.
 - `violence`
-  Reuses the same sampled frames and applies local prompt-based scoring for fights, blood, and weapons.
+  Reuses the same sampled frames and applies local ONNX CLIP scoring for fights, blood, and weapons.
 - `drugs`
-  Reuses the same sampled frames and applies local prompt-based scoring for drug use and paraphernalia.
+  Reuses the same sampled frames and applies local ONNX CLIP scoring for drug use and paraphernalia.
 
 All detectors emit the same segment shape:
 
@@ -79,6 +79,7 @@ Important settings:
 - Plex URL and Plex token
 - Poll interval
 - NudeNet confidence threshold
+- Semantic ONNX CLIP model preparation and per-category semantic thresholds
 - Category default thresholds exposed through canonical category metadata
 - Profanity term list
 - Profanity allowlist for known false positives
@@ -106,6 +107,7 @@ If a user disables a category, those segments stay stored in the database but ar
 - `ffmpeg` and `ffprobe`
 - Node.js 20+ for the web UI build
 - Plex Media Server reachable on the local network for live Plex playback control
+- Internet access once to download the optional local semantic ONNX model if it is not already cached under `LEAPFROG_DATA/models/`
 
 ### Environment variables
 

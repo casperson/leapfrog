@@ -20,11 +20,17 @@ class Config:
     scan_workers: int = 2
     nudenet_model: str = "320n"
     nudenet_model_path: str = ""
+    semantic_model_repo: str = "Xenova/clip-vit-base-patch32"
+    semantic_processor_repo: str = "openai/clip-vit-base-patch32"
+    semantic_model_variant: str = "int8"
     segment_gap_ms: int = 12000
     segment_min_hits: int = 1
     profanity_terms: list[str] = field(default_factory=list)
     profanity_allowlist: list[str] = field(default_factory=list)
     default_profanity_threshold: float = 0.5
+    sexual_content_detection_threshold: float = 0.30
+    violence_detection_threshold: float = 0.28
+    drugs_detection_threshold: float = 0.30
     profanity_merge_gap_ms: int = 1500
     whisper_enabled: bool = True
     whisper_model: str = "base"
@@ -69,11 +75,17 @@ class Config:
             scan_workers=max(1, int(s.get("scan_workers", "2"))),
             nudenet_model=s.get("nudenet_model", "320n"),
             nudenet_model_path=s.get("nudenet_model_path", ""),
+            semantic_model_repo=s.get("semantic_model_repo", "Xenova/clip-vit-base-patch32"),
+            semantic_processor_repo=s.get("semantic_processor_repo", "openai/clip-vit-base-patch32"),
+            semantic_model_variant=s.get("semantic_model_variant", "int8"),
             segment_gap_ms=int(s.get("segment_gap_ms", "12000")),
             segment_min_hits=int(s.get("segment_min_hits", "1")),
             profanity_terms=_labels(s.get("profanity_terms", "[]")),
             profanity_allowlist=_labels(s.get("profanity_allowlist", "[]")),
             default_profanity_threshold=float(s.get("default_profanity_threshold", "0.5")),
+            sexual_content_detection_threshold=float(s.get("sexual_content_detection_threshold", "0.30")),
+            violence_detection_threshold=float(s.get("violence_detection_threshold", "0.28")),
+            drugs_detection_threshold=float(s.get("drugs_detection_threshold", "0.30")),
             profanity_merge_gap_ms=int(s.get("profanity_merge_gap_ms", "1500")),
             whisper_enabled=s.get("whisper_enabled", "1") == "1",
             whisper_model=s.get("whisper_model", "base"),

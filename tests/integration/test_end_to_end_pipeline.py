@@ -167,6 +167,9 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
     with patch("leapfrog.scanner.get_duration_ms", new=AsyncMock(return_value=10000)), patch(
         "leapfrog.scanner.sample_video_frames",
         new=AsyncMock(return_value=[SampledFrame(offset_ms=0, jpeg_bytes=b"jpeg")]),
+    ), patch(
+        "leapfrog.scanner.ensure_semantic_model_async",
+        new=AsyncMock(),
     ), patch("leapfrog.scanner.NudityDetector", return_value=nudity_detector), patch(
         "leapfrog.scanner.SexualContentDetector",
         return_value=sexual_content_detector,

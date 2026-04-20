@@ -123,6 +123,9 @@ async def test_scan_video_persists_detector_results(tmp_path):
     with patch("leapfrog.scanner.get_duration_ms", new=AsyncMock(return_value=10000)), patch(
         "leapfrog.scanner.sample_video_frames",
         new=AsyncMock(return_value=frames),
+    ), patch(
+        "leapfrog.scanner.ensure_semantic_model_async",
+        new=AsyncMock(),
     ) as sample_frames, patch("leapfrog.scanner.NudityDetector", return_value=nudity_detector), patch(
         "leapfrog.scanner.SexualContentDetector",
         return_value=sexual_detector,
@@ -238,6 +241,9 @@ async def test_scan_video_replaces_category_segments_and_deletes_stale_thumbnail
     with patch("leapfrog.scanner.get_duration_ms", new=AsyncMock(return_value=10000)), patch(
         "leapfrog.scanner.sample_video_frames",
         new=AsyncMock(return_value=[SampledFrame(offset_ms=0, jpeg_bytes=b"jpeg")]),
+    ), patch(
+        "leapfrog.scanner.ensure_semantic_model_async",
+        new=AsyncMock(),
     ), patch("leapfrog.scanner.NudityDetector", return_value=nudity_detector), patch(
         "leapfrog.scanner.SexualContentDetector",
         return_value=sexual_detector,
