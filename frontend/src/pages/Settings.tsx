@@ -7,6 +7,9 @@ interface Settings {
   plex_token: string
   poll_interval: string
   confidence_threshold: string
+  sexual_content_detection_threshold: string
+  violence_detection_threshold: string
+  drugs_detection_threshold: string
   skip_buffer_ms: string
   scan_step_ms: string
   scan_workers: string
@@ -48,6 +51,9 @@ const DEFAULT: Settings = {
   plex_token: '',
   poll_interval: '5',
   confidence_threshold: '0.6',
+  sexual_content_detection_threshold: '0.30',
+  violence_detection_threshold: '0.28',
+  drugs_detection_threshold: '0.26',
   skip_buffer_ms: '3000',
   scan_step_ms: '5000',
   scan_workers: '2',
@@ -364,8 +370,17 @@ export default function SettingsPage() {
           <Field label="Poll Interval (seconds)" hint="How often to check active streams for scenes to skip">
             <input type="number" min="2" max="30" value={form.poll_interval} onChange={set('poll_interval')} className={inputCls} />
           </Field>
-          <Field label="Detection Confidence Threshold" hint="Frames scoring above this value (0–1) are flagged as nudity. Lower = more sensitive.">
+          <Field label="Nudity Detection Threshold" hint="Frames scoring above this value (0–1) are flagged as nudity. Lower = more sensitive.">
             <input type="number" min="0.1" max="1" step="0.05" value={form.confidence_threshold} onChange={set('confidence_threshold')} className={inputCls} />
+          </Field>
+          <Field label="Sexual Content Threshold" hint="Local semantic scores above this value are flagged as sexual content. Lower catches more suggestive scenes, but may add false positives.">
+            <input type="number" min="0" max="1" step="0.02" value={form.sexual_content_detection_threshold} onChange={set('sexual_content_detection_threshold')} className={inputCls} />
+          </Field>
+          <Field label="Violence Threshold" hint="Local semantic scores above this value are flagged as violence, blood, or weapon scenes.">
+            <input type="number" min="0" max="1" step="0.02" value={form.violence_detection_threshold} onChange={set('violence_detection_threshold')} className={inputCls} />
+          </Field>
+          <Field label="Drugs Threshold" hint="Local semantic scores above this value are flagged as drug use or paraphernalia.">
+            <input type="number" min="0" max="1" step="0.02" value={form.drugs_detection_threshold} onChange={set('drugs_detection_threshold')} className={inputCls} />
           </Field>
           <Field label="Default Profanity Threshold" hint="Profiles inherit this threshold unless a user-specific profanity threshold overrides it.">
             <input type="number" min="0" max="1" step="0.05" value={form.default_profanity_threshold} onChange={set('default_profanity_threshold')} className={inputCls} />
@@ -474,10 +489,10 @@ export default function SettingsPage() {
           {/* VALUE is the exact content_rating string stored in Plex / the DB.
               Empty string ("") represents titles Plex left unrated. */}
           {[
-            { label: 'G',            value: 'G' },
-            { label: 'PG',           value: 'PG' },
-            { label: 'PG-13',        value: 'PG-13' },
             { label: 'R',            value: 'R' },
+            { label: 'PG-13',        value: 'PG-13' },
+            { label: 'PG',           value: 'PG' },
+            { label: 'G',            value: 'G' },
             { label: 'NC-17',        value: 'NC-17' },
             { label: 'TV-G',         value: 'TV-G' },
             { label: 'TV-PG',        value: 'TV-PG' },

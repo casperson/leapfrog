@@ -127,7 +127,7 @@ describe('Dashboard', () => {
     await waitFor(() => expect(screen.getByText(/Paused/)).toBeInTheDocument())
   })
 
-  it('polls API every 5 seconds', async () => {
+  it('backs off dashboard polling while idle', async () => {
     vi.useFakeTimers()
     renderDashboard()
     await act(async () => {
@@ -138,6 +138,12 @@ describe('Dashboard', () => {
 
     await act(async () => {
       vi.advanceTimersByTime(5000)
+      await Promise.resolve()
+    })
+    expect(mockApi.get.mock.calls.length).toBe(callsBefore)
+
+    await act(async () => {
+      vi.advanceTimersByTime(25000)
       await Promise.resolve()
     })
     expect(mockApi.get.mock.calls.length).toBeGreaterThan(callsBefore)

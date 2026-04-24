@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { Film, Tv, ChevronRight, ChevronDown, RotateCcw, Zap, Moon, RefreshCw, ExternalLink, AlertTriangle, Trash2, SkipForward, Play } from 'lucide-react'
 import TitleScanDetailPanel from '../components/TitleScanDetailPanel'
 import { CategoryDefinition, getCategoryLabel, useCategoryDefinitions } from '../lib/categories'
+import { usePageVisibility } from '../lib/polling'
 import {
   analysisStateClassName,
   formatAnalysisState,
@@ -263,6 +264,7 @@ function renderSegmentMeta(segment: Segment, categories: CategoryDefinition[]): 
 
 export default function Library() {
   const categories = useCategoryDefinitions()
+  const isPageVisible = usePageVisibility()
   const [libraries, setLibraries] = useState<Library[]>([])
   const [selected, setSelected] = useState<Library | null>(null)
   const [titles, setTitles] = useState<Title[]>([])
@@ -290,6 +292,9 @@ export default function Library() {
   const [reviewUsers, setReviewUsers] = useState<ReviewUser[]>([])
   const [selectedReviewUser, setSelectedReviewUser] = useState('')
   const [detailTitle, setDetailTitle] = useState<Title | null>(null)
+  const scannerPollMs = !isPageVisible
+    ? 0
+    : (((scannerStatus?.active_scans.length ?? 0) > 0 || (scannerStatus?.queue_size ?? 0) > 0) ? 3_000 : 30_000)
 
   useEffect(() => {
     api.get<{ libraries: Library[] }>('/api/libraries').then(d => setLibraries(d.libraries))
@@ -318,10 +323,12 @@ export default function Library() {
       .catch(() => {})
   }, [])
 
-  // Poll scanner status every 3s.
-  // AbortController prevents stale responses from overwriting newer state.
+  // Library status polling stays frequent while scans are active, but backs off
+  // when idle and stops in hidden tabs to avoid needless status churn.
   useEffect(() => {
     let controller = new AbortController()
+    let timeoutId: number | null = null
+    let cancelled = false
 
     const tick = () => {
       controller.abort()
@@ -329,15 +336,22 @@ export default function Library() {
       api.get<ScannerStatus>('/api/sessions/scanner-status', { signal: controller.signal })
         .then(setScannerStatus)
         .catch(() => {})
+        .finally(() => {
+          if (!cancelled && scannerPollMs > 0) {
+            timeoutId = window.setTimeout(tick, scannerPollMs)
+          }
+        })
     }
 
     tick()
-    const id = setInterval(tick, 3000)
     return () => {
-      clearInterval(id)
+      cancelled = true
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId)
+      }
       controller.abort()
     }
-  }, [])
+  }, [scannerPollMs])
 
   // Auto-refresh titles while scanning; cancel in-flight request before each new tick.
   useEffect(() => {

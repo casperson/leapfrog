@@ -337,7 +337,6 @@ async def init_db() -> None:
             "ALTER TABLE scan_jobs ADD COLUMN cancel_requested INTEGER DEFAULT 0",
             "ALTER TABLE scan_jobs ADD COLUMN queue_reason TEXT DEFAULT ''",
             "ALTER TABLE scan_jobs ADD COLUMN queued_at TIMESTAMP",
-            "ALTER TABLE scan_jobs ADD COLUMN queue_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "ALTER TABLE media_scan_status ADD COLUMN segment_count INTEGER DEFAULT 0",
             "ALTER TABLE media_scan_status ADD COLUMN progress REAL DEFAULT 0",
         ]
@@ -350,6 +349,31 @@ async def init_db() -> None:
                     # Unexpected error — surface it rather than silently continuing.
                     logger.error("Unexpected migration failure: %s — %s", stmt, exc)
                     raise
+        # SQLite only allows ALTER TABLE ADD COLUMN with constant defaults, so
+        # queue_updated_at must be added without DEFAULT and then backfilled.
+        try:
+            await conn.execute("ALTER TABLE scan_jobs ADD COLUMN queue_updated_at TIMESTAMP")
+            await conn.execute(
+                """
+                UPDATE scan_jobs
+                SET queue_updated_at = CURRENT_TIMESTAMP
+                WHERE queue_updated_at IS NULL
+                """
+            )
+            await conn.commit()
+        except aiosqlite.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                logger.error(
+                    "Unexpected migration failure: ALTER TABLE scan_jobs ADD COLUMN queue_updated_at TIMESTAMP — %s",
+                    exc,
+                )
+                raise
+        await conn.execute(
+            """
+            UPDATE scan_jobs
+            SET queue_updated_at = COALESCE(queue_updated_at, CURRENT_TIMESTAMP)
+            """
+        )
         # Existing databases may not have the queue columns until the additive
         # migrations above run, so create this index only after migration.
         await conn.execute(

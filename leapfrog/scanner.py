@@ -187,9 +187,13 @@ def _delete_thumbnail_files(paths: list[str]) -> None:
 def _content_rating_scan_priority(job: dict) -> int:
     """Return the default scan-order priority bucket for a job."""
     rating = str(job.get("content_rating") or "").strip().upper()
-    if rating == "R":
-        return 1
-    return 0
+    return {
+        "R": 4,
+        "PG-13": 3,
+        "PG13": 3,
+        "PG": 2,
+        "G": 1,
+    }.get(rating, 0)
 
 
 def _cluster_frames(

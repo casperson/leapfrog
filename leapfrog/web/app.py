@@ -6,8 +6,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 from .. import __version__
 from .routes.settings import router as settings_router
@@ -46,6 +46,11 @@ def create_app() -> FastAPI:
     app.include_router(thumbnails_router)
     app.include_router(sync_router)
     app.include_router(logs_router)
+
+    @app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"], include_in_schema=False)
+    async def api_not_found(full_path: str):
+        """Return API 404s explicitly so the SPA catch-all never masks them as 405s."""
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
 
     # Serve built React frontend (if present)
     if STATIC_DIR.exists():

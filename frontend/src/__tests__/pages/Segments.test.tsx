@@ -196,6 +196,23 @@ describe('Segments page', () => {
     expect(screen.getByText('Partially scanned')).toBeInTheDocument()
   })
 
+  it('filters visible titles by movie name', async () => {
+    renderSegments()
+
+    await waitFor(() => expect(screen.getAllByText('Movies').length).toBeGreaterThan(0))
+    await act(async () => {
+      fireEvent.click(screen.getAllByText('Movies')[0])
+    })
+
+    await waitFor(() => expect(screen.getByText('Movie Partial')).toBeInTheDocument())
+    await act(async () => {
+      fireEvent.change(screen.getAllByPlaceholderText('Filter titles…')[0], { target: { value: 'Flagged' } })
+    })
+
+    expect(screen.queryByText('Movie Partial')).not.toBeInTheDocument()
+    expect(screen.getByText('Movie Flagged')).toBeInTheDocument()
+  })
+
   it('renders scan detail timeline for a selected title', async () => {
     renderSegments()
 

@@ -84,18 +84,22 @@ async def test_enqueue_pending_orders_movies_before_episodes():
     assert ordered.index("mov2") < ordered.index("ep1")
 
 
-async def test_enqueue_pending_prioritizes_r_rated_titles_first():
+async def test_enqueue_pending_prioritizes_default_movie_ratings():
+    await _make_job("g-movie", rating_key="40", content_rating="G")
+    await _make_job("pg-movie", rating_key="30", content_rating="PG")
     await _make_job("pg13-movie", rating_key="20", content_rating="PG-13")
     await _make_job("r-movie", rating_key="10", content_rating="R")
-    await _make_job("unrated-movie", rating_key="30", content_rating="")
+    await _make_job("unrated-movie", rating_key="50", content_rating="")
 
     await scanner.enqueue_pending()
 
     queued = await db.get_queue_snapshot()
     assert [job["plex_guid"] for job in queued] == [
         "r-movie",
-        "unrated-movie",
         "pg13-movie",
+        "pg-movie",
+        "g-movie",
+        "unrated-movie",
     ]
 
 

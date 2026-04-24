@@ -42,6 +42,15 @@ const queueSnapshot = {
   paused: false,
 }
 
+const idleSnapshot = {
+  jobs: [],
+  queue_size: 0,
+  current: null,
+  currents: [],
+  active_scans: [],
+  paused: false,
+}
+
 beforeEach(() => {
   mockApi.get.mockResolvedValue(queueSnapshot)
   mockApi.post.mockResolvedValue(queueSnapshot)
@@ -85,5 +94,29 @@ describe('QueueManager', () => {
       fireEvent.click(screen.getByText('Cancel selected'))
     })
     expect(mockApi.post).toHaveBeenCalledWith('/api/scan/queue/cancel-selected', { guids: ['queued-1'] })
+  })
+
+  it('backs off queue polling while idle', async () => {
+    vi.useFakeTimers()
+    mockApi.get.mockResolvedValue(idleSnapshot)
+
+    render(<QueueManager />)
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Queue is empty.')).toBeInTheDocument()
+    expect(mockApi.get).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000)
+    })
+    expect(mockApi.get).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(25_000)
+    })
+    expect(mockApi.get).toHaveBeenCalledTimes(2)
   })
 })

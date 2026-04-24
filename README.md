@@ -142,6 +142,98 @@ cd ..
 
 Open `http://localhost:7979`.
 
+### Windows: run after install
+
+If the repository is already installed and the frontend has already been built, you do not need to rerun the full install flow each time.
+
+Start Leapfrog in a PowerShell window:
+
+```powershell
+cd C:\path\to\leapfrog
+.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\leapfrog.exe
+```
+
+Or without activating the virtualenv first:
+
+```powershell
+cd C:\path\to\leapfrog
+.\.venv\Scripts\python.exe -m leapfrog
+```
+
+Open `http://localhost:7979`.
+
+If you pull frontend changes later, rebuild the UI before starting again:
+
+```powershell
+cd C:\path\to\leapfrog\frontend
+npm install
+npm run build
+```
+
+You only need `npm install` again when frontend dependencies change. Otherwise `npm run build` is enough after UI changes.
+
+### Windows: run without leaving a terminal open
+
+Yes. Leapfrog can run in the background on Windows without keeping a terminal window open.
+
+Start it detached:
+
+```powershell
+cd C:\path\to\leapfrog
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1
+```
+
+That helper script:
+
+- launches `.\.venv\Scripts\leapfrog.exe` in the background,
+- writes stdout to `leapfrog.out.log`,
+- writes stderr to `leapfrog.err.log`,
+- stores the background PID in `.leapfrog-windows.pid`.
+
+Stop the background process:
+
+```powershell
+cd C:\path\to\leapfrog
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-stop.ps1
+```
+
+Optional custom location or port:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1 `
+  -DataDir "D:\LeapfrogData" `
+  -Host "0.0.0.0" `
+  -Port "7979"
+```
+
+### Windows: start automatically on system startup
+
+Use Windows Task Scheduler.
+
+Create a task with:
+
+- Program: `powershell.exe`
+- Arguments: `-ExecutionPolicy Bypass -File C:\path\to\leapfrog\scripts\windows-start.ps1`
+- Start in: `C:\path\to\leapfrog`
+
+Recommended task settings:
+
+- Trigger: `At log on` or `At startup`
+- Run whether user is logged on or not: enabled if you want it headless
+- Run with highest privileges: enabled
+- Configure for: your current Windows version
+
+If you need a custom data dir or port at startup, edit the task arguments:
+
+- `-ExecutionPolicy Bypass -File C:\path\to\leapfrog\scripts\windows-start.ps1 -DataDir D:\LeapfrogData -Port 7979`
+
+Run the task as the same Windows user account that can access:
+
+- your Plex media files
+- your chosen `LEAPFROG_DATA` directory
+- any local model cache location Leapfrog uses
+
 ### Build a distributable package
 
 ```bash

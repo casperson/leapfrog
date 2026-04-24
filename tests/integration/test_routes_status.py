@@ -21,3 +21,10 @@ async def test_get_application_status_returns_expected_shape(http_client):
     assert payload["adapters"]["plex"]["runtime_supported"] is True
     assert payload["exports"]["canonical_format"] == "leapfrog.segment.export/v1"
     assert "plex" in payload["exports"]["runtime_adapters"]
+
+
+async def test_unknown_api_post_returns_404_not_spa_405(http_client):
+    resp = await http_client.post("/api/does-not-exist")
+
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "Not Found"}

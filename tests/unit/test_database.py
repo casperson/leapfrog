@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -48,6 +49,42 @@ async def test_get_all_settings_returns_dict():
     # init_db seeds DEFAULT_SETTINGS
     assert "plex_url" in settings
     assert "confidence_threshold" in settings
+
+
+async def test_init_db_migrates_queue_updated_at_without_non_constant_default(tmp_path):
+    legacy_db_path = tmp_path / "legacy-queue.db"
+    sqlite_conn = sqlite3.connect(legacy_db_path)
+    try:
+        sqlite_conn.execute(
+            """
+            CREATE TABLE scan_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plex_guid TEXT UNIQUE NOT NULL,
+                title TEXT,
+                file_path TEXT,
+                rating_key TEXT,
+                library_id TEXT,
+                library_title TEXT,
+                status TEXT DEFAULT 'pending',
+                progress REAL DEFAULT 0,
+                started_at TIMESTAMP,
+                finished_at TIMESTAMP,
+                error_msg TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        sqlite_conn.commit()
+    finally:
+        sqlite_conn.close()
+
+    db.set_db_path(legacy_db_path)
+    await db.init_db()
+
+    async with db.get_connection() as conn:
+        columns = await conn.execute_fetchall("PRAGMA table_info(scan_jobs)")
+        queue_updated_at = next((col for col in columns if col["name"] == "queue_updated_at"), None)
+        assert queue_updated_at is not None
 
 
 # ── User Filters ───────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { Monitor, SkipForward, Clock, Wifi, WifiOff } from 'lucide-react'
+import { usePageVisibility } from '../lib/polling'
 import QueueManager from '../components/QueueManager'
 
 interface Session {
@@ -48,12 +49,16 @@ function msToTime(ms: number): string {
 }
 
 export default function Dashboard() {
+  const isPageVisible = usePageVisibility()
   const [sessions, setSessions] = useState<Session[]>([])
   const [events, setEvents] = useState<SkipEvent[]>([])
   const [scanner, setScanner] = useState<ScannerStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [skipLoadingKey, setSkipLoadingKey] = useState<string | null>(null)
   const [skipScanLoadingGuid, setSkipScanLoadingGuid] = useState<string | null>(null)
+  const dashboardPollMs = !isPageVisible
+    ? 0
+    : ((sessions.length > 0 || (scanner?.active_scans.length ?? 0) > 0 || (scanner?.queue_size ?? 0) > 0) ? 5_000 : 30_000)
 
   // refresh is called ad-hoc by skipNow/skipCurrentScan — reuses the same fetch logic
   // without a signal since it's a one-shot, user-triggered call.
@@ -75,9 +80,11 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    // AbortController is created per tick so stale responses from a previous
-    // tick cannot overwrite state after a newer tick has already updated it.
+    // Dashboard polling stays responsive during active playback or scanning,
+    // but it stops entirely in a hidden tab and backs off while idle.
     let controller = new AbortController()
+    let timeoutId: number | null = null
+    let cancelled = false
 
     const tick = async () => {
       controller.abort()
@@ -95,16 +102,23 @@ export default function Dashboard() {
         // Ignore — includes intentional abort
       } finally {
         setLoading(false)
+        if (!cancelled && dashboardPollMs > 0) {
+          timeoutId = window.setTimeout(() => {
+            void tick()
+          }, dashboardPollMs)
+        }
       }
     }
 
-    tick()
-    const id = setInterval(tick, 5000)
+    void tick()
     return () => {
-      clearInterval(id)
+      cancelled = true
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId)
+      }
       controller.abort()
     }
-  }, [])
+  }, [dashboardPollMs])
 
   const skipNow = async (sessionKey: string) => {
     try {

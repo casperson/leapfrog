@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowBigDown, ArrowBigUp, ChevronsDown, ChevronsUp, RefreshCw, StopCircle, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
+import { usePageVisibility } from '../lib/polling'
 import { formatTimestamp } from '../lib/scan'
 
 interface QueueJob {
@@ -44,6 +45,7 @@ function normalizeQueueSnapshot(payload: Partial<QueueSnapshot> | null | undefin
 }
 
 export default function QueueManager() {
+  const isPageVisible = usePageVisibility()
   const [snapshot, setSnapshot] = useState<QueueSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<string[]>([])
@@ -54,10 +56,20 @@ export default function QueueManager() {
     setSnapshot(normalizeQueueSnapshot(payload))
   }
 
+  const queuePollMs = useMemo(() => {
+    const hasQueuedWork = (snapshot?.jobs.length ?? 0) > 0 || (snapshot?.active_scans.length ?? 0) > 0
+    if (!isPageVisible) {
+      return hasQueuedWork ? 15_000 : 0
+    }
+    return hasQueuedWork ? 3_000 : 30_000
+  }, [isPageVisible, snapshot])
+
   useEffect(() => {
-    // Each poll tick replaces the previous request so stale queue snapshots
-    // cannot overwrite a newer ordering after a mutation.
+    // Queue polling stays fast while work is active, then backs off heavily
+    // when the queue is idle or the tab is hidden to avoid useless churn.
     let controller = new AbortController()
+    let timeoutId: number | null = null
+    let cancelled = false
 
     const tick = async () => {
       controller.abort()
@@ -68,16 +80,23 @@ export default function QueueManager() {
         // ignore abort/poll failures
       } finally {
         setLoading(false)
+        if (!cancelled && queuePollMs > 0) {
+          timeoutId = window.setTimeout(() => {
+            void tick()
+          }, queuePollMs)
+        }
       }
     }
 
-    tick()
-    const id = setInterval(tick, 3000)
+    void tick()
     return () => {
-      clearInterval(id)
+      cancelled = true
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId)
+      }
       controller.abort()
     }
-  }, [])
+  }, [queuePollMs])
 
   useEffect(() => {
     // Keep selection bounded to currently-visible queued jobs after reorder,

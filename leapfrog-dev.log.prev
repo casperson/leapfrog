@@ -1,5 +1,5 @@
-2026-04-19 20:11:18 [INFO] leapfrog.main: Leapfrog starting — data dir: /Users/bcasperson/.leapfrog-dev
-2026-04-19 20:11:18 [WARNING] leapfrog.main: Plex not yet configured — open the web UI to set up.
-2026-04-19 20:11:18 [INFO] leapfrog.main: Web UI available at http://0.0.0.0:7980
-2026-04-19 20:11:18 [INFO] leapfrog.scanner: Starting scanner pool with 2 worker(s)
-2026-04-19 20:11:18 [INFO] leapfrog.scanner: Scanner paused
+2026-04-22 11:04:12 [INFO] leapfrog.main: Leapfrog starting — data dir: /Users/bcasperson/.leapfrog-dev
+2026-04-22 11:04:12 [WARNING] leapfrog.main: Plex not yet configured — open the web UI to set up.
+2026-04-22 11:04:12 [INFO] leapfrog.main: Web UI available at http://0.0.0.0:7980
+2026-04-22 11:04:12 [INFO] leapfrog.scanner: Starting scanner pool with 2 worker(s)
+2026-04-22 11:04:12 [INFO] leapfrog.scanner: Scanner paused

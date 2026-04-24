@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { Film, Tv, ChevronRight, ChevronDown, Trash2, AlertTriangle, SkipForward, Play } from 'lucide-react'
 import TitleScanDetailPanel from '../components/TitleScanDetailPanel'
 import { CategoryDefinition, getCategoryLabel, useCategoryDefinitions } from '../lib/categories'
+import { usePageVisibility } from '../lib/polling'
 import {
   analysisStateClassName,
   formatAnalysisState,
@@ -179,9 +180,11 @@ function renderCategoryMeta(segment: Segment, categories: CategoryDefinition[]):
 
 export default function Segments() {
   const categories = useCategoryDefinitions()
+  const isPageVisible = usePageVisibility()
   const [libraries, setLibraries] = useState<Library[]>([])
   const [selectedLib, setSelectedLib] = useState<Library | null>(null)
   const [titles, setTitles] = useState<Title[]>([])
+  const [titleFilter, setTitleFilter] = useState('')
   const [selectedTitle, setSelectedTitle] = useState<Title | null>(null)
   const [segments, setSegments] = useState<Segment[]>([])
   const [loadingTitles, setLoadingTitles] = useState(false)
@@ -198,6 +201,13 @@ export default function Segments() {
   const [reviewUsers, setReviewUsers] = useState<ReviewUser[]>([])
   const [selectedReviewUser, setSelectedReviewUser] = useState('')
   const previewVideoRef = useRef<HTMLVideoElement | null>(null)
+  const normalizedTitleFilter = titleFilter.trim().toLowerCase()
+  const filteredTitles = normalizedTitleFilter
+    ? titles.filter(title => title.title.toLowerCase().includes(normalizedTitleFilter))
+    : titles
+  const scannerPollMs = !isPageVisible
+    ? 0
+    : (((scannerStatus?.active_scans.length ?? 0) > 0 || (scannerStatus?.queue_size ?? 0) > 0) ? 3_000 : 30_000)
 
   const toggleShow = (show: string) => {
     setExpandedShows(prev => { const n = new Set(prev); n.has(show) ? n.delete(show) : n.add(show); return n })
@@ -207,9 +217,9 @@ export default function Segments() {
   }
 
   // Build Show → Season → Episode hierarchy from the flat titles list.
-  const buildShowGroups = (): ShowGroup[] => {
+  const buildShowGroups = (items: Title[] = filteredTitles): ShowGroup[] => {
     const showMap = new Map<string, Map<string, Title[]>>()
-    for (const t of titles) {
+    for (const t of items) {
       const { show, season } = parseShowInfo(t.title)
       if (!showMap.has(show)) showMap.set(show, new Map())
       const seasonKey = season || 'Unknown Season'
@@ -286,10 +296,12 @@ export default function Segments() {
       .catch(() => {})
   }, [selectedReviewUser])
 
-  // Poll scanner status every 3s so Segments page mirrors live scan activity.
-  // AbortController prevents stale responses from overwriting newer state.
+  // Segments needs live scanner state while work is active, but hidden/idle
+  // views back off so browsing stored segments does not keep hammering status.
   useEffect(() => {
     let controller = new AbortController()
+    let timeoutId: number | null = null
+    let cancelled = false
 
     const tick = () => {
       controller.abort()
@@ -297,18 +309,26 @@ export default function Segments() {
       api.get<ScannerStatus>('/api/sessions/scanner-status', { signal: controller.signal })
         .then(setScannerStatus)
         .catch(() => {})
+        .finally(() => {
+          if (!cancelled && scannerPollMs > 0) {
+            timeoutId = window.setTimeout(tick, scannerPollMs)
+          }
+        })
     }
 
     tick()
-    const id = setInterval(tick, 3000)
     return () => {
-      clearInterval(id)
+      cancelled = true
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId)
+      }
       controller.abort()
     }
-  }, [])
+  }, [scannerPollMs])
 
   const selectLib = async (lib: Library) => {
     setSelectedLib(lib)
+    setTitleFilter('')
     setSelectedTitle(null)
     setSegments([])
     setLoadingTitles(true)
@@ -418,6 +438,15 @@ export default function Segments() {
       {/* Library tree - desktop: side panel; mobile: collapsed above content */}
       <div className="hidden md:flex w-52 flex-shrink-0 flex-col overflow-y-auto">
         <h1 className="text-xl font-bold text-gray-100 mb-3">Segments</h1>
+        {selectedLib && (
+          <input
+            type="search"
+            value={titleFilter}
+            onChange={event => setTitleFilter(event.target.value)}
+            placeholder="Filter titles…"
+            className="mb-3 w-full rounded-lg border border-plex-border bg-plex-card px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-plex-orange/60 focus:outline-none"
+          />
+        )}
         <div className="space-y-0.5 pr-2 flex-1 overflow-y-auto">
           {libraries.map(lib => (
             <div key={lib.id}>
@@ -436,11 +465,13 @@ export default function Segments() {
                 <div className="ml-2 mt-0.5 space-y-0.5">
                   {loadingTitles ? (
                     <div className="text-xs text-gray-600 px-2 py-1">Loading...</div>
-                  ) : titles.length === 0 ? (
-                    <div className="text-xs text-gray-600 px-2 py-1">No titles with saved or in-progress scan data</div>
+                  ) : filteredTitles.length === 0 ? (
+                    <div className="text-xs text-gray-600 px-2 py-1">
+                      {titles.length === 0 ? 'No titles with saved or in-progress scan data' : 'No titles match the current filter'}
+                    </div>
                   ) : lib.type === 'show' ? (
                     // TV: Show → Season → Episode hierarchy
-                    buildShowGroups().map(showGroup => (
+                    buildShowGroups(filteredTitles).map(showGroup => (
                       <div key={showGroup.show}>
                         <button
                           onClick={() => toggleShow(showGroup.show)}
@@ -487,7 +518,7 @@ export default function Segments() {
                     ))
                   ) : (
                     // Movies: flat list
-                    titles.map(t => (
+                    filteredTitles.map(t => (
                       <button
                         key={t.plex_guid}
                         onClick={() => selectTitle(t)}
@@ -532,33 +563,42 @@ export default function Segments() {
               ))}
             </select>
             {selectedLib && (
-              <select
-                value={selectedTitle?.plex_guid ?? ''}
-                onChange={e => {
-                  const t = titles.find(t => t.plex_guid === e.target.value)
-                  if (t) selectTitle(t)
-                }}
-                className="flex-1 px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-200 focus:outline-none focus:border-plex-orange/60"
-              >
-                <option value="">Select title…</option>
-                {selectedLib?.type === 'show' ? (
-                  // TV: grouped by show → season using optgroup
-                  buildShowGroups().map(showGroup =>
-                    showGroup.seasons.map(seasonGroup => (
-                      <optgroup key={`${showGroup.show}__${seasonGroup.season}`} label={`${showGroup.show} – ${seasonGroup.season}`}>
-                        {seasonGroup.episodes.map(t => {
-                          const { episode } = parseShowInfo(t.title)
-                          return <option key={t.plex_guid} value={t.plex_guid}>{episode} ({t.segment_count})</option>
-                        })}
-                      </optgroup>
+              <div className="flex-1 space-y-2">
+                <input
+                  type="search"
+                  value={titleFilter}
+                  onChange={event => setTitleFilter(event.target.value)}
+                  placeholder="Filter titles…"
+                  className="w-full px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-plex-orange/60"
+                />
+                <select
+                  value={selectedTitle?.plex_guid ?? ''}
+                  onChange={e => {
+                    const t = filteredTitles.find(title => title.plex_guid === e.target.value)
+                    if (t) selectTitle(t)
+                  }}
+                  className="w-full px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-200 focus:outline-none focus:border-plex-orange/60"
+                >
+                  <option value="">Select title…</option>
+                  {selectedLib?.type === 'show' ? (
+                    // TV: grouped by show → season using optgroup
+                    buildShowGroups(filteredTitles).map(showGroup =>
+                      showGroup.seasons.map(seasonGroup => (
+                        <optgroup key={`${showGroup.show}__${seasonGroup.season}`} label={`${showGroup.show} – ${seasonGroup.season}`}>
+                          {seasonGroup.episodes.map(t => {
+                            const { episode } = parseShowInfo(t.title)
+                            return <option key={t.plex_guid} value={t.plex_guid}>{episode} ({t.segment_count})</option>
+                          })}
+                        </optgroup>
+                      ))
+                    )
+                  ) : (
+                    filteredTitles.map(t => (
+                      <option key={t.plex_guid} value={t.plex_guid}>{t.title} ({t.segment_count})</option>
                     ))
-                  )
-                ) : (
-                  titles.map(t => (
-                    <option key={t.plex_guid} value={t.plex_guid}>{t.title} ({t.segment_count})</option>
-                  ))
-                )}
-              </select>
+                  )}
+                </select>
+              </div>
             )}
           </div>
           {reviewUsers.length > 0 && (

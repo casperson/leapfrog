@@ -23,6 +23,9 @@ const defaultSettings = {
   plex_token: 'abc',
   poll_interval: '5',
   confidence_threshold: '0.6',
+  sexual_content_detection_threshold: '0.30',
+  violence_detection_threshold: '0.28',
+  drugs_detection_threshold: '0.26',
   skip_buffer_ms: '3000',
   scan_step_ms: '5000',
   scan_workers: '2',
@@ -77,6 +80,15 @@ describe('Settings', () => {
       const input = screen.getByDisplayValue('http://plex:32400')
       expect(input).toBeInTheDocument()
     })
+  })
+
+  it('renders semantic detector threshold controls', async () => {
+    renderSettings()
+
+    await waitFor(() => expect(screen.getByDisplayValue('0.30')).toBeInTheDocument())
+    expect(screen.getByText('Sexual Content Threshold')).toBeInTheDocument()
+    expect(screen.getByText('Violence Threshold')).toBeInTheDocument()
+    expect(screen.getByText('Drugs Threshold')).toBeInTheDocument()
   })
 
   it('calls semantic model prep endpoint from settings', async () => {
