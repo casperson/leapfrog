@@ -148,7 +148,43 @@ async def test_scanner_status_returns_expected_shape(http_client):
     assert "queue_size" in data
     assert "active_scans" in data
     assert "paused" in data
+    assert "skipper" in data
     assert data["paused"] is False
+
+
+async def test_scanner_status_marks_skipper_degraded_after_seek_failure(http_client):
+    mock_client = make_mock_plex_client()
+    mock_client.get_last_seek_failure.return_value = {
+        "at": "2026-04-25T08:00:00",
+        "method": "direct",
+        "detail": "Connection refused",
+    }
+    mock_client.get_last_seek_success_at.return_value = None
+
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client), \
+         patch("leapfrog.web.routes.sessions.get_current_scan", return_value=None), \
+         patch("leapfrog.web.routes.sessions.get_current_scans", return_value=[]), \
+         patch("leapfrog.web.routes.sessions.get_queue_size", return_value=0), \
+         patch("leapfrog.web.routes.sessions.get_worker_pool_size", return_value=2), \
+         patch("leapfrog.web.routes.sessions.is_paused", return_value=False), \
+         patch(
+             "leapfrog.web.routes.sessions.get_skipper_runtime_state",
+             return_value={
+                 "last_poll_at": "2026-04-25T08:00:01",
+                 "last_success_at": "2026-04-25T08:00:01",
+                 "last_error": None,
+                 "last_error_at": None,
+                 "last_skip_at": None,
+                 "last_session_count": 1,
+             },
+         ):
+        resp = await http_client.get("/api/sessions/scanner-status")
+
+    assert resp.status_code == 200
+    skipper = resp.json()["skipper"]
+    assert skipper["healthy"] is False
+    assert skipper["status"] == "degraded"
+    assert skipper["last_seek_failure"]["detail"] == "Connection refused"
 
 
 async def test_scanner_status_batches_db_lookup(http_client):
@@ -217,7 +253,7 @@ async def test_skip_session_seeks_to_next_segment(http_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert data["seek_to_ms"] == 25000  # 30000 - 5000 (expansion)
+    assert data["seek_to_ms"] == 63000
     assert data["adapter_status"]["segment_source"] == "db"
 
 
@@ -231,7 +267,7 @@ async def test_skip_session_with_nudity_enabled_only_ignores_other_categories(ht
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 25000
+    assert resp.json()["seek_to_ms"] == 63000
 
 
 async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_client):
@@ -244,7 +280,7 @@ async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_clie
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 5000
+    assert resp.json()["seek_to_ms"] == 23000
 
 
 async def test_skip_session_returns_404_when_all_categories_disabled(http_client):
@@ -267,7 +303,7 @@ async def test_skip_session_with_missing_preferences_defaults_to_nudity_only(htt
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 25000
+    assert resp.json()["seek_to_ms"] == 63000
 
 
 async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
@@ -299,5 +335,5 @@ async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 25000
+    assert resp.json()["seek_to_ms"] == 63000
     assert resp.json()["adapter_status"]["segment_source"] == "sidecar"

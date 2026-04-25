@@ -27,6 +27,18 @@ const scannerIdle = {
   workers_active: 0,
   workers_idle: 2,
   paused: false,
+  skipper: {
+    healthy: true,
+    status: 'active',
+    last_poll_at: '2026-04-25T09:00:00',
+    last_success_at: '2026-04-25T09:00:00',
+    last_skip_at: null,
+    last_error: null,
+    last_error_at: null,
+    last_session_count: 0,
+    last_seek_success_at: null,
+    last_seek_failure: null,
+  },
 }
 
 const queueSnapshot = {
@@ -125,6 +137,12 @@ describe('Dashboard', () => {
     })
     renderDashboard()
     await waitFor(() => expect(screen.getByText(/Paused/)).toBeInTheDocument())
+  })
+
+  it('shows skipper health status', async () => {
+    renderDashboard()
+    const skipperLabel = await screen.findByText('Skipper:')
+    expect(skipperLabel.parentElement).toHaveTextContent('Skipper: Active')
   })
 
   it('backs off dashboard polling while idle', async () => {

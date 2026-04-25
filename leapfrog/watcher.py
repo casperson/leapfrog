@@ -18,6 +18,40 @@ logger = get_logger(__name__)
 
 # Ring buffer of recent skip events for the dashboard
 skip_events: deque[dict] = deque(maxlen=50)
+_skipper_runtime_state: dict[str, str | int | None] = {
+    "last_poll_at": None,
+    "last_success_at": None,
+    "last_error": None,
+    "last_error_at": None,
+    "last_skip_at": None,
+    "last_session_count": 0,
+}
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _mark_skipper_poll(session_count: int) -> None:
+    now = _now_iso()
+    _skipper_runtime_state["last_poll_at"] = now
+    _skipper_runtime_state["last_success_at"] = now
+    _skipper_runtime_state["last_error"] = None
+    _skipper_runtime_state["last_error_at"] = None
+    _skipper_runtime_state["last_session_count"] = session_count
+
+
+def _mark_skipper_error(detail: str) -> None:
+    _skipper_runtime_state["last_error"] = detail
+    _skipper_runtime_state["last_error_at"] = _now_iso()
+
+
+def _mark_skipper_skip() -> None:
+    _skipper_runtime_state["last_skip_at"] = _now_iso()
+
+
+def get_skipper_runtime_state() -> dict[str, str | int | None]:
+    return dict(_skipper_runtime_state)
 
 
 async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
@@ -32,6 +66,7 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
         try:
             client = get_client_fn()
             sessions = await client.get_active_sessions()
+            _mark_skipper_poll(len(sessions))
             resolved_preferences = await get_resolved_preferences_for_users(
                 (session.user for session in sessions),
                 threshold_defaults={
@@ -62,9 +97,11 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
                             "position_ms": session.position_ms,
                             "client": session.client_title,
                         })
+                        _mark_skipper_skip()
 
         except Exception as exc:
             logger.warning("Session watcher error: %s", exc)
+            _mark_skipper_error(str(exc))
 
         await asyncio.sleep(config.poll_interval)
 

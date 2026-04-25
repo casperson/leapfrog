@@ -18,6 +18,7 @@ async def test_get_application_status_returns_expected_shape(http_client):
     payload = resp.json()
     assert payload["version"]
     assert payload["scanner"]["healthy"] is True
+    assert "skipper" in payload
     assert payload["adapters"]["plex"]["runtime_supported"] is True
     assert payload["exports"]["canonical_format"] == "leapfrog.segment.export/v1"
     assert "plex" in payload["exports"]["runtime_adapters"]

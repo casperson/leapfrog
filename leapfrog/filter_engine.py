@@ -64,39 +64,39 @@ async def process(
         )
         return
 
-    # Expand segment boundaries by 5 seconds before and after
-    for seg in segments:
-        seg["start_ms"] = max(0, seg["start_ms"] - 5000)
-        seg["end_ms"] = seg["end_ms"] + 5000
-
     logger.info("Checking %d segment(s) for '%s' at pos=%dms (client=%s)", len(segments), session.full_title, pos, session.client_identifier)
     for seg in segments:
+        original_start = int(seg["start_ms"])
+        original_end = int(seg["end_ms"])
+        trigger_start = max(0, original_start - 5000)
+        trigger_end = original_end + 5000
+        seek_target = original_end + skip_buffer_ms
+
         # Trigger when approaching the segment (within lookahead_ms before start) or already inside.
         # This compensates for polling latency so the seek fires before/at the segment start.
-        if seg["start_ms"] - lookahead_ms <= pos <= seg["end_ms"]:
-            # Seek to the expanded segment start
-            target = seg["start_ms"]
+        if trigger_start - lookahead_ms <= pos <= trigger_end:
             logger.info(
                 "Skipping [%s] for user '%s': %dms → %dms (category=%s, source=%s, segment=%d–%d, confidence=%s)",
                 session.full_title,
                 session.user,
                 pos,
-                target,
+                seek_target,
                 seg.get("category", "nudity"),
                 seg.get("source", "nudenet"),
-                seg["start_ms"],
-                seg["end_ms"],
+                trigger_start,
+                trigger_end,
                 f"{float(seg['confidence']):.2f}" if seg.get("confidence") is not None else "n/a",
             )
             success = await client.seek(
                 session.client_identifier,
-                target,
+                seek_target,
                 session.client_address,
                 session.client_port,
             )
             if success:
                 # Track skip until the expanded segment end to prevent re-triggering
-                _recently_skipped[session.session_key] = seg["end_ms"]
+                # if the seek lands slightly before the buffered resume position.
+                _recently_skipped[session.session_key] = max(trigger_end, seek_target)
                 _seek_backoff_until.pop(session.session_key, None)
             else:
                 _seek_backoff_until[session.session_key] = time.time() + 20

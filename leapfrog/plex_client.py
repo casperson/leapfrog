@@ -80,6 +80,39 @@ class PlexClient:
         self._http = httpx.AsyncClient(timeout=10)
         # {rating_key: (monotonic_timestamp, (show_guid, show_title, show_thumb, show_rating_key, season_rating_key))}
         self._show_art_cache: dict[str, tuple[float, tuple[str, str, str, str, str]]] = {}
+        self._last_seek_success_at: str | None = None
+        self._last_seek_failure: dict[str, Any] | None = None
+
+    def _record_seek_success(self) -> None:
+        self._last_seek_success_at = datetime.now().isoformat(timespec="seconds")
+
+    def _record_seek_failure(
+        self,
+        *,
+        method: str,
+        client_identifier: str,
+        detail: str,
+        client_address: str = "",
+        client_port: int | None = None,
+        status_code: int | None = None,
+        variant: int | None = None,
+    ) -> None:
+        self._last_seek_failure = {
+            "at": datetime.now().isoformat(timespec="seconds"),
+            "method": method,
+            "client_identifier": client_identifier,
+            "client_address": client_address,
+            "client_port": client_port,
+            "status_code": status_code,
+            "variant": variant,
+            "detail": detail,
+        }
+
+    def get_last_seek_success_at(self) -> str | None:
+        return self._last_seek_success_at
+
+    def get_last_seek_failure(self) -> dict[str, Any] | None:
+        return dict(self._last_seek_failure) if self._last_seek_failure else None
 
     def _get_server(self) -> PlexServer:
         if self._server is None:
@@ -193,12 +226,23 @@ class PlexClient:
             headers = {"X-Plex-Target-Client-Identifier": client_identifier}
             await asyncio.to_thread(srv.query, key, headers=headers)
             logger.info("Seeked client %s to %dms via server query proxy", client_identifier, offset_ms)
+            self._record_seek_success()
             return True
         except Exception as exc:
             logger.warning("Proxy seek failed for %s: %s", client_identifier, exc)
+            self._record_seek_failure(
+                method="proxy",
+                client_identifier=client_identifier,
+                detail=str(exc),
+            )
 
         if not client_address:
             logger.warning("No client_address available for direct seek fallback (client=%s)", client_identifier)
+            self._record_seek_failure(
+                method="direct",
+                client_identifier=client_identifier,
+                detail="No client_address available for direct seek fallback",
+            )
             return False
 
         ports = [client_port, 32500, 3005]
@@ -260,6 +304,7 @@ class PlexClient:
                             offset_ms,
                             idx,
                         )
+                        self._record_seek_success()
                         return True
                     logger.warning(
                         "Direct seek HTTP %d for client %s at %s:%d (variant=%d, body=%s)",
@@ -270,6 +315,15 @@ class PlexClient:
                         idx,
                         resp.text[:500],
                     )
+                    self._record_seek_failure(
+                        method="direct",
+                        client_identifier=client_identifier,
+                        detail=resp.text[:500] or f"HTTP {resp.status_code}",
+                        client_address=client_address,
+                        client_port=port,
+                        status_code=resp.status_code,
+                        variant=idx,
+                    )
                 except Exception as exc:
                     logger.warning(
                         "Direct seek failed for client %s at %s:%d (variant=%d): %s",
@@ -278,6 +332,14 @@ class PlexClient:
                         port,
                         idx,
                         exc,
+                    )
+                    self._record_seek_failure(
+                        method="direct",
+                        client_identifier=client_identifier,
+                        detail=str(exc),
+                        client_address=client_address,
+                        client_port=port,
+                        variant=idx,
                     )
 
         return False

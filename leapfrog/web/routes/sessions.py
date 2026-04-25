@@ -7,12 +7,62 @@ from ...preferences import (
     get_resolved_preferences_for_users,
 )
 import leapfrog.plex_client as plex_mod
-from ...watcher import skip_events
+from ...watcher import get_skipper_runtime_state, skip_events
 from ... import database as db
 from ...scanner import get_queue_size, get_current_scan, get_current_scans, get_worker_pool_size, is_paused
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+async def _build_skipper_status() -> dict:
+    runtime = get_skipper_runtime_state()
+
+    try:
+        client = plex_mod.get_client()
+        last_seek_failure = client.get_last_seek_failure()
+        last_seek_success_at = client.get_last_seek_success_at()
+        connected = True
+    except RuntimeError:
+        last_seek_failure = None
+        last_seek_success_at = None
+        connected = False
+
+    seek_failure_active = False
+    if last_seek_failure:
+        failure_at = last_seek_failure.get("at")
+        seek_failure_active = (
+            not last_seek_success_at
+            or not failure_at
+            or failure_at >= last_seek_success_at
+        )
+
+    status = "starting"
+    healthy = False
+    if not connected:
+        status = "not_configured"
+    elif runtime.get("last_error"):
+        status = "degraded"
+        healthy = False
+    elif seek_failure_active:
+        status = "degraded"
+        healthy = False
+    elif runtime.get("last_poll_at"):
+        status = "active"
+        healthy = True
+
+    return {
+        "healthy": healthy,
+        "status": status,
+        "last_poll_at": runtime.get("last_poll_at"),
+        "last_success_at": runtime.get("last_success_at"),
+        "last_skip_at": runtime.get("last_skip_at"),
+        "last_error": runtime.get("last_error"),
+        "last_error_at": runtime.get("last_error_at"),
+        "last_session_count": runtime.get("last_session_count"),
+        "last_seek_success_at": last_seek_success_at,
+        "last_seek_failure": last_seek_failure,
+    }
 
 
 @router.get("")
@@ -115,6 +165,7 @@ async def scanner_status():
         "workers_active": active_workers,
         "workers_idle": max(0, effective_workers - active_workers),
         "paused": is_paused(),
+        "skipper": await _build_skipper_status(),
     }
 
 
@@ -141,22 +192,22 @@ async def skip_session_title(session_key: str):
     if not segments:
         raise HTTPException(status_code=404, detail="No enabled segments found for this user")
 
-    # Expand segment boundaries by 5 seconds before and after
-    for seg in segments:
-        seg["start_ms"] = max(0, int(seg["start_ms"]) - 5000)
-        seg["end_ms"] = int(seg["end_ms"]) + 5000
-
     pos = int(session.position_ms)
 
     # Prefer the segment currently playing; otherwise choose the next segment ahead.
-    current = next((seg for seg in segments if int(seg["start_ms"]) <= pos <= int(seg["end_ms"])), None)
+    current = next(
+        (
+            seg for seg in segments
+            if max(0, int(seg["start_ms"]) - 5000) <= pos <= int(seg["end_ms"]) + 5000
+        ),
+        None,
+    )
     target_seg = current or next((seg for seg in segments if int(seg["start_ms"]) > pos), None)
     if target_seg is None:
         raise HTTPException(status_code=409, detail="No remaining segments ahead of current position")
 
     skip_buffer_ms = int(await db.get_setting("skip_buffer_ms", "3000"))
-    # Seek to the expanded segment start
-    seek_to_ms = int(target_seg["start_ms"])
+    seek_to_ms = int(target_seg["end_ms"]) + skip_buffer_ms
 
     ok = await client.seek(
         session.client_identifier,

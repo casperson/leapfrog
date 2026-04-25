@@ -25,6 +25,28 @@ interface SkipEvent {
   client: string
 }
 
+interface SkipperStatus {
+  healthy: boolean
+  status: string
+  last_poll_at?: string | null
+  last_success_at?: string | null
+  last_skip_at?: string | null
+  last_error?: string | null
+  last_error_at?: string | null
+  last_session_count?: number
+  last_seek_success_at?: string | null
+  last_seek_failure?: {
+    at?: string | null
+    method?: string | null
+    detail?: string | null
+    client_identifier?: string | null
+    client_address?: string | null
+    client_port?: number | null
+    status_code?: number | null
+    variant?: number | null
+  } | null
+}
+
 interface ScannerStatus {
   queue_size: number
   current_scan: string | null
@@ -37,6 +59,7 @@ interface ScannerStatus {
   workers_active: number
   workers_idle: number
   paused: boolean
+  skipper?: SkipperStatus
 }
 
 function msToTime(ms: number): string {
@@ -175,6 +198,55 @@ export default function Dashboard() {
               <span className="text-gray-500 sm:ml-auto">Queue: <span className="text-gray-300">{scanner.queue_size}</span></span>
             )}
           </div>
+          {scanner.skipper && (
+            <div className="rounded-lg border border-plex-border bg-black/10 px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-gray-400">
+                  Skipper:{' '}
+                  <span className={
+                    scanner.skipper.status === 'active'
+                      ? 'text-green-400'
+                      : scanner.skipper.status === 'degraded'
+                        ? 'text-amber-300'
+                        : 'text-gray-500'
+                  }>
+                    {scanner.skipper.status === 'active'
+                      ? 'Active'
+                      : scanner.skipper.status === 'degraded'
+                        ? 'Degraded'
+                        : scanner.skipper.status === 'not_configured'
+                          ? 'Not configured'
+                          : 'Starting'}
+                  </span>
+                </span>
+                {typeof scanner.skipper.last_session_count === 'number' && (
+                  <span className="text-gray-500">
+                    Sessions: <span className="text-gray-300">{scanner.skipper.last_session_count}</span>
+                  </span>
+                )}
+                {scanner.skipper.last_poll_at && (
+                  <span className="text-gray-500">
+                    Last poll: <span className="text-gray-300">{scanner.skipper.last_poll_at.replace('T', ' ')}</span>
+                  </span>
+                )}
+                {scanner.skipper.last_skip_at && (
+                  <span className="text-gray-500">
+                    Last skip: <span className="text-gray-300">{scanner.skipper.last_skip_at.replace('T', ' ')}</span>
+                  </span>
+                )}
+              </div>
+              {scanner.skipper.last_error && (
+                <p className="mt-2 text-xs text-amber-300">
+                  Watcher error: {scanner.skipper.last_error}
+                </p>
+              )}
+              {scanner.skipper.last_seek_failure?.detail && (
+                <p className="mt-1 text-xs text-amber-300">
+                  Last seek failure: {scanner.skipper.last_seek_failure.detail}
+                </p>
+              )}
+            </div>
+          )}
           {scanner.active_scans.length > 0 && (
             <div className="space-y-2">
               {scanner.active_scans.map(scan => (

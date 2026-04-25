@@ -142,7 +142,7 @@ async def test_position_within_lookahead_triggers_seek():
 
     client.seek.assert_awaited_once()
     _, seek_ms, *_ = client.seek.call_args[0]
-    assert seek_ms == 25000
+    assert seek_ms == 43000
 
 
 async def test_position_before_lookahead_does_not_seek():
@@ -298,7 +298,7 @@ async def test_nudity_only_preferences_skip_only_nudity_segments():
 
     client.seek.assert_awaited_once()
     _, seek_ms, *_ = client.seek.call_args[0]
-    assert seek_ms == 25000
+    assert seek_ms == 43000
 
 
 async def test_profanity_only_preferences_skip_only_profanity_segments():
@@ -317,7 +317,7 @@ async def test_profanity_only_preferences_skip_only_profanity_segments():
 
     client.seek.assert_awaited_once()
     _, seek_ms, *_ = client.seek.call_args[0]
-    assert seek_ms == 5000
+    assert seek_ms == 18000
 
 
 async def test_all_categories_disabled_skips_nothing():

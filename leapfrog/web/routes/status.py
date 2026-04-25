@@ -10,6 +10,7 @@ from ...adapters.runtime_common import SUPPORTED_SIDECAR_SUFFIXES
 from ...config import Config
 from ...scanner import get_current_scans, get_queue_size, get_worker_pool_size, is_paused
 import leapfrog.plex_client as plex_mod
+from .sessions import _build_skipper_status
 
 router = APIRouter(prefix="/api", tags=["status"])
 
@@ -48,6 +49,7 @@ async def get_application_status():
             "worker_pool_size": get_worker_pool_size(),
             "active_scans": active_scans,
         },
+        "skipper": await _build_skipper_status(),
         "adapters": {
             "plex": {
                 "runtime_supported": True,
