@@ -27,13 +27,13 @@ pytestmark = pytest.mark.usefixtures("setup_db")
 def _config():
     return SimpleNamespace(
         scan_ratings=[],
-        confidence_threshold=0.6,
+        confidence_threshold=0.4,
         default_profanity_threshold=0.5,
-        scan_step_ms=5000,
+        scan_step_ms=250,
         segment_gap_ms=12000,
         segment_min_hits=1,
         scan_labels=[],
-        nudenet_model="320n",
+        nudenet_model="640m",
         nudenet_model_path="",
         profanity_terms=["damn"],
         profanity_merge_gap_ms=1500,
@@ -114,7 +114,7 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
                     category="sexual_content",
                     source="semantic_clip",
                     confidence=0.84,
-                    labels="kissing,intimate_touch",
+                    labels="heavy_making_out,intimate_touch",
                 )
             ],
         )
@@ -136,7 +136,7 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
                     category="violence",
                     source="semantic_clip",
                     confidence=0.79,
-                    labels="fight,weapon",
+                    labels="fight,weapon_threat",
                 )
             ],
         )
@@ -191,8 +191,8 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
         "drugs",
     }
     assert any(segment["text_excerpt"] for segment in segments if segment["category"] == "profanity")
-    assert any(segment["labels"] == "kissing,intimate_touch" for segment in segments if segment["category"] == "sexual_content")
-    assert any(segment["labels"] == "fight,weapon" for segment in segments if segment["category"] == "violence")
+    assert any(segment["labels"] == "heavy_making_out,intimate_touch" for segment in segments if segment["category"] == "sexual_content")
+    assert any(segment["labels"] == "fight,weapon_threat" for segment in segments if segment["category"] == "violence")
 
     status_resp = await http_client.get(
         "/api/titles/guid-e2e/scan-status",
@@ -218,7 +218,7 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
     preferences = await get_resolved_preferences_for_user(
         "alice",
         threshold_defaults={
-            "nudity": 0.6,
+            "nudity": 0.4,
             "sexual_content": 0.5,
             "profanity": 0.5,
             "violence": 0.5,

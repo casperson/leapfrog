@@ -24,60 +24,41 @@ logger = get_logger(__name__)
 
 SEMANTIC_PROMPT_BANK: dict[str, dict[str, tuple[str, ...]]] = {
     "sexual_content": {
-        "kissing": (
-            "a movie frame of two adults kissing passionately",
-            "a romantic close-up kiss between adults",
-            "an intimate kiss in a film scene",
-        ),
-        "intimate_touch": (
-            "a movie scene with intimate touching between adults",
-            "romantic intimate physical contact in a bedroom scene",
-            "suggestive caressing between adults in a film scene",
-        ),
-        "bed_intimacy": (
-            "an adult couple embracing in bed in a movie scene",
-            "a sexual situation without explicit nudity in a film frame",
-            "a movie frame showing implied sexual activity without nudity",
-        ),
+        "explicit_sex": ("explicit sexual intercourse in a movie scene", "visible explicit sex act", "adults engaged in explicit sexual activity"),
+        "simulated_sex": ("simulated sex or thrusting in a movie scene", "implied sex act without explicit nudity", "adults acting out sex in a film"),
+        "oral_sex": ("oral sex activity in a movie scene", "a film frame suggesting oral sex", "visible oral sex act"),
+        "masturbation": ("masturbation in a movie scene", "adult self stimulation in a film", "visible masturbation"),
+        "sexual_touching": ("sexual touching of intimate body areas", "hands touching breasts buttocks or genitals sexually", "sexualized touching between adults"),
+        "intimate_touch": ("intimate touching between adults", "romantic intimate physical contact", "suggestive caressing between adults"),
+        "bed_intimacy": ("adult couple embracing in bed", "implied sexual activity in bed", "sexual situation without explicit nudity"),
+        "heavy_making_out": ("two adults making out passionately", "extended passionate kissing", "heavy make out scene"),
+        "romantic_kiss": ("romantic kiss between adults", "close romantic kiss", "two people kissing romantically"),
+        "brief_kiss": ("brief peck kiss", "quick non explicit kiss", "short casual kiss"),
+        "lingerie": ("sexualized lingerie scene", "adult wearing lingerie suggestively", "erotic underwear in a movie frame"),
+        "striptease": ("striptease in a movie scene", "erotic undressing", "adult stripping clothes sexually"),
     },
     "violence": {
-        "fight": (
-            "a movie frame of a physical fight between people",
-            "an action scene with punching kicking or brawling",
-            "a violent struggle in a film scene",
-        ),
-        "blood": (
-            "visible blood in a violent movie scene",
-            "a bloody injury or gore in a film frame",
-            "a wound with visible blood during violence",
-        ),
-        "weapon": (
-            "a weapon pointed during an attack in a movie scene",
-            "a gun knife or other weapon in a violent confrontation",
-            "an armed threat in a film frame",
-        ),
+        "graphic_violence": ("graphic violent scene with gore", "extreme bloody violence", "graphic gore or mutilation"),
+        "fight": ("physical fight between people", "punching kicking or brawling", "violent struggle in a film scene"),
+        "blood": ("visible blood in a violent scene", "bloody injury or gore", "wound with visible blood"),
+        "weapon_threat": ("weapon pointed during an attack", "gun knife or weapon in confrontation", "armed threat in a film frame"),
+        "gunfire": ("gunfire in an action scene", "a gun being fired", "people shooting guns"),
+        "stabbing": ("stabbing with a knife", "knife attack in a film", "someone being stabbed"),
+        "explosion": ("explosion or blast", "fireball explosion", "violent explosion"),
+        "dead_body": ("dead body in a movie scene", "corpse shown in a film", "body lying dead"),
+        "disturbing_image": ("disturbing frightening image", "disturbing non graphic film frame", "unsettling scary image"),
+        "medical_injury": ("medical treatment of an injury", "wound being treated", "medical injury scene"),
     },
     "drugs": {
-        "smoke": (
-            "drug smoke or inhaled substance use in a movie scene",
-            "someone smoking a suspicious substance in a film frame",
-            "recreational drug smoking in a close-up",
-        ),
-        "needle": (
-            "drug injection with a needle in a movie scene",
-            "a needle used for substance abuse in a film frame",
-            "someone injecting an illicit drug",
-        ),
-        "pill": (
-            "misuse of pills or tablets in a movie scene",
-            "substance abuse with pills in a film frame",
-            "someone abusing prescription pills",
-        ),
-        "drug_paraphernalia": (
-            "drug paraphernalia on a table in a movie scene",
-            "baggies pipes syringes or powder used for drugs",
-            "a close-up of illicit drug equipment",
-        ),
+        "hard_drug_use": ("visible hard drug use", "someone using illicit hard drugs", "explicit drug use in a movie"),
+        "needle": ("drug injection with a needle", "needle used for substance abuse", "someone injecting an illicit drug"),
+        "powder_drugs": ("white powder drugs on a table", "lines of cocaine or powder drugs", "powdered illicit drugs"),
+        "pill_abuse": ("misuse of pills or tablets", "substance abuse with pills", "abusing prescription pills"),
+        "drug_paraphernalia": ("drug paraphernalia on a table", "baggies pipes syringes or powder used for drugs", "illicit drug equipment"),
+        "smoking_drugs": ("drug smoke or inhaled substance use", "smoking a suspicious substance", "recreational drug smoking"),
+        "marijuana": ("marijuana or cannabis use", "smoking marijuana", "cannabis products in a movie"),
+        "alcohol_abuse": ("heavy alcohol abuse", "person extremely drunk", "dangerous alcohol intoxication"),
+        "tobacco": ("cigarette smoking", "smoking tobacco", "person smoking a cigarette"),
     },
 }
 
@@ -136,6 +117,7 @@ class HeuristicSemanticBackend:
         self,
         jpeg_bytes: bytes,
         prompt_bank: dict[str, tuple[str, ...]],
+        negative_prompts: tuple[str, ...] = (),
     ) -> dict[str, float]:
         try:
             features = self._extract_features(jpeg_bytes)
@@ -172,25 +154,33 @@ class HeuristicSemanticBackend:
         )
 
     def _score_label(self, label: str, features: ImageFeatures) -> float:
-        if label == "kissing":
+        if label in {"brief_kiss", "romantic_kiss"}:
             return min(1.0, features.skin_ratio * 2.0 + features.pink_ratio * 2.4)
+        if label == "heavy_making_out":
+            return min(1.0, features.skin_ratio * 2.3 + features.pink_ratio * 2.6)
         if label == "intimate_touch":
             return min(1.0, features.skin_ratio * 2.4 + features.pink_ratio * 1.6)
-        if label == "bed_intimacy":
+        if label in {"bed_intimacy", "lingerie"}:
             return min(1.0, features.skin_ratio * 1.8 + features.bright_ratio * 0.8 + features.gray_ratio * 0.5)
+        if label in {"explicit_sex", "simulated_sex", "oral_sex", "masturbation", "sexual_touching", "striptease"}:
+            return min(1.0, features.skin_ratio * 2.7 + features.pink_ratio * 2.0 + features.bright_ratio * 0.4)
+        if label == "graphic_violence":
+            return min(1.0, features.red_ratio * 3.4 + features.edge_strength * 0.8 + features.dark_ratio * 0.3)
         if label == "fight":
             return min(1.0, features.edge_strength * 1.9 + features.dark_ratio * 0.5)
         if label == "blood":
             return min(1.0, features.red_ratio * 3.2 + features.edge_strength * 0.4)
-        if label == "weapon":
+        if label in {"weapon_threat", "gunfire", "stabbing", "dead_body", "disturbing_image"}:
             return min(1.0, features.dark_ratio * 1.6 + features.edge_strength * 1.1)
-        if label == "smoke":
+        if label in {"explosion", "medical_injury"}:
+            return min(1.0, features.edge_strength * 1.4 + features.red_ratio * 1.8 + features.bright_ratio * 0.5)
+        if label in {"smoking_drugs", "marijuana", "tobacco"}:
             return min(1.0, features.gray_ratio * 1.7 + features.bright_ratio * 0.8)
         if label == "needle":
             return min(1.0, features.edge_strength * 1.3 + features.gray_ratio * 0.8 + features.dark_ratio * 0.4)
-        if label == "pill":
+        if label in {"pill_abuse", "powder_drugs"}:
             return min(1.0, features.bright_ratio * 1.5 + features.pink_ratio * 0.6 + features.edge_strength * 0.4)
-        if label == "drug_paraphernalia":
+        if label in {"hard_drug_use", "drug_paraphernalia", "alcohol_abuse"}:
             return min(1.0, features.dark_ratio * 0.9 + features.gray_ratio * 1.1 + features.edge_strength * 0.9)
         return 0.0
 
@@ -229,7 +219,7 @@ class SemanticCategoryDetector:
                 status="failed",
                 detail="Could not determine video duration.",
             )
-        step_ms = max(1000, int(getattr(config, "scan_step_ms", 5000)))
+        step_ms = max(250, int(getattr(config, "scan_step_ms", 250)))
         frames = await sample_video_frames(target.file_path, step_ms, duration_ms)
         return await self.scan_frames(
             target,
@@ -246,6 +236,24 @@ class SemanticCategoryDetector:
         progress_callback: ProgressCallback | None = None,
     ) -> DetectorResult:
         prompt_bank = SEMANTIC_PROMPT_BANK[self.category]
+        enabled_detection_labels = set(
+            getattr(config, "semantic_detection_labels", {}).get(
+                self.category,
+                list(prompt_bank),
+            )
+        )
+        prompt_bank = {
+            label: prompts
+            for label, prompts in prompt_bank.items()
+            if label in enabled_detection_labels
+        }
+        if not prompt_bank:
+            return DetectorResult(
+                category=self.category,
+                source=self.source,
+                status="done",
+                detail=f"No {self.category} labels are enabled for detection.",
+            )
         negative_prompts = SEMANTIC_NEGATIVE_PROMPTS[self.category]
         threshold = float(
             getattr(

@@ -1,11 +1,13 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ...domain import PREFERENCE_CATEGORIES
+from ...domain import CATEGORY_LABEL_DEFINITIONS, PREFERENCE_CATEGORIES
 from ...logger import get_logger
 from ...preferences import (
     build_user_category_preferences_map,
     build_user_filter_map,
+    build_user_label_preferences_map,
+    get_default_skip_label_settings,
     get_preference_threshold_settings,
     resolve_preferences_for_users,
 )
@@ -21,6 +23,11 @@ class UserFilterUpdate(BaseModel):
 
 
 class UserCategoryPreferenceUpdate(BaseModel):
+    enabled: bool
+    threshold: float | None = None
+
+
+class UserLabelPreferenceUpdate(BaseModel):
     enabled: bool
     threshold: float | None = None
 
@@ -42,15 +49,21 @@ async def get_users():
     category_preferences = build_user_category_preferences_map(
         await db.get_all_user_category_preferences()
     )
+    label_preferences = build_user_label_preferences_map(
+        await db.get_all_user_label_preferences()
+    )
     threshold_defaults = await get_preference_threshold_settings()
+    default_skip_labels = await get_default_skip_label_settings()
     known_usernames = sorted(
-        set(filters) | set(category_preferences) | {u["username"] for u in plex_users}
+        set(filters) | set(category_preferences) | set(label_preferences) | {u["username"] for u in plex_users}
     )
     resolved_preferences = resolve_preferences_for_users(
         known_usernames,
         overall_filters=filters,
         stored_preferences_by_user=category_preferences,
         threshold_defaults=threshold_defaults,
+        stored_label_preferences_by_user=label_preferences,
+        default_skip_labels=default_skip_labels,
     )
 
     # Merge: if username not in DB, default enabled=True
@@ -97,6 +110,28 @@ async def update_user_category_preference(
     await db.upsert_user_category_preference(
         username,
         category,
+        enabled=payload.enabled,
+        threshold=payload.threshold,
+    )
+    return {"ok": True}
+
+
+@router.put("/{username}/categories/{category}/labels/{label}")
+async def update_user_label_preference(
+    username: str,
+    category: str,
+    label: str,
+    payload: UserLabelPreferenceUpdate,
+):
+    if category not in PREFERENCE_CATEGORIES:
+        return {"ok": False, "error": f"Unsupported category: {category}"}
+    valid_labels = {definition.key for definition in CATEGORY_LABEL_DEFINITIONS.get(category, ())}
+    if label not in valid_labels:
+        return {"ok": False, "error": f"Unsupported label for {category}: {label}"}
+    await db.set_user_label_preference(
+        username,
+        category,
+        label,
         enabled=payload.enabled,
         threshold=payload.threshold,
     )

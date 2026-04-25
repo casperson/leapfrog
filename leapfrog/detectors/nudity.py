@@ -180,7 +180,7 @@ class NudityDetector:
                 status="failed",
                 detail="Could not determine video duration.",
             )
-        step_ms = max(1000, int(getattr(config, "scan_step_ms", 5000)))
+        step_ms = max(250, int(getattr(config, "scan_step_ms", 250)))
         frames = await sample_video_frames(target.file_path, step_ms, duration_ms)
         return await self.scan_frames(
             target,
@@ -200,7 +200,7 @@ class NudityDetector:
         total_steps = max(1, len(frames))
         gap_ms = max(1000, int(getattr(config, "segment_gap_ms", 12000)))
         min_hits = max(1, int(getattr(config, "segment_min_hits", 1)))
-        threshold = float(getattr(config, "confidence_threshold", 0.6))
+        threshold = float(getattr(config, "confidence_threshold", 0.4))
         enabled_labels = set(getattr(config, "scan_labels", []))
         nudenet_model = str(getattr(config, "nudenet_model", "320n"))
         nudenet_model_path = str(getattr(config, "nudenet_model_path", ""))

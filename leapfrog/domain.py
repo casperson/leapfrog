@@ -14,12 +14,21 @@ class CategoryDefinition:
     default_threshold: float
 
 
+@dataclass(frozen=True, slots=True)
+class LabelDefinition:
+    key: str
+    label: str
+    description: str
+    default_skip: bool = True
+    default_detect: bool = True
+
+
 CATEGORY_DEFINITIONS = (
     CategoryDefinition(
         key="nudity",
         label="Nudity",
         description="Exposed body-part nudity detected from sampled frames.",
-        default_threshold=0.6,
+        default_threshold=0.4,
     ),
     CategoryDefinition(
         key="sexual_content",
@@ -48,6 +57,59 @@ CATEGORY_DEFINITIONS = (
 )
 SUPPORTED_CATEGORIES = tuple(definition.key for definition in CATEGORY_DEFINITIONS)
 PREFERENCE_CATEGORIES = SUPPORTED_CATEGORIES
+
+CATEGORY_LABEL_DEFINITIONS: dict[str, tuple[LabelDefinition, ...]] = {
+    "nudity": (
+        LabelDefinition("FEMALE_GENITALIA_EXPOSED", "Female Genitalia", "Exposed female genitalia."),
+        LabelDefinition("MALE_GENITALIA_EXPOSED", "Male Genitalia", "Exposed male genitalia."),
+        LabelDefinition("FEMALE_BREAST_EXPOSED", "Female Breast", "Exposed female breast."),
+        LabelDefinition("ANUS_EXPOSED", "Anus", "Exposed anus."),
+        LabelDefinition("BUTTOCKS_EXPOSED", "Buttocks", "Exposed buttocks."),
+        LabelDefinition("MALE_BREAST_EXPOSED", "Male Breast", "Exposed male chest.", default_skip=False),
+        LabelDefinition("FEMALE_GENITALIA_COVERED", "Covered Female Genitalia", "Covered female genitalia.", default_skip=False),
+        LabelDefinition("FEMALE_BREAST_COVERED", "Covered Female Breast", "Covered female breast.", default_skip=False),
+        LabelDefinition("MALE_BREAST_COVERED", "Covered Male Breast", "Covered male chest.", default_skip=False),
+        LabelDefinition("BUTTOCKS_COVERED", "Covered Buttocks", "Covered buttocks.", default_skip=False),
+    ),
+    "sexual_content": (
+        LabelDefinition("explicit_sex", "Explicit Sex", "Visible explicit sexual activity."),
+        LabelDefinition("simulated_sex", "Simulated Sex", "Simulated sex or thrusting without explicit nudity."),
+        LabelDefinition("oral_sex", "Oral Sex", "Oral sex activity or framing."),
+        LabelDefinition("masturbation", "Masturbation", "Masturbation or self-stimulation."),
+        LabelDefinition("sexual_touching", "Sexual Touching", "Sexualized touching of intimate body areas."),
+        LabelDefinition("intimate_touch", "Intimate Touch", "Suggestive intimate physical contact.", default_skip=False),
+        LabelDefinition("bed_intimacy", "Bed Intimacy", "Implied sexual activity or intimacy in bed.", default_skip=False),
+        LabelDefinition("heavy_making_out", "Heavy Making Out", "Extended passionate kissing or making out.", default_skip=False),
+        LabelDefinition("romantic_kiss", "Romantic Kiss", "A romantic kiss.", default_skip=False),
+        LabelDefinition("brief_kiss", "Brief Kiss", "Brief peck or non-explicit kiss.", default_skip=False),
+        LabelDefinition("lingerie", "Lingerie", "Sexualized lingerie or underwear scene.", default_skip=False),
+        LabelDefinition("striptease", "Striptease", "Striptease or erotic undressing."),
+    ),
+    "violence": (
+        LabelDefinition("graphic_violence", "Graphic Violence", "Graphic violence or gore."),
+        LabelDefinition("blood", "Blood", "Visible blood or bloody injury."),
+        LabelDefinition("fight", "Fight", "Physical fighting, punching, kicking, or brawling."),
+        LabelDefinition("weapon_threat", "Weapon Threat", "Weapon pointed or used as a threat."),
+        LabelDefinition("gunfire", "Gunfire", "Gunfire or shooting."),
+        LabelDefinition("stabbing", "Stabbing", "Stabbing or knife attack."),
+        LabelDefinition("explosion", "Explosion", "Explosion or blast."),
+        LabelDefinition("dead_body", "Dead Body", "Corpse or dead body.", default_skip=False),
+        LabelDefinition("disturbing_image", "Disturbing Image", "Disturbing non-graphic image.", default_skip=False),
+        LabelDefinition("medical_injury", "Medical Injury", "Medical injury or wound treatment.", default_skip=False),
+    ),
+    "drugs": (
+        LabelDefinition("hard_drug_use", "Hard Drug Use", "Visible illicit hard drug use."),
+        LabelDefinition("needle", "Needle", "Needle injection or syringe use."),
+        LabelDefinition("powder_drugs", "Powder Drugs", "Powdered drugs or lines."),
+        LabelDefinition("pill_abuse", "Pill Abuse", "Pill misuse or abuse."),
+        LabelDefinition("drug_paraphernalia", "Drug Paraphernalia", "Pipes, baggies, syringes, or drug equipment."),
+        LabelDefinition("smoking_drugs", "Smoking Drugs", "Smoking illicit or suspicious substances."),
+        LabelDefinition("marijuana", "Marijuana", "Marijuana use or cannabis products.", default_skip=False),
+        LabelDefinition("alcohol_abuse", "Alcohol Abuse", "Heavy alcohol abuse or intoxication.", default_skip=False),
+        LabelDefinition("tobacco", "Tobacco", "Cigarette or tobacco smoking.", default_skip=False),
+    ),
+    "profanity": (),
+}
 DEFAULT_PROFANITY_TERMS = [
     "asshole",
     "bastard",
@@ -81,8 +143,30 @@ DEFAULT_PROFANITY_ALLOWLIST = [
     "cockatoo",
     "shitake",
 ]
+CATEGORY_LABEL_DEFINITIONS["profanity"] = tuple(
+    LabelDefinition(term, term, f"Profanity root or phrase: {term}.")
+    for term in DEFAULT_PROFANITY_TERMS
+)
 DEFAULT_CATEGORY_THRESHOLDS = {
     definition.key: definition.default_threshold for definition in CATEGORY_DEFINITIONS
+}
+
+DEFAULT_SKIP_LABELS = {
+    category: [
+        definition.key
+        for definition in definitions
+        if definition.default_skip
+    ]
+    for category, definitions in CATEGORY_LABEL_DEFINITIONS.items()
+}
+
+DEFAULT_DETECT_LABELS = {
+    category: [
+        definition.key
+        for definition in definitions
+        if definition.default_detect
+    ]
+    for category, definitions in CATEGORY_LABEL_DEFINITIONS.items()
 }
 
 SCAN_STAGE_DEFINITIONS = (

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from typing import Any
 
 from . import database as db
 from .domain import (
+    CATEGORY_LABEL_DEFINITIONS,
     CATEGORY_DEFINITIONS,
     DEFAULT_CATEGORY_THRESHOLDS,
+    DEFAULT_SKIP_LABELS,
     PREFERENCE_CATEGORIES,
     Segment,
 )
@@ -71,21 +74,68 @@ def build_user_category_preferences_map(
     return grouped
 
 
+def build_user_label_preferences_map(
+    rows: Iterable[dict[str, Any]],
+) -> dict[str, dict[str, dict[str, dict[str, Any]]]]:
+    """Group stored label preference rows by user, category, and label."""
+    grouped: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
+    for row in rows:
+        user_id = str(row.get("user_id") or "").strip()
+        category = str(row.get("category") or "").strip()
+        label = str(row.get("label") or "").strip()
+        if not user_id or not category or not label:
+            continue
+        grouped.setdefault(user_id, {}).setdefault(category, {})[label] = dict(row)
+    return grouped
+
+
+def resolve_user_label_preferences(
+    *,
+    stored_label_preferences: dict[str, dict[str, Any]],
+    default_skip_labels: dict[str, list[str]] | None = None,
+) -> dict[str, dict[str, dict[str, float | bool | None]]]:
+    """Return effective label preferences grouped by category and label."""
+    defaults = default_skip_labels or DEFAULT_SKIP_LABELS
+    resolved: dict[str, dict[str, dict[str, float | bool | None]]] = {}
+    for category, definitions in CATEGORY_LABEL_DEFINITIONS.items():
+        category_defaults = set(defaults.get(category, []))
+        stored_for_category = stored_label_preferences.get(category, {})
+        resolved[category] = {}
+        for definition in definitions:
+            raw = stored_for_category.get(definition.key, {})
+            threshold = raw.get("threshold")
+            resolved[category][definition.key] = {
+                "enabled": bool(raw.get("enabled", definition.key in category_defaults)),
+                "threshold": float(threshold) if threshold is not None else None,
+            }
+    return resolved
+
+
 def resolve_preferences_for_users(
     user_ids: Iterable[str],
     *,
     overall_filters: dict[str, bool],
     stored_preferences_by_user: dict[str, dict[str, dict[str, Any]]],
     threshold_defaults: dict[str, float] | None = None,
-) -> dict[str, dict[str, dict[str, float | bool]]]:
+    stored_label_preferences_by_user: dict[str, dict[str, dict[str, dict[str, Any]]]] | None = None,
+    default_skip_labels: dict[str, list[str]] | None = None,
+) -> dict[str, dict[str, dict[str, Any]]]:
     """Resolve effective category preferences for multiple users at once."""
-    resolved: dict[str, dict[str, dict[str, float | bool]]] = {}
+    resolved: dict[str, dict[str, dict[str, Any]]] = {}
+    label_preferences_by_user = stored_label_preferences_by_user or {}
     for user_id in {str(value).strip() for value in user_ids if str(value).strip()}:
-        resolved[user_id] = resolve_user_category_preferences(
+        user_preferences = resolve_user_category_preferences(
             overall_enabled=overall_filters.get(user_id, True),
             stored_preferences=stored_preferences_by_user.get(user_id, {}),
             threshold_defaults=threshold_defaults,
         )
+        label_preferences = resolve_user_label_preferences(
+            stored_label_preferences=label_preferences_by_user.get(user_id, {}),
+            default_skip_labels=default_skip_labels,
+        )
+        for category, preferences in user_preferences.items():
+            preferences["labels"] = label_preferences.get(category, {})
+        resolved[user_id] = user_preferences
     return resolved
 
 
@@ -109,14 +159,43 @@ async def get_preference_threshold_settings() -> dict[str, float]:
     return defaults
 
 
-def get_category_metadata() -> list[dict[str, str | float]]:
+async def get_default_skip_label_settings() -> dict[str, list[str]]:
+    """Return server default labels that should skip when a category is enabled."""
+    raw = await db.get_setting("default_skip_labels", json.dumps(DEFAULT_SKIP_LABELS))
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return DEFAULT_SKIP_LABELS
+    if not isinstance(parsed, dict):
+        return DEFAULT_SKIP_LABELS
+    result = dict(DEFAULT_SKIP_LABELS)
+    for category, labels in parsed.items():
+        if category not in CATEGORY_LABEL_DEFINITIONS or not isinstance(labels, list):
+            continue
+        valid_labels = {definition.key for definition in CATEGORY_LABEL_DEFINITIONS[category]}
+        result[str(category)] = [str(label) for label in labels if str(label) in valid_labels]
+    return result
+
+
+def get_category_metadata() -> list[dict[str, Any]]:
     """Return the canonical backend category metadata for API payloads."""
+    default_skip_labels = DEFAULT_SKIP_LABELS
     return [
         {
             "key": definition.key,
             "label": definition.label,
             "description": definition.description,
             "default_threshold": definition.default_threshold,
+            "labels": [
+                {
+                    "key": label.key,
+                    "label": label.label,
+                    "description": label.description,
+                    "default_skip": label.key in default_skip_labels.get(definition.key, []),
+                    "default_detect": label.default_detect,
+                }
+                for label in CATEGORY_LABEL_DEFINITIONS.get(definition.key, ())
+            ],
         }
         for definition in CATEGORY_DEFINITIONS
     ]
@@ -126,17 +205,22 @@ async def get_resolved_preferences_for_users(
     user_ids: Iterable[str],
     *,
     threshold_defaults: dict[str, float] | None = None,
-) -> dict[str, dict[str, dict[str, float | bool]]]:
+) -> dict[str, dict[str, dict[str, Any]]]:
     """Load and resolve effective playback preferences for multiple users."""
     overall_filters = build_user_filter_map(await db.get_all_user_filters())
     stored_preferences = build_user_category_preferences_map(
         await db.get_all_user_preferences()
+    )
+    stored_label_preferences = build_user_label_preferences_map(
+        await db.get_all_user_label_preferences()
     )
     return resolve_preferences_for_users(
         user_ids,
         overall_filters=overall_filters,
         stored_preferences_by_user=stored_preferences,
         threshold_defaults=threshold_defaults,
+        stored_label_preferences_by_user=stored_label_preferences,
+        default_skip_labels=await get_default_skip_label_settings(),
     )
 
 
@@ -144,17 +228,27 @@ async def get_resolved_preferences_for_user(
     user_id: str,
     *,
     threshold_defaults: dict[str, float] | None = None,
-) -> dict[str, dict[str, float | bool | None]]:
+) -> dict[str, dict[str, Any]]:
     """Load and resolve effective playback preferences for one user."""
     overall_filter = await db.get_user_filter(user_id)
     stored_preferences = build_user_category_preferences_map(
         await db.get_user_preferences(user_id)
     ).get(user_id, {})
-    return resolve_user_category_preferences(
+    stored_label_preferences = build_user_label_preferences_map(
+        await db.get_user_label_preferences(user_id)
+    ).get(user_id, {})
+    category_preferences = resolve_user_category_preferences(
         overall_enabled=overall_filter is None or bool(overall_filter["enabled"]),
         stored_preferences=stored_preferences,
         threshold_defaults=threshold_defaults,
     )
+    label_preferences = resolve_user_label_preferences(
+        stored_label_preferences=stored_label_preferences,
+        default_skip_labels=await get_default_skip_label_settings(),
+    )
+    for category, preferences in category_preferences.items():
+        preferences["labels"] = label_preferences.get(category, {})
+    return category_preferences
 
 
 def is_category_enabled(
@@ -178,6 +272,38 @@ def get_threshold_for_category(
     return float(threshold) if threshold is not None else None
 
 
+def _split_segment_labels(labels: Any) -> list[str]:
+    return [
+        label.strip()
+        for label in str(labels or "").split(",")
+        if label.strip()
+    ]
+
+
+def is_segment_label_enabled(
+    preferences: dict[str, dict[str, Any]],
+    category: str,
+    labels: list[str],
+) -> bool:
+    """Return whether at least one segment label is enabled for playback."""
+    category_preferences = preferences.get(category, {})
+    label_preferences = category_preferences.get("labels")
+    if not isinstance(label_preferences, dict) or not label_preferences:
+        return True
+    if not labels:
+        return True
+    for label in labels:
+        raw = label_preferences.get(label)
+        if raw is None:
+            continue
+        if bool(raw.get("enabled", False)):
+            return True
+    # Preserve older scans whose labels predate the granular taxonomy. Category
+    # preferences still gate these segments until they are rescanned.
+    known_labels = {str(label) for label in label_preferences}
+    return not any(label in known_labels for label in labels)
+
+
 def _segment_record(segment: Segment | dict[str, Any]) -> dict[str, Any]:
     if isinstance(segment, Segment):
         return segment.to_record(plex_guid=segment.media_id)
@@ -197,6 +323,9 @@ def get_effective_skip_segments(
         record = _segment_record(segment)
         category = str(record.get("category") or "nudity")
         if not is_category_enabled(preferences, category):
+            continue
+        labels = _split_segment_labels(record.get("labels"))
+        if not is_segment_label_enabled(preferences, category, labels):
             continue
         threshold = get_threshold_for_category(preferences, category)
         confidence = record.get("confidence")

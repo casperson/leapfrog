@@ -15,7 +15,7 @@ const mockApi = api as {
 }
 
 const categories = [
-  { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.6 },
+  { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.4 },
   { key: 'sexual_content', label: 'Sexual Content', description: 'Skip detected sexual activity or suggestive intimate scenes.', default_threshold: 0.55 },
   { key: 'profanity', label: 'Profanity', description: 'Skip subtitle or transcript profanity matches.', default_threshold: 0.5 },
   { key: 'violence', label: 'Violence', description: 'Skip detected violence, blood, or weapon scenes.', default_threshold: 0.55 },

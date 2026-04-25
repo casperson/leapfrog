@@ -24,6 +24,13 @@ class ScanLibraryRequest(BaseModel):
     now: bool = False
 
 
+class QueueUnscannedRequest(BaseModel):
+    """Request body for explicitly queueing unscanned titles."""
+
+    media_type: str = "movie"
+    now: bool = False
+
+
 class SkipCurrentScanRequest(BaseModel):
     plex_guid: str | None = None
 
@@ -215,6 +222,23 @@ async def reorder_queue():
     await scan_mod.enqueue_pending()
     payload = await _queue_payload()
     return {"ok": True, **payload}
+
+
+@router.post("/queue-unscanned")
+async def queue_unscanned_titles(body: QueueUnscannedRequest):
+    """Queue pending scan jobs by media type without doing any automatic discovery."""
+
+    media_type = body.media_type.strip().lower()
+    if media_type == "all":
+        selected_media_type = None
+    elif media_type in {"movie", "episode"}:
+        selected_media_type = media_type
+    else:
+        raise HTTPException(status_code=422, detail="media_type must be movie, episode, or all")
+
+    queued = await scan_mod.enqueue_pending(selected_media_type, force=body.now)
+    payload = await _queue_payload()
+    return {"ok": True, "queued": queued, **payload}
 
 
 @router.post("/queue/reorder")

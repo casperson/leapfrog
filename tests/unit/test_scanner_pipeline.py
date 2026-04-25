@@ -19,13 +19,13 @@ pytestmark = pytest.mark.usefixtures("setup_db")
 def _config():
     return SimpleNamespace(
         scan_ratings=[],
-        confidence_threshold=0.6,
+        confidence_threshold=0.4,
         default_profanity_threshold=0.5,
-        scan_step_ms=5000,
+        scan_step_ms=250,
         segment_gap_ms=12000,
         segment_min_hits=1,
         scan_labels=[],
-        nudenet_model="320n",
+        nudenet_model="640m",
         nudenet_model_path="",
         profanity_terms=["shit"],
         profanity_merge_gap_ms=1500,

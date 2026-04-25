@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowBigDown, ArrowBigUp, ChevronsDown, ChevronsUp, RefreshCw, StopCircle, Trash2 } from 'lucide-react'
+import { ArrowBigDown, ArrowBigUp, ChevronsDown, ChevronsUp, RefreshCw, StopCircle, Trash2, Zap } from 'lucide-react'
 import { api } from '../api/client'
 import { usePageVisibility } from '../lib/polling'
 import { formatTimestamp } from '../lib/scan'
@@ -145,6 +145,25 @@ export default function QueueManager() {
         >
           <RefreshCw size={13} />
           Refresh
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-plex-border bg-black/10 px-3 py-2">
+        <button
+          onClick={() => void runMutation('queue-unscanned-movies', '/api/scan/queue-unscanned', { media_type: 'movie', now: false })}
+          disabled={mutating === 'queue-unscanned-movies'}
+          className="inline-flex items-center gap-1 rounded-lg border border-plex-border px-3 py-1.5 text-xs text-gray-300 transition-colors hover:border-plex-orange/50 hover:text-white disabled:opacity-40"
+        >
+          <RefreshCw size={13} />
+          Queue unscanned movies
+        </button>
+        <button
+          onClick={() => void runMutation('scan-unscanned-movies-now', '/api/scan/queue-unscanned', { media_type: 'movie', now: true })}
+          disabled={mutating === 'scan-unscanned-movies-now'}
+          className="inline-flex items-center gap-1 rounded-lg border border-plex-orange/40 bg-plex-orange/10 px-3 py-1.5 text-xs text-plex-orange transition-colors hover:bg-plex-orange/20 disabled:opacity-40"
+        >
+          <Zap size={13} />
+          Scan unscanned movies now
         </button>
       </div>
 

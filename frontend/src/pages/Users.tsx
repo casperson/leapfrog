@@ -11,6 +11,7 @@ import {
 interface CategoryPreference {
   enabled: boolean
   threshold: number
+  labels?: Record<string, { enabled: boolean; threshold?: number | null }>
 }
 
 interface User {
@@ -23,7 +24,7 @@ interface User {
 function defaultPreference(category: string): CategoryPreference {
   return {
     enabled: category === 'nudity',
-    threshold: category === 'nudity' ? 0.6 : 0.55,
+    threshold: category === 'nudity' ? 0.4 : 0.55,
   }
 }
 
@@ -37,6 +38,18 @@ function normalizeCategories(
       threshold: definition.default_threshold,
       enabled: defaultPreference(definition.key).enabled,
       ...(categories?.[definition.key] ?? {}),
+      labels: Object.fromEntries(
+        (definition.labels ?? []).map(label => {
+          const storedLabel = (categories?.[definition.key]?.labels ?? {})[label.key]
+          return [
+            label.key,
+            {
+              enabled: storedLabel?.enabled ?? label.default_skip,
+              threshold: storedLabel?.threshold ?? null,
+            },
+          ]
+        }),
+      ),
     }
   }
   return merged
@@ -114,6 +127,44 @@ export default function UsersPage() {
       await api.put(
         `/api/users/${encodeURIComponent(username)}/categories/${encodeURIComponent(category)}`,
         preference,
+      )
+    } finally {
+      setSavingState(savingKey, false)
+    }
+  }
+
+  const setLabelLocal = (username: string, category: string, label: string, enabled: boolean) => {
+    setUsers(current =>
+      current.map(user => {
+        if (user.username !== username) return user
+        const categoryPreference = user.categories[category] ?? defaultPreference(category)
+        return {
+          ...user,
+          categories: {
+            ...user.categories,
+            [category]: {
+              ...categoryPreference,
+              labels: {
+                ...(categoryPreference.labels ?? {}),
+                [label]: {
+                  ...(categoryPreference.labels?.[label] ?? {}),
+                  enabled,
+                },
+              },
+            },
+          },
+        }
+      }),
+    )
+  }
+
+  const saveLabel = async (username: string, category: string, label: string, enabled: boolean) => {
+    const savingKey = `${username}:${category}:${label}`
+    setSavingState(savingKey, true)
+    try {
+      await api.put(
+        `/api/users/${encodeURIComponent(username)}/categories/${encodeURIComponent(category)}/labels/${encodeURIComponent(label)}`,
+        { enabled, threshold: null },
       )
     } finally {
       setSavingState(savingKey, false)
@@ -232,9 +283,43 @@ export default function UsersPage() {
                           const nextValue = Number(event.target.value)
                           setCategoryLocal(user.username, category.key, { threshold: nextValue })
                         }}
-                        onBlur={() => void saveCategory(user.username, category.key, preference)}
+                        onBlur={event => {
+                          const next = {
+                            ...preference,
+                            threshold: Number(event.target.value),
+                          }
+                          void saveCategory(user.username, category.key, next)
+                        }}
                         className="w-full rounded-lg border border-plex-border bg-plex-card px-3 py-2 text-sm text-gray-100 transition-colors focus:border-plex-orange/60 focus:outline-none"
                       />
+                      {(category.labels?.length ?? 0) > 0 && (
+                        <div className="mt-3 space-y-1.5 border-t border-plex-border/70 pt-3">
+                          <p className="text-xs font-medium text-gray-500">Labels to skip</p>
+                          {category.labels!.map(label => {
+                            const labelPreference = preference.labels?.[label.key] ?? { enabled: label.default_skip }
+                            const labelSavingKey = `${user.username}:${category.key}:${label.key}`
+                            return (
+                              <label key={label.key} className="flex items-start gap-2 text-xs text-gray-400">
+                                <input
+                                  type="checkbox"
+                                  checked={labelPreference.enabled}
+                                  disabled={!preference.enabled || saving[labelSavingKey]}
+                                  onChange={event => {
+                                    const enabled = event.target.checked
+                                    setLabelLocal(user.username, category.key, label.key, enabled)
+                                    void saveLabel(user.username, category.key, label.key, enabled)
+                                  }}
+                                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-plex-orange disabled:opacity-40"
+                                />
+                                <span>
+                                  <span className="text-gray-300">{label.label}</span>
+                                  <span className="block text-gray-600">{label.description}</span>
+                                </span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   )
                 })}

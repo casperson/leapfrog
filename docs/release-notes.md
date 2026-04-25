@@ -7,8 +7,9 @@ Leapfrog is now positioned as a standalone open-source media-filtering project w
 Highlights:
 
 - canonical multi-category segment model
-- per-user category preferences and thresholds across `nudity`, `sexual_content`, `profanity`, `violence`, and `drugs`
+- per-user category preferences, thresholds, and granular label skip choices across `nudity`, `sexual_content`, `profanity`, `violence`, and `drugs`
 - shared-frame local detector pipeline with NudeNet for nudity plus prompt-based local semantic scoring for the other image categories
+- higher-sensitivity nudity defaults using the `640m` NudeNet model, `250ms` frame sampling, and a `0.4` threshold
 - subtitle-first profanity detection with optional Whisper fallback
 - per-title scan detail with persisted stage timelines and category counts
 - durable mutable queue controls and a live logging console

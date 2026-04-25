@@ -149,6 +149,30 @@ async def test_set_and_get_user_preference():
     assert prefs[0]["id"] > 0
 
 
+async def test_set_and_get_user_label_preference():
+    await db.set_user_label_preference(
+        "alice",
+        "sexual_content",
+        "brief_kiss",
+        enabled=False,
+        threshold=None,
+    )
+    await db.set_user_label_preference(
+        "alice",
+        "sexual_content",
+        "brief_kiss",
+        enabled=True,
+        threshold=0.7,
+    )
+
+    prefs = await db.get_user_label_preferences("alice")
+    assert len(prefs) == 1
+    assert prefs[0]["category"] == "sexual_content"
+    assert prefs[0]["label"] == "brief_kiss"
+    assert prefs[0]["enabled"] == 1
+    assert prefs[0]["threshold"] == pytest.approx(0.7)
+
+
 # ── Segments ───────────────────────────────────────────────────────────────────
 
 async def test_insert_and_get_segments_for_guid():
@@ -261,6 +285,17 @@ async def test_delete_segments_for_guid_clears_all():
     count = await db.delete_segments_for_guid("guid-bulk")
     assert count == 2
     assert await db.get_segments_for_guid("guid-bulk") == []
+
+
+async def test_delete_all_segments_clears_every_title():
+    await db.insert_segment("guid-one", "T", start_ms=0, end_ms=1000)
+    await db.insert_segment("guid-two", "T", start_ms=2000, end_ms=3000)
+
+    count = await db.delete_all_segments()
+
+    assert count == 2
+    assert await db.get_segments_for_guid("guid-one") == []
+    assert await db.get_segments_for_guid("guid-two") == []
 
 
 async def test_get_segment_by_id():
@@ -387,6 +422,30 @@ async def test_reset_scan_job():
     await db.update_scan_job_status("guid-reset", "done", progress=1.0)
     await db.reset_scan_job("guid-reset")
     job = await db.get_scan_job_by_guid("guid-reset")
+    assert job["status"] == "pending"
+    assert job["progress"] == 0
+
+
+async def test_reset_all_scan_jobs_clears_status_and_queue_state():
+    await _make_job("guid-reset-one")
+    await _make_job("guid-reset-two")
+    await db.update_scan_job_status("guid-reset-one", "done", progress=1.0)
+    await db.queue_scan_job("guid-reset-two")
+    await db.upsert_media_scan_status("guid-reset-one", "nudity", "done", segment_count=1)
+    await db.upsert_media_scan_stage_status(
+        media_id="guid-reset-one",
+        stage_key="nudenet",
+        status="done",
+        source="nudenet",
+    )
+
+    updated = await db.reset_all_scan_jobs()
+
+    assert updated == 2
+    assert await db.get_queue_snapshot() == []
+    assert await db.get_media_scan_statuses_for_media("guid-reset-one") == []
+    assert await db.get_media_scan_stage_statuses_for_media("guid-reset-one") == []
+    job = await db.get_scan_job_by_guid("guid-reset-one")
     assert job["status"] == "pending"
     assert job["progress"] == 0
 

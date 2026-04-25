@@ -196,6 +196,35 @@ async def test_cancel_all_queue_items(http_client):
     assert queued == []
 
 
+async def test_queue_unscanned_movies_only_queues_pending_movies(http_client):
+    await _make_job("movie-r", title="R Movie", rating_key="1")
+    await _make_job("movie-pg", title="PG Movie", rating_key="2")
+    await _make_job("episode", title="Episode", rating_key="3")
+    async with db.get_connection() as conn:
+        await conn.execute("UPDATE scan_jobs SET media_type='movie', content_rating='R' WHERE plex_guid='movie-r'")
+        await conn.execute("UPDATE scan_jobs SET media_type='movie', content_rating='PG' WHERE plex_guid='movie-pg'")
+        await conn.execute("UPDATE scan_jobs SET media_type='episode' WHERE plex_guid='episode'")
+        await conn.commit()
+
+    resp = await http_client.post("/api/scan/queue-unscanned", json={"media_type": "movie"})
+
+    assert resp.status_code == 200
+    assert resp.json()["queued"] == 2
+    queued = await db.get_queue_snapshot()
+    assert [job["plex_guid"] for job in queued] == ["movie-r", "movie-pg"]
+
+
+async def test_queue_unscanned_now_marks_force_scan(http_client):
+    await _make_job("movie-now", title="Movie Now", rating_key="1")
+
+    resp = await http_client.post("/api/scan/queue-unscanned", json={"media_type": "movie", "now": True})
+
+    assert resp.status_code == 200
+    queued = await db.get_queue_snapshot()
+    assert [job["plex_guid"] for job in queued] == ["movie-now"]
+    assert queued[0]["force_scan"] == 1
+
+
 async def test_toggle_ignored_sets_flag(http_client):
     await _make_job("ig-guid")
 

@@ -99,6 +99,20 @@ async def test_get_detector_labels_returns_list(http_client):
     assert "FEMALE_BREAST_EXPOSED" in labels
 
 
+async def test_get_categories_includes_granular_labels(http_client):
+    resp = await http_client.get("/api/settings/categories")
+    assert resp.status_code == 200
+    categories = {category["key"]: category for category in resp.json()["categories"]}
+    sexual_labels = {label["key"]: label for label in categories["sexual_content"]["labels"]}
+    violence_labels = {label["key"] for label in categories["violence"]["labels"]}
+    drug_labels = {label["key"] for label in categories["drugs"]["labels"]}
+
+    assert sexual_labels["brief_kiss"]["default_skip"] is False
+    assert sexual_labels["explicit_sex"]["default_skip"] is True
+    assert "weapon_threat" in violence_labels
+    assert "pill_abuse" in drug_labels
+
+
 # ── POST /api/settings/validate-model-path ────────────────────────────────────
 
 async def test_validate_model_path_320n_always_ok(http_client):
@@ -187,6 +201,29 @@ async def test_update_user_category_preference_persists_threshold(http_client):
     assert prefs[0]["category"] == "profanity"
     assert prefs[0]["enabled"] == 1
     assert prefs[0]["threshold"] == 0.85
+
+
+async def test_update_user_label_preference_persists_choice(http_client):
+    resp = await http_client.put(
+        "/api/users/alice/categories/sexual_content/labels/brief_kiss",
+        json={"enabled": False, "threshold": None},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+    prefs = await db.get_user_label_preferences("alice")
+    assert prefs[0]["category"] == "sexual_content"
+    assert prefs[0]["label"] == "brief_kiss"
+    assert prefs[0]["enabled"] == 0
+
+
+async def test_update_user_label_preference_rejects_unknown_label(http_client):
+    resp = await http_client.put(
+        "/api/users/alice/categories/sexual_content/labels/kissing",
+        json={"enabled": True, "threshold": None},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is False
 
 
 # ── GET /api/thumbnails/{segment_id} ──────────────────────────────────────────

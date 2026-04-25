@@ -20,7 +20,7 @@ const mockApi = api as {
 }
 
 const categories = [
-  { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.6 },
+  { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.4 },
   { key: 'sexual_content', label: 'Sexual Content', description: 'Skip detected sexual activity or suggestive intimate scenes.', default_threshold: 0.55 },
   { key: 'profanity', label: 'Profanity', description: 'Skip subtitle or transcript profanity matches.', default_threshold: 0.5 },
   { key: 'violence', label: 'Violence', description: 'Skip detected violence, blood, or weapon scenes.', default_threshold: 0.55 },
@@ -206,11 +206,11 @@ describe('Segments page', () => {
 
     await waitFor(() => expect(screen.getByText('Movie Partial')).toBeInTheDocument())
     await act(async () => {
-      fireEvent.change(screen.getAllByLabelText('Search movie title')[0], { target: { value: 'Flagged' } })
+      fireEvent.change(screen.getByLabelText('Search movie title'), { target: { value: 'Flagged' } })
     })
 
     expect(screen.queryByText('Movie Partial')).not.toBeInTheDocument()
-    expect(screen.getByText('Movie Flagged')).toBeInTheDocument()
+    expect(screen.getAllByText('Movie Flagged').length).toBeGreaterThan(0)
   })
 
   it('renders scan detail timeline for a selected title', async () => {
@@ -248,5 +248,31 @@ describe('Segments page', () => {
     expect(screen.getAllByText('subtitles').length).toBeGreaterThan(0)
     expect(screen.getByText('Would skip')).toBeInTheDocument()
     expect(screen.getByText('“what the fuck”')).toBeInTheDocument()
+  })
+
+  it('clears all saved segments for the selected title without closing detail', async () => {
+    renderSegments()
+
+    await waitFor(() => expect(screen.getAllByText('Movies').length).toBeGreaterThan(0))
+    await act(async () => {
+      fireEvent.click(screen.getAllByText('Movies')[0])
+    })
+
+    await waitFor(() => expect(screen.getByText('Movie Flagged')).toBeInTheDocument())
+    await act(async () => {
+      fireEvent.click(screen.getByText('Movie Flagged'))
+    })
+
+    await waitFor(() => expect(screen.getByText('Clear Title Segments')).toBeInTheDocument())
+    await act(async () => {
+      fireEvent.click(screen.getByText('Clear Title Segments'))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('Clear Segments'))
+    })
+
+    expect(mockApi.delete).toHaveBeenCalledWith('/api/titles/g-flagged/segments')
+    expect(screen.getAllByText('Movie Flagged').length).toBeGreaterThan(0)
+    expect(screen.getByText('No saved segments for this title yet. Scan detail above still shows queued, partial, clean, or failed detector work.')).toBeInTheDocument()
   })
 })

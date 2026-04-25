@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from leapfrog.domain import DEFAULT_CATEGORY_THRESHOLDS, PREFERENCE_CATEGORIES, SUPPORTED_CATEGORIES, Segment
 from leapfrog.preferences import (
+    build_user_label_preferences_map,
     build_user_category_preferences_map,
     build_user_filter_map,
     get_effective_skip_segments,
@@ -11,6 +12,7 @@ from leapfrog.preferences import (
     is_category_enabled,
     resolve_preferences_for_users,
     resolve_user_category_preferences,
+    resolve_user_label_preferences,
 )
 
 
@@ -32,7 +34,7 @@ def test_resolve_user_category_preferences_defaults_to_nudity_only_without_saved
         threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
     assert resolved["nudity"]["enabled"] is True
-    assert resolved["nudity"]["threshold"] == 0.6
+    assert resolved["nudity"]["threshold"] == 0.4
     assert resolved["sexual_content"]["enabled"] is False
     assert resolved["profanity"]["enabled"] is False
     assert resolved["profanity"]["threshold"] == 0.5
@@ -132,3 +134,98 @@ def test_resolve_preferences_for_users_reuses_shared_filter_inputs():
     assert resolved["alice"]["profanity"]["enabled"] is True
     assert resolved["alice"]["nudity"]["enabled"] is False
     assert resolved["bob"]["nudity"]["enabled"] is False
+
+
+def test_resolve_user_label_preferences_uses_granular_defaults_and_stored_overrides():
+    stored = build_user_label_preferences_map(
+        [
+            {
+                "user_id": "alice",
+                "category": "sexual_content",
+                "label": "explicit_sex",
+                "enabled": 0,
+                "threshold": None,
+            },
+            {
+                "user_id": "alice",
+                "category": "sexual_content",
+                "label": "brief_kiss",
+                "enabled": 1,
+                "threshold": None,
+            },
+        ]
+    )
+
+    resolved = resolve_user_label_preferences(
+        stored_label_preferences=stored["alice"],
+        default_skip_labels={"sexual_content": ["explicit_sex"]},
+    )
+
+    assert resolved["sexual_content"]["explicit_sex"]["enabled"] is False
+    assert resolved["sexual_content"]["brief_kiss"]["enabled"] is True
+    assert resolved["sexual_content"]["romantic_kiss"]["enabled"] is False
+
+
+def test_effective_skip_segments_respects_granular_labels_when_present():
+    selected = get_effective_skip_segments(
+        [
+            Segment(
+                media_id="g1",
+                start_time=1.0,
+                end_time=2.0,
+                category="sexual_content",
+                source="semantic_clip",
+                confidence=0.9,
+                labels="brief_kiss",
+            ),
+            Segment(
+                media_id="g1",
+                start_time=3.0,
+                end_time=4.0,
+                category="sexual_content",
+                source="semantic_clip",
+                confidence=0.9,
+                labels="explicit_sex",
+            ),
+        ],
+        {
+            "sexual_content": {
+                "enabled": True,
+                "threshold": 0.5,
+                "labels": {
+                    "brief_kiss": {"enabled": False, "threshold": None},
+                    "explicit_sex": {"enabled": True, "threshold": None},
+                },
+            },
+        },
+    )
+
+    assert len(selected) == 1
+    assert selected[0]["labels"] == "explicit_sex"
+
+
+def test_effective_skip_segments_keeps_unknown_legacy_labels_category_gated():
+    selected = get_effective_skip_segments(
+        [
+            Segment(
+                media_id="g1",
+                start_time=1.0,
+                end_time=2.0,
+                category="violence",
+                source="semantic_clip",
+                confidence=0.9,
+                labels="weapon",
+            ),
+        ],
+        {
+            "violence": {
+                "enabled": True,
+                "threshold": 0.5,
+                "labels": {
+                    "weapon_threat": {"enabled": False, "threshold": None},
+                },
+            },
+        },
+    )
+
+    assert len(selected) == 1

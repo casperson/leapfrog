@@ -16,6 +16,29 @@ const mockApi = api as {
   put: ReturnType<typeof vi.fn>
 }
 
+const sexualContentCategory = {
+  key: 'sexual_content',
+  label: 'Sexual Content',
+  description: 'Skip detected sexual activity or suggestive intimate scenes.',
+  default_threshold: 0.55,
+  labels: [
+    {
+      key: 'explicit_sex',
+      label: 'Explicit Sex',
+      description: 'Visible explicit sexual activity.',
+      default_skip: true,
+      default_detect: true,
+    },
+    {
+      key: 'brief_kiss',
+      label: 'Brief Kiss',
+      description: 'Brief peck or non-explicit kiss.',
+      default_skip: false,
+      default_detect: true,
+    },
+  ],
+}
+
 function renderUsers() {
   return render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -29,8 +52,8 @@ beforeEach(() => {
     if (path.includes('/api/settings/categories')) {
       return Promise.resolve({
         categories: [
-          { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.6 },
-          { key: 'sexual_content', label: 'Sexual Content', description: 'Skip detected sexual activity or suggestive intimate scenes.', default_threshold: 0.55 },
+          { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.4 },
+          sexualContentCategory,
           { key: 'profanity', label: 'Profanity', description: 'Skip subtitle or transcript profanity matches.', default_threshold: 0.5 },
           { key: 'violence', label: 'Violence', description: 'Skip detected violence, blood, or weapon scenes.', default_threshold: 0.55 },
           { key: 'drugs', label: 'Drugs', description: 'Skip detected drug use or paraphernalia scenes.', default_threshold: 0.55 },
@@ -44,7 +67,15 @@ beforeEach(() => {
           thumb: '',
           enabled: true,
           categories: {
-            nudity: { enabled: true, threshold: 0.6 },
+            nudity: { enabled: true, threshold: 0.4 },
+            sexual_content: {
+              enabled: true,
+              threshold: 0.6,
+              labels: {
+                explicit_sex: { enabled: true, threshold: null },
+                brief_kiss: { enabled: false, threshold: null },
+              },
+            },
             profanity: { enabled: false, threshold: 0.5 },
           },
         },
@@ -94,8 +125,8 @@ describe('Users', () => {
       if (path.includes('/api/settings/categories')) {
         return Promise.resolve({
           categories: [
-            { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.6 },
-            { key: 'sexual_content', label: 'Sexual Content', description: 'Skip detected sexual activity or suggestive intimate scenes.', default_threshold: 0.55 },
+            { key: 'nudity', label: 'Nudity', description: 'Skip detected nudity scenes.', default_threshold: 0.4 },
+            sexualContentCategory,
             { key: 'profanity', label: 'Profanity', description: 'Skip subtitle or transcript profanity matches.', default_threshold: 0.5 },
             { key: 'violence', label: 'Violence', description: 'Skip detected violence, blood, or weapon scenes.', default_threshold: 0.55 },
             { key: 'drugs', label: 'Drugs', description: 'Skip detected drug use or paraphernalia scenes.', default_threshold: 0.55 },
@@ -119,5 +150,23 @@ describe('Users', () => {
     expect(screen.getByText('Sexual Content')).toBeInTheDocument()
     expect(screen.getByText('Violence')).toBeInTheDocument()
     expect(screen.getByText('Drugs')).toBeInTheDocument()
+  })
+
+  it('saves a granular label preference toggle', async () => {
+    renderUsers()
+    await waitFor(() => expect(screen.getByText('Brief Kiss')).toBeInTheDocument())
+
+    const label = screen.getByText('Brief Kiss').closest('label')
+    expect(label).toBeTruthy()
+    const checkbox = within(label as HTMLElement).getByRole('checkbox')
+
+    await act(async () => {
+      fireEvent.click(checkbox)
+    })
+
+    await waitFor(() => expect(mockApi.put).toHaveBeenCalledWith(
+      '/api/users/alice/categories/sexual_content/labels/brief_kiss',
+      { enabled: true, threshold: null },
+    ))
   })
 })

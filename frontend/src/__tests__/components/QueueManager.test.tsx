@@ -96,6 +96,28 @@ describe('QueueManager', () => {
     expect(mockApi.post).toHaveBeenCalledWith('/api/scan/queue/cancel-selected', { guids: ['queued-1'] })
   })
 
+  it('wires explicit unscanned movie queue actions', async () => {
+    render(<QueueManager />)
+
+    await waitFor(() => expect(screen.getByText('Queued Movie')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Queue unscanned movies'))
+    })
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/scan/queue-unscanned',
+      { media_type: 'movie', now: false },
+    )
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Scan unscanned movies now'))
+    })
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/api/scan/queue-unscanned',
+      { media_type: 'movie', now: true },
+    )
+  })
+
   it('backs off queue polling while idle', async () => {
     vi.useFakeTimers()
     mockApi.get.mockResolvedValue(idleSnapshot)

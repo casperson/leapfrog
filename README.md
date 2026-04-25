@@ -13,7 +13,7 @@ This repository is derived from [Cleanplex](https://github.com/nazmolla/Cleanple
 - ONNX-backed local CLIP zero-shot classification for `sexual_content`, `violence`, and `drugs` on the shared sampled-frame pipeline
 - Subtitle-first profanity detection with deterministic word and phrase matching
 - Optional Whisper audio fallback when subtitles are unavailable and the local Whisper dependency is installed
-- Per-user profile controls for all five categories, including toggles and thresholds
+- Per-user profile controls for all five categories, including toggles, thresholds, and granular label skip choices
 - Server-side playback enforcement through Plex session polling and seek commands
 - Browser UI for scan settings, queue management, title scan detail, segment review, live logs, and linked-user preferences
 
@@ -23,7 +23,7 @@ Leapfrog keeps scanning, segment storage, playback filtering, and UI review loca
 
 ### 1. Library sync and scan queue
 
-Leapfrog watches Plex libraries for new items, stores them as `scan_jobs`, and queues them for offline analysis.
+Leapfrog watches Plex libraries for new items and stores them as `scan_jobs`. It does not automatically queue everything at startup; use the dashboard queue controls to queue unscanned movies when you are ready.
 
 ### 2. Detector pipeline
 
@@ -59,7 +59,7 @@ When Plex sessions are active, Leapfrog:
 
 1. loads the current user’s effective category preferences,
 2. fetches stored segments for the playing media item,
-3. filters those segments by enabled category and threshold,
+3. filters those segments by enabled category, enabled labels, and threshold,
 4. seeks the active client past matching content.
 
 Playback-time filtering is still a database lookup plus a server-side seek. No ML inference runs in the playback hot path.
@@ -70,6 +70,7 @@ If the dashboard shows `Skipping...` logs followed by proxy and direct seek fail
 
 - Scan status is persisted per title and per category, plus an ordered stage timeline (`prepare`, the five categories, `finalize`).
 - The scan queue is durable and mutable: titles can be moved to the top or bottom, reordered, canceled individually, canceled in batches, or canceled while active.
+- The dashboard can queue all currently unscanned movies, either for the normal scan window or immediately.
 - The web UI includes a live logging console backed by a bounded in-memory replay buffer plus SSE updates.
 
 ## Configuration
@@ -81,7 +82,9 @@ Important settings:
 - Plex URL and Plex token
 - Poll interval
 - NudeNet confidence threshold
+- NudeNet model selection; the default is `640m` with a `250ms` frame interval and `0.4` threshold for higher sensitivity
 - Semantic ONNX CLIP model preparation and per-category semantic thresholds
+- Granular label defaults for detection and skip behavior
 - Category default thresholds exposed through canonical category metadata
 - Profanity term list
 - Profanity allowlist for known false positives
@@ -97,9 +100,17 @@ Each linked Plex profile has:
 
 - a master server-side filtering toggle,
 - a toggle and threshold for each canonical category,
+- per-label skip toggles for granular control within a category,
 - effective skip evaluation based on stored segments rather than runtime inference.
 
 If a user disables a category, those segments stay stored in the database but are ignored during playback enforcement for that user.
+
+Labels provide detail without expanding the top-level category list. Examples include:
+
+- `sexual_content`: `explicit_sex`, `simulated_sex`, `oral_sex`, `masturbation`, `sexual_touching`, `intimate_touch`, `bed_intimacy`, `heavy_making_out`, `romantic_kiss`, `brief_kiss`, `lingerie`, `striptease`
+- `violence`: `graphic_violence`, `blood`, `fight`, `weapon_threat`, `gunfire`, `stabbing`, `explosion`, `dead_body`, `disturbing_image`, `medical_injury`
+- `drugs`: `hard_drug_use`, `needle`, `powder_drugs`, `pill_abuse`, `drug_paraphernalia`, `smoking_drugs`, `marijuana`, `alcohol_abuse`, `tobacco`
+- `nudity`: NudeNet body-part labels such as `FEMALE_BREAST_EXPOSED`, `FEMALE_GENITALIA_EXPOSED`, `MALE_GENITALIA_EXPOSED`, `ANUS_EXPOSED`, and `BUTTOCKS_EXPOSED`
 
 ## Running locally
 
@@ -269,13 +280,15 @@ If Whisper is unavailable, Leapfrog records the profanity scan status as unavail
 ## Queue and review UI
 
 - `Dashboard`
-  Shows active scans, the mutable queue manager, and live operational status.
+  Shows active scans, the mutable queue manager, controls for queueing unscanned movies, and live operational status.
 - `Library`
   Shows titles even when a scan is partial or clean with zero saved segments, and opens per-title scan detail.
 - `Segments`
   Shows stored segments with category, source, confidence, labels, excerpts, thumbnails, and whether the selected user would currently skip them.
 - `Logs`
   Shows bounded recent history plus live SSE updates from the local logging buffer.
+- `Settings`
+  Includes maintenance controls to clear stored segments, thumbnails, scan status, and queued scans before a clean rescan.
 
 ## Adding a detector
 

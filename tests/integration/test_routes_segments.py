@@ -68,7 +68,7 @@ async def test_get_segments_for_title_supports_category_filter(http_client):
         category="violence",
         source="semantic_clip",
         confidence=0.8,
-        labels="fight,weapon",
+        labels="fight,weapon_threat",
     )
 
     resp = await http_client.get(
@@ -92,7 +92,7 @@ async def test_get_segments_for_title_preserves_semantic_labels_outside_nudenet_
         category="violence",
         source="semantic_clip",
         confidence=0.8,
-        labels="fight,weapon",
+        labels="fight,weapon_threat",
     )
 
     resp = await http_client.get("/api/titles/guid-seg-semantic-labels/segments")
@@ -100,7 +100,7 @@ async def test_get_segments_for_title_preserves_semantic_labels_outside_nudenet_
     assert resp.status_code == 200
     segments = resp.json()["segments"]
     assert len(segments) == 1
-    assert segments[0]["labels"] == "fight,weapon"
+    assert segments[0]["labels"] == "fight,weapon_threat"
 
 
 async def test_get_segments_for_title_can_report_whether_user_would_skip(http_client):
@@ -447,6 +447,43 @@ async def test_delete_all_segments_returns_zero_when_none(http_client):
         resp = await http_client.delete("/api/titles/nonexistent/segments")
     assert resp.status_code == 200
     assert resp.json()["deleted"] == 0
+
+
+async def test_clear_all_segments_removes_thumbnails_and_resets_scan_state(http_client, tmp_path):
+    thumb = tmp_path / "clear-all-thumb.jpg"
+    thumb.write_bytes(b"thumb")
+    await db.upsert_scan_job(
+        plex_guid="guid-clear-all",
+        title="Clear All",
+        file_path="/media/clear-all.mkv",
+        rating_key="400",
+        library_id="lib",
+        library_title="Movies",
+    )
+    await db.insert_segment(
+        "guid-clear-all",
+        "Clear All",
+        start_ms=0,
+        end_ms=1000,
+        thumbnail_path=str(thumb),
+    )
+    await db.update_scan_job_status("guid-clear-all", "done", progress=1.0)
+    await db.queue_scan_job("guid-clear-all")
+    await db.upsert_media_scan_status("guid-clear-all", "nudity", "done", segment_count=1)
+
+    resp = await http_client.post(
+        "/api/segments/clear-all",
+        json={"reset_scan_state": True, "clear_queue": True},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 1
+    assert thumb.exists() is False
+    assert await db.get_segments_for_guid("guid-clear-all") == []
+    assert await db.get_queue_snapshot() == []
+    assert await db.get_media_scan_statuses_for_media("guid-clear-all") == []
+    job = await db.get_scan_job_by_guid("guid-clear-all")
+    assert job["status"] == "pending"
 
 
 # ── GET /api/segments ─────────────────────────────────────────────────────────

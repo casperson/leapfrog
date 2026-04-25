@@ -117,10 +117,12 @@ async def enqueue(plex_guid: str) -> None:
         _queue_wakeup_event.set()
 
 
-async def enqueue_pending() -> None:
-    """Rebuild the persisted queue order for all pending scan jobs."""
+async def enqueue_pending(media_type: str | None = None, *, force: bool = False) -> int:
+    """Rebuild the persisted queue order for pending scan jobs and return queued count."""
     jobs = await db.get_scan_jobs(status="pending")
     active = [job for job in jobs if not job.get("ignored")]
+    if media_type in {"movie", "episode"}:
+        active = [job for job in active if job.get("media_type") == media_type]
 
     movies = [job for job in active if job.get("media_type") != "episode"]
     episodes = [job for job in active if job.get("media_type") == "episode"]
@@ -152,7 +154,11 @@ async def enqueue_pending() -> None:
 
     ordered = movies + [episode for bucket in ordered_shows for episode in bucket]
     queued_guids = [job["plex_guid"] for job in ordered if job["plex_guid"] not in _current_guids]
-    await db.replace_queue_snapshot(queued_guids)
+    if force:
+        for plex_guid in reversed(queued_guids):
+            await force_scan_job(plex_guid)
+    else:
+        await db.replace_queue_snapshot(queued_guids)
     await _refresh_queue_size_snapshot()
     if queued_guids:
         logger.info(
@@ -163,6 +169,7 @@ async def enqueue_pending() -> None:
             len(jobs) - len(active),
         )
     _queue_wakeup_event.set()
+    return len(queued_guids)
 
 
 def _ensure_local_640m_model() -> str:
@@ -370,7 +377,7 @@ async def scan_video(plex_guid: str, config) -> None:
         duration_ms = await get_duration_ms(file_path)
         if not duration_ms:
             raise RuntimeError("Could not determine video duration.")
-        step_ms = max(1000, int(getattr(config, "scan_step_ms", 5000)))
+        step_ms = max(250, int(getattr(config, "scan_step_ms", 250)))
         frames = await sample_video_frames(file_path, step_ms, duration_ms)
 
         for stage_index, category in enumerate(SUPPORTED_CATEGORIES, start=1):
@@ -692,8 +699,6 @@ async def scanner_loop(get_config_fn) -> None:
     global _worker_pool_size, _restart_requested
 
     while True:
-        await enqueue_pending()
-
         config = await get_config_fn()
         worker_count = max(1, int(getattr(config, "scan_workers", 2)))
         _worker_pool_size = worker_count

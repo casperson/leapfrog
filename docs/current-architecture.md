@@ -32,7 +32,7 @@ Leapfrog is organized around a server-side media-filtering execution loop: Plex 
 - `leapfrog/logger.py`
   Mirrors process logs into a bounded in-memory replay buffer for the web log console and SSE stream.
 - `leapfrog/preferences.py`
-  Resolves effective user category settings and filters stored segments before playback enforcement.
+  Resolves effective user category and label settings and filters stored segments before playback enforcement.
 - `leapfrog/adapters/runtime_common.py`
   Owns shared runtime adapter types, sidecar precedence, DB fallback, and effective segment filtering for Plex, Emby, and Jellyfin.
 
@@ -46,6 +46,8 @@ The canonical segment record now keeps the original `plex_guid`-based storage fo
   Preserves the legacy per-user master on/off switch.
 - `user_preferences`
   Adds per-user toggles and thresholds for the canonical categories `nudity`, `sexual_content`, `profanity`, `violence`, and `drugs`.
+- `user_label_preferences`
+  Adds per-user skip toggles for granular labels within each category, keeping category policy broad while letting users tune details such as `brief_kiss`, `explicit_sex`, `weapon_threat`, and `pill_abuse`.
 - `scan_jobs`
   Stores job lifecycle plus durable queue state (`queue_state`, `queue_position`, `queue_priority`, `cancel_requested`, `queued_at`).
 - `media_scan_status`
@@ -56,28 +58,29 @@ The canonical segment record now keeps the original `plex_guid`-based storage fo
 ## Current detector pipeline
 
 - `scanner.py` extracts sampled JPEG frames once per title and fans them out to all image-based detectors.
-- Nudity detection still uses local NudeNet and emits thumbnail-backed segments with `category="nudity"` and `source="nudenet"`.
+- Nudity detection still uses local NudeNet and emits thumbnail-backed segments with `category="nudity"` and `source="nudenet"`. New installs default to `640m`, `250ms` sampling, and a `0.4` threshold to reduce missed brief nudity.
 - Sexual-content, violence, and drugs detection reuse the same sampled frames through `leapfrog/detectors/semantic.py` and `leapfrog/detectors/clip_onnx.py`. The current backend is a real local ONNX CLIP zero-shot scorer using cached text embeddings and shared frame embeddings.
 - Profanity detection runs separately from the video frame classifier path. It prefers external or embedded subtitles, then falls back to Whisper transcription if enabled and available. It stores matched caption/transcript excerpts in the segment row.
 
 ## Playback enforcement
 
-Playback remains server-side. The watcher loads a user’s effective category settings, resolves a runtime adapter context, filters stored or sidecar-backed segments by enabled category and threshold, then asks `PlexClient.seek(...)` to jump over matching content. No ML inference happens in the playback hot path.
+Playback remains server-side. The watcher loads a user’s effective category and label settings, resolves a runtime adapter context, filters stored or sidecar-backed segments by enabled category, enabled label, and threshold, then asks `PlexClient.seek(...)` to jump over matching content. No ML inference happens in the playback hot path.
 
 ## Queue, status, and logs
 
 - The scan queue is explicit and mutable through persisted `scan_jobs` ordering instead of an in-memory-only FIFO.
+- Startup discovery upserts `scan_jobs` but does not automatically enqueue the library; scans start from explicit title, library, or unscanned-movies actions.
 - Title detail is built from both `media_scan_status` and `media_scan_stage_status`, which means partially scanned titles remain visible even when they currently have zero saved segments.
 - The web UI consumes `/api/scan/queue`, `/api/titles/{guid}/scan-details`, and `/api/logs/*` to expose queue mutation, scan timelines, and live logs without adding any cloud dependency.
 
 ## Web UI
 
-- `frontend/src/pages/Users.tsx` manages overall profile filtering plus canonical category toggles and thresholds.
+- `frontend/src/pages/Users.tsx` manages overall profile filtering plus canonical category toggles, thresholds, and granular label skip choices.
 - `frontend/src/pages/Library.tsx` shows library titles, partial scan visibility, inline segment review, and per-title scan detail.
 - `frontend/src/pages/Segments.tsx` shows segment timing, category, source, labels, text excerpts, thumbnails, and effective skip decisions for the selected profile.
 - `frontend/src/pages/Dashboard.tsx` includes the queue manager and active-scan controls.
 - `frontend/src/pages/Logs.tsx` exposes the live logging console.
-- `frontend/src/pages/Settings.tsx` exposes detector settings, profanity term configuration, and Whisper fallback controls.
+- `frontend/src/pages/Settings.tsx` exposes detector settings, granular detection/skip label defaults, profanity term configuration, and Whisper fallback controls.
 
 ## Compatibility notes
 

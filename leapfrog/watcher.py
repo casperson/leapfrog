@@ -12,7 +12,7 @@ from . import database as db
 from . import filter_engine
 from .domain import DEFAULT_CATEGORY_THRESHOLDS
 from .preferences import get_resolved_preferences_for_users
-from .scanner import enqueue, enqueue_pending, scanner_loop
+from .scanner import scanner_loop
 
 logger = get_logger(__name__)
 
@@ -107,7 +107,7 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
 
 
 async def library_watcher_loop(get_config_fn, get_client_fn) -> None:
-    """Periodically check for new Plex library items and enqueue unscanned ones."""
+    """Periodically discover Plex library items without automatically queueing scans."""
     first_run = True
     while True:
         if not first_run:
@@ -147,8 +147,7 @@ async def library_watcher_loop(get_config_fn, get_client_fn) -> None:
                             year=item.year,
                             show_guid=getattr(item, "show_guid", ""),
                         )
-                        await enqueue(item.plex_guid)
-                        logger.info("New item queued for scan: %s", item.title)
+                        logger.info("New item discovered for manual scan: %s", item.title)
 
         except Exception as exc:
             logger.warning("Library watcher error: %s", exc)

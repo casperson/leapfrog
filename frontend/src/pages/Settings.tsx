@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { CheckCircle2, XCircle, Loader2, Eye, EyeOff, RotateCcw } from 'lucide-react'
+import { CheckCircle2, XCircle, Loader2, Eye, EyeOff, RotateCcw, Trash2 } from 'lucide-react'
+import { CategoryDefinition } from '../lib/categories'
 
 interface Settings {
   plex_url: string
@@ -28,6 +29,8 @@ interface Settings {
   excluded_library_ids: string
   scan_ratings: string
   scan_labels: string
+  default_skip_labels: string
+  semantic_detection_labels: string
 }
 
 interface Library {
@@ -50,14 +53,14 @@ const DEFAULT: Settings = {
   plex_url: '',
   plex_token: '',
   poll_interval: '5',
-  confidence_threshold: '0.6',
+  confidence_threshold: '0.4',
   sexual_content_detection_threshold: '0.30',
   violence_detection_threshold: '0.28',
   drugs_detection_threshold: '0.26',
   skip_buffer_ms: '3000',
-  scan_step_ms: '5000',
+  scan_step_ms: '250',
   scan_workers: '2',
-  nudenet_model: '320n',
+  nudenet_model: '640m',
   nudenet_model_path: '',
   segment_gap_ms: '12000',
   segment_min_hits: '1',
@@ -72,6 +75,8 @@ const DEFAULT: Settings = {
   excluded_library_ids: '[]',
   scan_ratings: '[]',
   scan_labels: '["FEMALE_BREAST_EXPOSED","FEMALE_GENITALIA_EXPOSED","MALE_GENITALIA_EXPOSED","ANUS_EXPOSED","BUTTOCKS_EXPOSED"]',
+  default_skip_labels: '{}',
+  semantic_detection_labels: '{}',
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -98,6 +103,7 @@ export default function SettingsPage() {
   const [showToken, setShowToken] = useState(false)
   const [libraries, setLibraries] = useState<Library[]>([])
   const [detectorLabels, setDetectorLabels] = useState<string[]>([])
+  const [categories, setCategories] = useState<CategoryDefinition[]>([])
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [syncForm, setSyncForm] = useState({ sync_enabled: false, instance_name: '' })
   const [savingSync, setSavingSync] = useState(false)
@@ -108,17 +114,21 @@ export default function SettingsPage() {
   const [downloadResult, setDownloadResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [restarting, setRestarting] = useState(false)
   const [restarted, setRestarted] = useState(false)
+  const [clearingSegments, setClearingSegments] = useState(false)
+  const [clearSegmentsResult, setClearSegmentsResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   useEffect(() => {
     Promise.all([
       api.get<Settings>('/api/settings'),
       api.get<{ libraries: Library[] }>('/api/libraries').catch(() => ({ libraries: [] })),
       api.get<{ labels: string[] }>('/api/settings/detector-labels').catch(() => ({ labels: [] })),
+      api.get<{ categories: CategoryDefinition[] }>('/api/settings/categories').catch(() => ({ categories: [] })),
       api.get<SyncStatus>('/api/sync/status').catch(() => null),
-    ]).then(([settings, libs, labels, sync]) => {
+    ]).then(([settings, libs, labels, categoryPayload, sync]) => {
       setForm({ ...DEFAULT, ...settings })
       setLibraries(libs?.libraries ?? [])
       setDetectorLabels(labels?.labels ?? [])
+      setCategories(categoryPayload?.categories ?? [])
       if (sync) {
         setSyncStatus(sync)
         setSyncForm(f => ({
@@ -144,6 +154,32 @@ export default function SettingsPage() {
 
   const set = (k: keyof Settings) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const labelMap = (key: 'default_skip_labels' | 'semantic_detection_labels'): Record<string, string[]> => {
+    try {
+      const parsed = JSON.parse(form[key])
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+
+  const toggleLabelSetting = (
+    key: 'default_skip_labels' | 'semantic_detection_labels',
+    category: string,
+    label: string,
+  ) => {
+    const current = labelMap(key)
+    const selected = new Set(current[category] ?? [])
+    selected.has(label) ? selected.delete(label) : selected.add(label)
+    setForm(formState => ({
+      ...formState,
+      [key]: JSON.stringify({
+        ...current,
+        [category]: Array.from(selected).sort(),
+      }),
+    }))
+  }
 
   const save = async () => {
     setSaving(true)
@@ -303,6 +339,30 @@ export default function SettingsPage() {
     }
   }
 
+  const clearStoredSegments = async () => {
+    const confirmed = window.confirm(
+      'Delete all stored Leapfrog segments, thumbnails, scan status, and queued scans? Media files are not touched.',
+    )
+    if (!confirmed) return
+
+    setClearingSegments(true)
+    setClearSegmentsResult(null)
+    try {
+      const response = await api.post<{ deleted: number; reset_scan_jobs: number }>('/api/segments/clear-all', {
+        reset_scan_state: true,
+        clear_queue: true,
+      })
+      setClearSegmentsResult({
+        ok: true,
+        message: `Deleted ${response.deleted} segment(s); reset ${response.reset_scan_jobs} title(s).`,
+      })
+    } catch (e: any) {
+      setClearSegmentsResult({ ok: false, message: e?.message ?? 'Could not clear stored segments' })
+    } finally {
+      setClearingSegments(false)
+    }
+  }
+
   const inputCls = "w-full px-3 py-2 bg-plex-darker border border-plex-border rounded-lg text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-plex-orange/60 transition-colors"
 
   if (loading) return <div className="text-gray-500 text-sm">Loading...</div>
@@ -386,15 +446,15 @@ export default function SettingsPage() {
             <input type="number" min="0" max="1" step="0.05" value={form.default_profanity_threshold} onChange={set('default_profanity_threshold')} className={inputCls} />
           </Field>
           <Field label="Scan Frame Interval (ms)" hint="How often frames are sampled during scanning. Lower catches more scenes but takes longer.">
-            <input type="number" min="1000" max="20000" step="500" value={form.scan_step_ms} onChange={set('scan_step_ms')} className={inputCls} />
+            <input type="number" min="250" max="20000" step="250" value={form.scan_step_ms} onChange={set('scan_step_ms')} className={inputCls} />
           </Field>
           <Field label="Scanner Workers" hint="How many titles can be scanned in parallel. Higher values use more CPU, disk, and memory.">
             <input type="number" min="1" max="12" step="1" value={form.scan_workers} onChange={set('scan_workers')} className={inputCls} />
           </Field>
-          <Field label="NudeNet Model" hint="320n is bundled and fastest. 640m is downloaded by Leapfrog automatically and then cached locally.">
+          <Field label="NudeNet Model" hint="640m is the more accurate default. 320n is bundled and faster if you need a lighter scan.">
             <select value={form.nudenet_model} onChange={set('nudenet_model')} className={inputCls}>
-              <option value="320n">320n (default, fast)</option>
-              <option value="640m">640m (higher accuracy, slower)</option>
+              <option value="640m">640m (default, higher accuracy)</option>
+              <option value="320n">320n (fast, less sensitive)</option>
             </select>
           </Field>
           <Field label="Prepare 640m Model" hint="Optional: click once to pre-download 640m now. Otherwise it will auto-download on first 640m scan.">
@@ -435,6 +495,62 @@ export default function SettingsPage() {
               )}
             </div>
           </Field>
+          {categories.length > 0 && (
+            <div className="space-y-4 rounded-lg border border-plex-border bg-plex-darker/60 p-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-200">Granular Label Defaults</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  Detection controls what scanners save. Skip defaults control which saved labels new profiles skip when the category is enabled.
+                </p>
+              </div>
+              {categories.map(category => {
+                const labels = category.labels ?? []
+                if (labels.length === 0) return null
+                const supportsDetectionToggle = ['sexual_content', 'violence', 'drugs'].includes(category.key)
+                const detection = labelMap('semantic_detection_labels')
+                const skipDefaults = labelMap('default_skip_labels')
+                return (
+                  <div key={category.key} className="space-y-2">
+                    <p className="text-xs font-medium uppercase text-gray-400">{category.label}</p>
+                    <div className="grid gap-2">
+                      {labels.map(label => {
+                        const detectChecked = (detection[category.key] ?? labels.filter(item => item.default_detect).map(item => item.key)).includes(label.key)
+                        const skipChecked = (skipDefaults[category.key] ?? labels.filter(item => item.default_skip).map(item => item.key)).includes(label.key)
+                        return (
+                          <div key={label.key} className="grid gap-2 rounded border border-plex-border/70 bg-black/10 p-2 sm:grid-cols-[1fr,auto,auto] sm:items-center">
+                            <div>
+                              <p className="text-sm text-gray-200">{label.label}</p>
+                              <p className="text-xs text-gray-600">{label.description}</p>
+                            </div>
+                            {supportsDetectionToggle && (
+                              <label className="inline-flex items-center gap-2 text-xs text-gray-400">
+                                <input
+                                  type="checkbox"
+                                  checked={detectChecked}
+                                  onChange={() => toggleLabelSetting('semantic_detection_labels', category.key, label.key)}
+                                  className="h-4 w-4 accent-plex-orange"
+                                />
+                                Detect
+                              </label>
+                            )}
+                            <label className="inline-flex items-center gap-2 text-xs text-gray-400">
+                              <input
+                                type="checkbox"
+                                checked={skipChecked}
+                                onChange={() => toggleLabelSetting('default_skip_labels', category.key, label.key)}
+                                className="h-4 w-4 accent-plex-orange"
+                              />
+                              Skip default
+                            </label>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
           <Field label="Segment Merge Gap (ms)" hint="Flagged frames closer than this are merged into one segment.">
             <input type="number" min="1000" max="30000" step="500" value={form.segment_gap_ms} onChange={set('segment_gap_ms')} className={inputCls} />
           </Field>
@@ -652,6 +768,30 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      <section>
+        <h2 className="text-base font-semibold text-gray-200 mb-4 pb-2 border-b border-plex-border">Maintenance</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Clear saved detection results when you change scan sensitivity and want a clean rescan.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={clearStoredSegments}
+            disabled={clearingSegments}
+            className="px-4 py-2 text-xs bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 hover:bg-red-500/20 transition-colors disabled:opacity-40 flex items-center gap-2"
+          >
+            {clearingSegments ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            Clear Stored Segments
+          </button>
+          {clearSegmentsResult && (
+            <span className={`flex items-center gap-1.5 text-xs ${clearSegmentsResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {clearSegmentsResult.ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+              {clearSegmentsResult.message}
+            </span>
+          )}
+        </div>
+      </section>
+
       {/* Save */}
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -671,14 +811,14 @@ export default function SettingsPage() {
           onClick={restartScanner}
           disabled={restarting}
           className="px-4 py-2.5 bg-plex-card border border-plex-border text-sm rounded-lg text-gray-300 hover:border-plex-orange/50 hover:text-white transition-colors disabled:opacity-50 flex items-center gap-2"
-          title="Restart the scanner pool — picks up config changes and reorders the queue"
+          title="Restart the scanner pool to pick up config changes"
         >
           <RotateCcw size={14} className={restarting ? 'animate-spin' : ''} />
           Restart Scanner
         </button>
         {restarted && (
           <span className="flex items-center gap-1.5 text-sm text-green-400">
-            <CheckCircle2 size={15} /> Restarting — queue will reorder within ~10s
+            <CheckCircle2 size={15} /> Restarting scanner pool
           </span>
         )}
       </div>

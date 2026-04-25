@@ -381,13 +381,17 @@ export default function Segments() {
     if (!selectedTitle) return
     setDeletingAll(true)
     try {
-      await api.delete(`/api/titles/${selectedTitle.plex_guid}/segments`)
+      await api.delete(`/api/titles/${encodeURIComponent(selectedTitle.plex_guid)}/segments`)
       setSegments([])
       if (selectedLib) {
         const d = await api.get<{ titles: Title[] }>(`/api/libraries/${selectedLib.id}/titles`)
-        setTitles(d.titles.filter(shouldShowTitleInSegments))
+        const visibleTitles = d.titles.filter(shouldShowTitleInSegments)
+        setTitles(visibleTitles)
+        const refreshed = visibleTitles.find(title => title.plex_guid === selectedTitle.plex_guid)
+        setSelectedTitle(refreshed ?? { ...selectedTitle, segment_count: 0 })
+      } else {
+        setSelectedTitle({ ...selectedTitle, segment_count: 0 })
       }
-      setSelectedTitle(null)
       setConfirmDeleteAll(false)
     } finally {
       setDeletingAll(false)
@@ -438,22 +442,6 @@ export default function Segments() {
       {/* Library tree - desktop: side panel; mobile: collapsed above content */}
       <div className="hidden md:flex w-52 flex-shrink-0 flex-col overflow-y-auto">
         <h1 className="text-xl font-bold text-gray-100 mb-3">Segments</h1>
-        {selectedLib && (
-          <label className="mb-3 block">
-            <span className="mb-1 block text-[11px] font-medium uppercase text-gray-500">Search Movie Title</span>
-            <span className="relative block">
-              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
-              <input
-                type="search"
-                aria-label="Search movie title"
-                value={titleFilter}
-                onChange={event => setTitleFilter(event.target.value)}
-                placeholder="Search title..."
-                className="w-full rounded-lg border border-plex-border bg-plex-card py-2 pl-8 pr-3 text-sm text-gray-100 placeholder-gray-600 focus:border-plex-orange/60 focus:outline-none"
-              />
-            </span>
-          </label>
-        )}
         <div className="space-y-0.5 pr-2 flex-1 overflow-y-auto">
           {libraries.map(lib => (
             <div key={lib.id}>
@@ -571,20 +559,6 @@ export default function Segments() {
             </select>
             {selectedLib && (
               <div className="flex-1 space-y-2">
-                <label className="block">
-                  <span className="mb-1 block text-[11px] font-medium uppercase text-gray-500">Search Movie Title</span>
-                  <span className="relative block">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
-                    <input
-                      type="search"
-                      aria-label="Search movie title"
-                      value={titleFilter}
-                      onChange={event => setTitleFilter(event.target.value)}
-                      placeholder="Search title..."
-                      className="w-full rounded-lg border border-plex-border bg-plex-card py-2 pl-8 pr-3 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-plex-orange/60"
-                    />
-                  </span>
-                </label>
                 <select
                   value={selectedTitle?.plex_guid ?? ''}
                   onChange={e => {
@@ -628,6 +602,26 @@ export default function Segments() {
             </select>
           )}
         </div>
+
+        {selectedLib && (
+          <label className="mb-4 block rounded-xl border border-plex-border bg-plex-card/70 p-3">
+            <span className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-gray-500">
+              Search Movie Title
+            </span>
+            <span className="relative block">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+              <input
+                type="search"
+                aria-label="Search movie title"
+                value={titleFilter}
+                onChange={event => setTitleFilter(event.target.value)}
+                placeholder="Filter titles in this library..."
+                className="w-full rounded-lg border border-plex-border bg-plex-darker py-2.5 pl-9 pr-3 text-sm text-gray-100 placeholder-gray-600 focus:border-plex-orange/60 focus:outline-none"
+              />
+            </span>
+          </label>
+        )}
+
         {scannerStatus && scannerStatus.active_scans.length > 0 && (
           <div className="mb-3 bg-plex-card border border-plex-orange/30 rounded-xl px-4 py-3">
             <div className="flex items-center justify-between text-xs mb-2 text-gray-400">
@@ -692,15 +686,14 @@ export default function Segments() {
                   ))}
                 </select>
               )}
-              {segments.length > 0 && (
-                <button
-                  onClick={() => setConfirmDeleteAll(true)}
-                  disabled={deletingAll}
-                  className="px-3 py-1.5 text-xs bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 flex-shrink-0"
-                >
-                  Delete All
-                </button>
-              )}
+              <button
+                onClick={() => setConfirmDeleteAll(true)}
+                disabled={deletingAll || segments.length === 0}
+                title={segments.length === 0 ? 'This title has no saved segments to clear' : 'Clear all saved segments for this title'}
+                className="px-3 py-1.5 text-xs bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40 flex-shrink-0"
+              >
+                Clear Title Segments
+              </button>
             </div>
 
             <TitleScanDetailPanel
@@ -889,11 +882,11 @@ export default function Segments() {
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="w-full max-w-sm bg-plex-card border border-plex-border rounded-xl overflow-hidden">
               <div className="px-4 py-3 border-b border-plex-border">
-                <h3 className="text-sm font-semibold text-gray-100">Delete All Segments?</h3>
+                <h3 className="text-sm font-semibold text-gray-100">Clear Title Segments?</h3>
               </div>
               <div className="p-4">
                 <p className="text-sm text-gray-300 mb-4">
-                  Are you sure you want to delete all {segments.length} segment{segments.length !== 1 ? 's' : ''} for <strong>{selectedTitle.title}</strong>? This cannot be undone.
+                  Are you sure you want to delete all {segments.length} saved segment{segments.length !== 1 ? 's' : ''} for <strong>{selectedTitle.title}</strong>? This does not touch the media file and cannot be undone.
                 </p>
                 <div className="flex gap-2 justify-end">
                   <button
@@ -908,7 +901,7 @@ export default function Segments() {
                     disabled={deletingAll}
                     className="px-3 py-1.5 text-xs bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-40"
                   >
-                    {deletingAll ? 'Deleting...' : 'Delete All'}
+                    {deletingAll ? 'Clearing...' : 'Clear Segments'}
                   </button>
                 </div>
               </div>

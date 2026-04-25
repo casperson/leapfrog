@@ -16,14 +16,18 @@ These keys are defined once in `leapfrog/domain.py` and reused by preferences, d
 
 Fine-grained detector detail belongs in `labels`, not in new top-level categories. Typical labels include:
 
-- `kissing`
+- `explicit_sex`
+- `heavy_making_out`
+- `romantic_kiss`
+- `brief_kiss`
 - `intimate_touch`
 - `fight`
 - `blood`
-- `weapon`
-- `smoke`
+- `weapon_threat`
+- `gunfire`
+- `smoking_drugs`
 - `needle`
-- `pill`
+- `pill_abuse`
 - `drug_paraphernalia`
 
 ## Local detector choices
@@ -31,7 +35,7 @@ Fine-grained detector detail belongs in `labels`, not in new top-level categorie
 Leapfrog keeps all inference local to the Plex server machine.
 
 - `nudity`
-  Uses local NudeNet on sampled frames.
+  Uses local NudeNet on sampled frames. The more sensitive default is `640m`, `250ms` sampling, and `0.4` confidence threshold.
 - `sexual_content`
   Uses shared local ONNX CLIP zero-shot scoring on sampled frames.
 - `violence`
@@ -76,7 +80,7 @@ All detectors emit the shared stored segment schema:
 - `text_excerpt`
 - `thumbnail_path`
 
-Playback still consumes stored segments by category and threshold. The app does not make playback decisions from `labels` in the hot path.
+Playback still consumes stored segments without running inference. Effective skip selection uses the user’s enabled category, enabled labels for that category, and threshold. Unknown legacy labels remain category-gated until the title is rescanned with the current label taxonomy.
 
 ## Scan status model
 
@@ -115,6 +119,8 @@ Relevant fields:
 
 Supported mutations:
 
+- queue pending titles explicitly by media type
+- queue pending titles immediately by media type
 - reorder with an explicit snapshot
 - move to top
 - move to bottom
@@ -126,6 +132,7 @@ Supported mutations:
 - cancel the current active scan
 
 Worker claim order is stable and SQLite-backed, so the queue survives restarts and is safe to render directly in the UI.
+Leapfrog discovers library items on startup but leaves them unqueued until the user starts a title, library, or unscanned-movies scan action.
 
 ## Logging console
 

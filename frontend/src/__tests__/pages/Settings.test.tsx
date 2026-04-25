@@ -22,12 +22,12 @@ const defaultSettings = {
   plex_url: 'http://plex:32400',
   plex_token: 'abc',
   poll_interval: '5',
-  confidence_threshold: '0.6',
+  confidence_threshold: '0.4',
   sexual_content_detection_threshold: '0.30',
   violence_detection_threshold: '0.28',
   drugs_detection_threshold: '0.26',
   skip_buffer_ms: '3000',
-  scan_step_ms: '5000',
+  scan_step_ms: '250',
   scan_workers: '2',
   segment_gap_ms: '12000',
   segment_min_hits: '1',
@@ -37,7 +37,9 @@ const defaultSettings = {
   excluded_library_ids: '[]',
   scan_ratings: '[]',
   scan_labels: '["FEMALE_BREAST_EXPOSED"]',
-  nudenet_model: '320n',
+  default_skip_labels: '{"sexual_content":["explicit_sex"]}',
+  semantic_detection_labels: '{"sexual_content":["explicit_sex","brief_kiss"]}',
+  nudenet_model: '640m',
   nudenet_model_path: '',
   sync_enabled: '0',
   sync_instance_name: '',
@@ -58,6 +60,34 @@ function renderSettings() {
 beforeEach(() => {
   mockApi.get.mockImplementation((path: string) => {
     if (path === '/api/settings') return Promise.resolve(defaultSettings)
+    if (path === '/api/settings/categories') {
+      return Promise.resolve({
+        categories: [
+          {
+            key: 'sexual_content',
+            label: 'Sexual Content',
+            description: 'Sexual activity or intimate content.',
+            default_threshold: 0.5,
+            labels: [
+              {
+                key: 'explicit_sex',
+                label: 'Explicit Sex',
+                description: 'Visible explicit sexual activity.',
+                default_skip: true,
+                default_detect: true,
+              },
+              {
+                key: 'brief_kiss',
+                label: 'Brief Kiss',
+                description: 'Brief peck or non-explicit kiss.',
+                default_skip: false,
+                default_detect: true,
+              },
+            ],
+          },
+        ],
+      })
+    }
     if (path.includes('detector-labels')) return Promise.resolve({ labels: [] })
     if (path.includes('libraries')) return Promise.resolve({ libraries: [] })
     return Promise.resolve({})
@@ -65,6 +95,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
 
@@ -117,6 +148,7 @@ describe('Settings', () => {
     mockApi.get.mockImplementation((path: string) => {
       if (path.includes('job')) return Promise.resolve({ status: 'running', progress: 50, error: null, result: null })
       if (path === '/api/settings') return Promise.resolve(defaultSettings)
+      if (path === '/api/settings/categories') return Promise.resolve({ categories: [] })
       if (path.includes('detector-labels')) return Promise.resolve({ labels: [] })
       return Promise.resolve({})
     })
@@ -137,5 +169,31 @@ describe('Settings', () => {
     expect(pollCount).toBeLessThanOrEqual(130)
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
+  })
+
+  it('renders granular label defaults from category metadata', async () => {
+    renderSettings()
+
+    await waitFor(() => expect(screen.getByText('Granular Label Defaults')).toBeInTheDocument())
+    expect(screen.getByText('Explicit Sex')).toBeInTheDocument()
+    expect(screen.getByText('Brief Kiss')).toBeInTheDocument()
+  })
+
+  it('wires clear stored segments maintenance action', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    mockApi.post.mockResolvedValue({ deleted: 3, reset_scan_jobs: 2 })
+
+    renderSettings()
+
+    await waitFor(() => expect(screen.getByText('Clear Stored Segments')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Clear Stored Segments'))
+
+    await waitFor(() =>
+      expect(mockApi.post).toHaveBeenCalledWith('/api/segments/clear-all', {
+        reset_scan_state: true,
+        clear_queue: true,
+      })
+    )
+    expect(screen.getByText('Deleted 3 segment(s); reset 2 title(s).')).toBeInTheDocument()
   })
 })

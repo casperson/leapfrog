@@ -70,10 +70,12 @@ class SettingsPayload(BaseModel):
     excluded_library_ids: str | None = None
     scan_ratings: str | None = None
     scan_labels: str | None = None
+    default_skip_labels: str | None = None
+    semantic_detection_labels: str | None = None
 
 
 class ValidateModelPathPayload(BaseModel):
-    nudenet_model: str = "320n"
+    nudenet_model: str = "640m"
     nudenet_model_path: str = ""
 
 
@@ -157,7 +159,7 @@ async def get_detector_labels():
 
 @router.post("/validate-model-path")
 async def validate_model_path(payload: ValidateModelPathPayload):
-    model_name = (payload.nudenet_model or "320n").strip().lower()
+    model_name = (payload.nudenet_model or "640m").strip().lower()
 
     # 320n is bundled with nudenet package; no download required.
     if not model_name.startswith("640"):

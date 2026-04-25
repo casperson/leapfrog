@@ -12,8 +12,10 @@ from typing import Any
 import aiosqlite
 
 from .domain import (
+    DEFAULT_DETECT_LABELS,
     DEFAULT_PROFANITY_ALLOWLIST,
     DEFAULT_PROFANITY_TERMS,
+    DEFAULT_SKIP_LABELS,
     SCAN_STAGE_ORDER,
     Segment,
     SUPPORTED_CATEGORIES,
@@ -85,6 +87,20 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     UNIQUE(user_id, category)
 );
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user ON user_preferences(user_id);
+
+CREATE TABLE IF NOT EXISTS user_label_preferences (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       TEXT    NOT NULL,
+    category      TEXT    NOT NULL,
+    label         TEXT    NOT NULL,
+    enabled       INTEGER DEFAULT 1,
+    threshold     REAL,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, category, label)
+);
+CREATE INDEX IF NOT EXISTS idx_user_label_preferences_user
+ON user_label_preferences(user_id, category);
 
 CREATE TABLE IF NOT EXISTS scan_jobs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,9 +212,9 @@ DEFAULT_SETTINGS = {
     "plex_url": "",
     "plex_token": "",
     "poll_interval": "5",
-    "confidence_threshold": "0.6",
+    "confidence_threshold": "0.4",
     "skip_buffer_ms": "3000",
-    "scan_step_ms": "5000",
+    "scan_step_ms": "250",
     "scan_workers": "2",
     "segment_gap_ms": "12000",
     "segment_min_hits": "1",
@@ -208,7 +224,7 @@ DEFAULT_SETTINGS = {
     "excluded_library_ids": "[]",
     "scan_ratings": "[]",  # empty = scan all ratings
     "scan_labels": "[\"FEMALE_BREAST_EXPOSED\",\"FEMALE_GENITALIA_EXPOSED\",\"MALE_GENITALIA_EXPOSED\",\"ANUS_EXPOSED\",\"BUTTOCKS_EXPOSED\"]",
-    "nudenet_model": "320n",
+    "nudenet_model": "640m",
     "nudenet_model_path": "",
     "semantic_model_repo": "Xenova/clip-vit-base-patch32",
     "semantic_processor_repo": "openai/clip-vit-base-patch32",
@@ -219,6 +235,8 @@ DEFAULT_SETTINGS = {
     "sexual_content_detection_threshold": "0.30",
     "violence_detection_threshold": "0.28",
     "drugs_detection_threshold": "0.30",
+    "default_skip_labels": json.dumps(DEFAULT_SKIP_LABELS),
+    "semantic_detection_labels": json.dumps(DEFAULT_DETECT_LABELS),
     "profanity_merge_gap_ms": "1500",
     "whisper_enabled": "1",
     "whisper_model": "base",
@@ -409,6 +427,16 @@ async def init_db() -> None:
                 "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
                 (key, value),
             )
+        for key, old_value, new_value in (
+            ("confidence_threshold", "0.6", DEFAULT_SETTINGS["confidence_threshold"]),
+            ("scan_step_ms", "5000", DEFAULT_SETTINGS["scan_step_ms"]),
+            ("scan_step_ms", "1000", DEFAULT_SETTINGS["scan_step_ms"]),
+            ("nudenet_model", "320n", DEFAULT_SETTINGS["nudenet_model"]),
+        ):
+            await conn.execute(
+                "UPDATE settings SET value=? WHERE key=? AND value=?",
+                (new_value, key, old_value),
+            )
         await conn.commit()
     logger.info("Database initialised at %s", db_path)
 
@@ -509,6 +537,52 @@ async def get_user_category_preferences(user_id: str) -> list[dict]:
     return await get_user_preferences(user_id)
 
 
+async def get_all_user_label_preferences() -> list[dict]:
+    """Return every stored per-user label preference."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            "SELECT id, user_id, category, label, enabled, threshold, created_at, updated_at "
+            "FROM user_label_preferences ORDER BY user_id, category, label"
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_user_label_preferences(user_id: str) -> list[dict]:
+    """Return stored label preferences for one user."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            "SELECT id, user_id, category, label, enabled, threshold, created_at, updated_at "
+            "FROM user_label_preferences WHERE user_id=? ORDER BY category, label",
+            (user_id,),
+        )
+        return [dict(row) for row in rows]
+
+
+async def set_user_label_preference(
+    user_id: str,
+    category: str,
+    label: str,
+    *,
+    enabled: bool,
+    threshold: float | None,
+) -> None:
+    """Upsert one per-user label preference."""
+    async with get_connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO user_label_preferences(user_id, category, label, enabled, threshold)
+            VALUES(?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, category, label)
+            DO UPDATE SET
+                enabled=excluded.enabled,
+                threshold=excluded.threshold,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (user_id, category, label, 1 if enabled else 0, threshold),
+        )
+        await conn.commit()
+
+
 async def set_user_preference(
     user_id: str,
     category: str,
@@ -607,6 +681,14 @@ async def delete_segments_for_guid(plex_guid: str) -> int:
         return cursor.rowcount
 
 
+async def delete_all_segments() -> int:
+    """Delete every stored segment and return deleted row count."""
+    async with get_connection() as conn:
+        cursor = await conn.execute("DELETE FROM segments")
+        await conn.commit()
+        return cursor.rowcount
+
+
 async def delete_segments_for_guid_category(plex_guid: str, category: str) -> int:
     """Delete category-specific segments for a title."""
     async with get_connection() as conn:
@@ -628,6 +710,19 @@ async def get_thumbnail_paths_for_guid(plex_guid: str) -> list[str]:
             WHERE plex_guid=? AND COALESCE(thumbnail_path, '') != ''
             """,
             (plex_guid,),
+        )
+        return [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
+
+
+async def get_all_thumbnail_paths() -> list[str]:
+    """Return non-empty thumbnail paths for every stored segment."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT thumbnail_path
+            FROM segments
+            WHERE COALESCE(thumbnail_path, '') != ''
+            """
         )
         return [str(row["thumbnail_path"]) for row in rows if row["thumbnail_path"]]
 
@@ -1291,6 +1386,34 @@ async def reset_scan_job(plex_guid: str) -> None:
             (plex_guid,),
         )
         await conn.commit()
+
+
+async def reset_all_scan_jobs() -> int:
+    """Reset all scan jobs to unqueued pending state and return updated row count."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            """
+            UPDATE scan_jobs
+            SET
+                status='pending',
+                progress=0,
+                started_at=NULL,
+                finished_at=NULL,
+                error_msg=NULL,
+                cancel_requested=0,
+                force_scan=0,
+                queue_state='idle',
+                queue_position=NULL,
+                queue_priority=0,
+                queue_reason='',
+                queued_at=NULL,
+                queue_updated_at=CURRENT_TIMESTAMP
+            """
+        )
+        await conn.execute("DELETE FROM media_scan_status")
+        await conn.execute("DELETE FROM media_scan_stage_status")
+        await conn.commit()
+        return cursor.rowcount
 
 
 async def set_force_scan(plex_guid: str, force: bool) -> None:

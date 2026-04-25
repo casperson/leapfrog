@@ -35,6 +35,13 @@ _scan_labels_cache: tuple[float, str] | None = None  # (monotonic_time, raw_json
 _SCAN_LABELS_CACHE_TTL = 30.0
 
 
+class ClearSegmentsRequest(BaseModel):
+    """Request body for clearing stored segment results."""
+
+    reset_scan_state: bool = True
+    clear_queue: bool = True
+
+
 def _invalidate_scan_labels_cache() -> None:
     global _scan_labels_cache
     _scan_labels_cache = None
@@ -635,6 +642,31 @@ async def delete_all_segments_for_title(plex_guid: str):
     _delete_thumbnail_files(thumbnail_paths)
     _refresh_leapfrog_summary_for_guid(plex_guid)
     return {"ok": True, "deleted": deleted}
+
+
+@router.post("/segments/clear-all")
+async def clear_all_segments(body: ClearSegmentsRequest | None = None):
+    """Delete all stored segments, thumbnails, and optionally reset scan state."""
+
+    payload = body or ClearSegmentsRequest()
+    thumbnail_paths = await db.get_all_thumbnail_paths()
+    if payload.clear_queue:
+        await db.cancel_all_queued_items()
+    deleted = await db.delete_all_segments()
+    reset_jobs = await db.reset_all_scan_jobs() if payload.reset_scan_state else 0
+    _delete_thumbnail_files(thumbnail_paths)
+    logger.warning(
+        "Cleared %d stored segments and %d thumbnail path(s); reset_scan_state=%s",
+        deleted,
+        len(thumbnail_paths),
+        payload.reset_scan_state,
+    )
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "deleted_thumbnails": len(thumbnail_paths),
+        "reset_scan_jobs": reset_jobs,
+    }
 
 
 @router.get("/segments")

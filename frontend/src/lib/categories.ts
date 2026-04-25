@@ -6,6 +6,13 @@ export interface CategoryDefinition {
   label: string
   description: string
   default_threshold: number
+  labels?: {
+    key: string
+    label: string
+    description: string
+    default_skip: boolean
+    default_detect: boolean
+  }[]
 }
 
 export const FALLBACK_CATEGORY_DEFINITIONS: CategoryDefinition[] = [
@@ -13,7 +20,7 @@ export const FALLBACK_CATEGORY_DEFINITIONS: CategoryDefinition[] = [
     key: 'nudity',
     label: 'Nudity',
     description: 'Skip detected nudity scenes.',
-    default_threshold: 0.6,
+    default_threshold: 0.4,
   },
   {
     key: 'sexual_content',
