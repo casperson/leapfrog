@@ -203,7 +203,7 @@ Optional custom location or port:
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1 `
   -DataDir "D:\LeapfrogData" `
-  -Host "0.0.0.0" `
+  -ListenHost "0.0.0.0" `
   -Port "7979"
 ```
 

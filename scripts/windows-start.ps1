@@ -1,6 +1,6 @@
 param(
   [string]$DataDir = "",
-  [string]$Host = "",
+  [string]$ListenHost = "",
   [string]$Port = ""
 )
 
@@ -46,8 +46,8 @@ try {
   if ($DataDir) {
     $env:LEAPFROG_DATA = $DataDir
   }
-  if ($Host) {
-    $env:LEAPFROG_HOST = $Host
+  if ($ListenHost) {
+    $env:LEAPFROG_HOST = $ListenHost
   }
   if ($Port) {
     $env:LEAPFROG_PORT = $Port
