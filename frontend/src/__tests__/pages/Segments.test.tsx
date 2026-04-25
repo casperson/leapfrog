@@ -206,7 +206,7 @@ describe('Segments page', () => {
 
     await waitFor(() => expect(screen.getByText('Movie Partial')).toBeInTheDocument())
     await act(async () => {
-      fireEvent.change(screen.getAllByPlaceholderText('Filter titles…')[0], { target: { value: 'Flagged' } })
+      fireEvent.change(screen.getAllByLabelText('Search movie title')[0], { target: { value: 'Flagged' } })
     })
 
     expect(screen.queryByText('Movie Partial')).not.toBeInTheDocument()

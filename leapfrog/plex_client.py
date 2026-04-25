@@ -82,9 +82,56 @@ class PlexClient:
         self._show_art_cache: dict[str, tuple[float, tuple[str, str, str, str, str]]] = {}
         self._last_seek_success_at: str | None = None
         self._last_seek_failure: dict[str, Any] | None = None
+        self._last_seek_diagnostics: dict[str, Any] | None = None
+        self._command_id = int(time.time() * 1000)
+
+    def _next_command_id(self) -> int:
+        self._command_id += 1
+        return self._command_id
+
+    @staticmethod
+    def _redact_token(value: str) -> str:
+        return re.sub(r"([?&]X-Plex-Token=)[^&]+", r"\1<redacted>", value)
 
     def _record_seek_success(self) -> None:
         self._last_seek_success_at = datetime.now().isoformat(timespec="seconds")
+
+    def _start_seek_diagnostics(self, *, client_identifier: str, offset_ms: int) -> dict[str, Any]:
+        self._last_seek_diagnostics = {
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "client_identifier": client_identifier,
+            "offset_ms": offset_ms,
+            "attempts": [],
+            "success": False,
+        }
+        return self._last_seek_diagnostics
+
+    def _record_seek_attempt(
+        self,
+        *,
+        method: str,
+        ok: bool,
+        detail: str,
+        target: str = "",
+        client_address: str = "",
+        client_port: int | None = None,
+        status_code: int | None = None,
+        variant: int | None = None,
+    ) -> None:
+        if self._last_seek_diagnostics is None:
+            return
+        self._last_seek_diagnostics["attempts"].append({
+            "at": datetime.now().isoformat(timespec="seconds"),
+            "method": method,
+            "ok": ok,
+            "target": self._redact_token(target),
+            "client_address": client_address,
+            "client_port": client_port,
+            "status_code": status_code,
+            "variant": variant,
+            "detail": detail,
+        })
+        self._last_seek_diagnostics["success"] = bool(self._last_seek_diagnostics["success"] or ok)
 
     def _record_seek_failure(
         self,
@@ -113,6 +160,14 @@ class PlexClient:
 
     def get_last_seek_failure(self) -> dict[str, Any] | None:
         return dict(self._last_seek_failure) if self._last_seek_failure else None
+
+    def get_last_seek_diagnostics(self) -> dict[str, Any] | None:
+        if not self._last_seek_diagnostics:
+            return None
+        return {
+            **self._last_seek_diagnostics,
+            "attempts": [dict(attempt) for attempt in self._last_seek_diagnostics.get("attempts", [])],
+        }
 
     def _get_server(self) -> PlexServer:
         if self._server is None:
@@ -215,21 +270,31 @@ class PlexClient:
 
     async def seek(self, client_identifier: str, offset_ms: int, client_address: str = "", client_port: int = 32500) -> bool:
         """Seek via server proxy first, then try direct client control as fallback."""
+        command_id = self._next_command_id()
+        self._start_seek_diagnostics(client_identifier=client_identifier, offset_ms=offset_ms)
+        key = (
+            f"/player/playback/seekTo"
+            f"?offset={offset_ms}"
+            f"&type=video"
+            f"&commandID={command_id}"
+        )
         try:
             srv = await asyncio.to_thread(self._get_server)
-            key = (
-                f"/player/playback/seekTo"
-                f"?offset={offset_ms}"
-                f"&type=video"
-                f"&commandID={int(time.time())}"
-            )
-            headers = {"X-Plex-Target-Client-Identifier": client_identifier}
+            headers = {
+                "X-Plex-Target-Client-Identifier": client_identifier,
+                "X-Plex-Client-Identifier": "leapfrog-server",
+                "X-Plex-Product": "Leapfrog",
+                "X-Plex-Device-Name": "Leapfrog",
+                "X-Plex-Platform": "Windows",
+            }
             await asyncio.to_thread(srv.query, key, headers=headers)
             logger.info("Seeked client %s to %dms via server query proxy", client_identifier, offset_ms)
+            self._record_seek_attempt(method="proxy", ok=True, target=key, detail="Server proxy seek accepted")
             self._record_seek_success()
             return True
         except Exception as exc:
             logger.warning("Proxy seek failed for %s: %s", client_identifier, exc)
+            self._record_seek_attempt(method="proxy", ok=False, target=key, detail=str(exc))
             self._record_seek_failure(
                 method="proxy",
                 client_identifier=client_identifier,
@@ -238,6 +303,11 @@ class PlexClient:
 
         if not client_address:
             logger.warning("No client_address available for direct seek fallback (client=%s)", client_identifier)
+            self._record_seek_attempt(
+                method="direct",
+                ok=False,
+                detail="No client_address available for direct seek fallback",
+            )
             self._record_seek_failure(
                 method="direct",
                 client_identifier=client_identifier,
@@ -255,7 +325,7 @@ class PlexClient:
                 f"http://{client_address}:{port}/player/playback/seekTo"
                 f"?offset={offset_ms}"
                 f"&type=video"
-                f"&commandID={int(time.time())}"
+                f"&commandID={command_id}"
             )
             variants = [
                 (
@@ -304,6 +374,16 @@ class PlexClient:
                             offset_ms,
                             idx,
                         )
+                        self._record_seek_attempt(
+                            method="direct",
+                            ok=True,
+                            target=url,
+                            detail="Direct client seek accepted",
+                            client_address=client_address,
+                            client_port=port,
+                            status_code=resp.status_code,
+                            variant=idx,
+                        )
                         self._record_seek_success()
                         return True
                     logger.warning(
@@ -314,6 +394,16 @@ class PlexClient:
                         port,
                         idx,
                         resp.text[:500],
+                    )
+                    self._record_seek_attempt(
+                        method="direct",
+                        ok=False,
+                        target=url,
+                        detail=resp.text[:500] or f"HTTP {resp.status_code}",
+                        client_address=client_address,
+                        client_port=port,
+                        status_code=resp.status_code,
+                        variant=idx,
                     )
                     self._record_seek_failure(
                         method="direct",
@@ -332,6 +422,15 @@ class PlexClient:
                         port,
                         idx,
                         exc,
+                    )
+                    self._record_seek_attempt(
+                        method="direct",
+                        ok=False,
+                        target=url,
+                        detail=str(exc),
+                        client_address=client_address,
+                        client_port=port,
+                        variant=idx,
                     )
                     self._record_seek_failure(
                         method="direct",

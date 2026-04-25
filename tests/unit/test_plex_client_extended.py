@@ -106,6 +106,47 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure():
     assert result is True
 
 
+async def test_seek_records_full_diagnostics_and_redacts_token():
+    transport = httpx.MockTransport(lambda req: httpx.Response(401, content=b"unauthorized"))
+    c = _make_client(seek_transport=transport)
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+        result = await c.seek("client-id", 30000, client_address="192.168.1.10", client_port=32500)
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is False
+    assert diagnostics is not None
+    assert diagnostics["success"] is False
+    assert diagnostics["offset_ms"] == 30000
+    assert len(diagnostics["attempts"]) >= 2
+    assert diagnostics["attempts"][0]["method"] == "proxy"
+    assert diagnostics["attempts"][-1]["status_code"] == 401
+    targets = [attempt["target"] for attempt in diagnostics["attempts"]]
+    assert all("X-Plex-Token=token" not in target for target in targets)
+    assert any("<redacted>" in target for target in targets)
+
+
+async def test_seek_uses_unique_command_ids():
+    c = _make_client()
+    srv = _mock_server()
+    srv.query = MagicMock(return_value=None)
+    keys: list[str] = []
+
+    async def fake_to_thread(func, *args, **kwargs):
+        if func == c._get_server:
+            return srv
+        keys.append(args[0])
+        return None
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+        assert await c.seek("client-id", 30000) is True
+        assert await c.seek("client-id", 31000) is True
+
+    assert len(keys) == 2
+    assert "commandID=" in keys[0]
+    assert keys[0] != keys[1]
+
+
 async def test_seek_returns_false_when_no_client_address_and_proxy_fails():
     c = _make_client()
     with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):

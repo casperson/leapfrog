@@ -64,6 +64,8 @@ When Plex sessions are active, Leapfrog:
 
 Playback-time filtering is still a database lookup plus a server-side seek. No ML inference runs in the playback hot path.
 
+If the dashboard shows `Skipping...` logs followed by proxy and direct seek failures, Leapfrog has matched a segment but Plex client control is failing. Check `/api/status` or `/api/sessions/{session_key}/seek-diagnostics` for the last seek attempt list, including the client identifier, advertised address/port, HTTP status, and failure detail.
+
 ### 4. Scan status, queue, and logs
 
 - Scan status is persisted per title and per category, plus an ordered stage timeline (`prepare`, the five categories, `finalize`).

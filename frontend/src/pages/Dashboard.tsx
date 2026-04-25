@@ -45,6 +45,19 @@ interface SkipperStatus {
     status_code?: number | null
     variant?: number | null
   } | null
+  last_seek_diagnostics?: {
+    offset_ms?: number
+    success?: boolean
+    attempts?: {
+      method?: string
+      ok?: boolean
+      detail?: string
+      client_address?: string
+      client_port?: number | null
+      status_code?: number | null
+      variant?: number | null
+    }[]
+  } | null
 }
 
 interface ScannerStatus {
@@ -245,6 +258,16 @@ export default function Dashboard() {
                   Last seek failure: {scanner.skipper.last_seek_failure.detail}
                 </p>
               )}
+              {scanner.skipper.last_seek_diagnostics?.attempts?.length ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  Seek attempts: {scanner.skipper.last_seek_diagnostics.attempts.length}
+                  {scanner.skipper.last_seek_failure?.method ? `, last via ${scanner.skipper.last_seek_failure.method}` : ''}
+                  {scanner.skipper.last_seek_failure?.status_code ? `, HTTP ${scanner.skipper.last_seek_failure.status_code}` : ''}
+                  {scanner.skipper.last_seek_failure?.client_address
+                    ? `, ${scanner.skipper.last_seek_failure.client_address}:${scanner.skipper.last_seek_failure.client_port ?? '?'}`
+                    : ''}
+                </p>
+              ) : null}
             </div>
           )}
           {scanner.active_scans.length > 0 && (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
-import { Film, Tv, ChevronRight, ChevronDown, Trash2, AlertTriangle, SkipForward, Play } from 'lucide-react'
+import { Film, Tv, ChevronRight, ChevronDown, Trash2, AlertTriangle, SkipForward, Play, Search } from 'lucide-react'
 import TitleScanDetailPanel from '../components/TitleScanDetailPanel'
 import { CategoryDefinition, getCategoryLabel, useCategoryDefinitions } from '../lib/categories'
 import { usePageVisibility } from '../lib/polling'
@@ -439,13 +439,20 @@ export default function Segments() {
       <div className="hidden md:flex w-52 flex-shrink-0 flex-col overflow-y-auto">
         <h1 className="text-xl font-bold text-gray-100 mb-3">Segments</h1>
         {selectedLib && (
-          <input
-            type="search"
-            value={titleFilter}
-            onChange={event => setTitleFilter(event.target.value)}
-            placeholder="Filter titles…"
-            className="mb-3 w-full rounded-lg border border-plex-border bg-plex-card px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:border-plex-orange/60 focus:outline-none"
-          />
+          <label className="mb-3 block">
+            <span className="mb-1 block text-[11px] font-medium uppercase text-gray-500">Search Movie Title</span>
+            <span className="relative block">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+              <input
+                type="search"
+                aria-label="Search movie title"
+                value={titleFilter}
+                onChange={event => setTitleFilter(event.target.value)}
+                placeholder="Search title..."
+                className="w-full rounded-lg border border-plex-border bg-plex-card py-2 pl-8 pr-3 text-sm text-gray-100 placeholder-gray-600 focus:border-plex-orange/60 focus:outline-none"
+              />
+            </span>
+          </label>
         )}
         <div className="space-y-0.5 pr-2 flex-1 overflow-y-auto">
           {libraries.map(lib => (
@@ -564,13 +571,20 @@ export default function Segments() {
             </select>
             {selectedLib && (
               <div className="flex-1 space-y-2">
-                <input
-                  type="search"
-                  value={titleFilter}
-                  onChange={event => setTitleFilter(event.target.value)}
-                  placeholder="Filter titles…"
-                  className="w-full px-3 py-2 bg-plex-card border border-plex-border rounded-lg text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-plex-orange/60"
-                />
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium uppercase text-gray-500">Search Movie Title</span>
+                  <span className="relative block">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+                    <input
+                      type="search"
+                      aria-label="Search movie title"
+                      value={titleFilter}
+                      onChange={event => setTitleFilter(event.target.value)}
+                      placeholder="Search title..."
+                      className="w-full rounded-lg border border-plex-border bg-plex-card py-2 pl-8 pr-3 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-plex-orange/60"
+                    />
+                  </span>
+                </label>
                 <select
                   value={selectedTitle?.plex_guid ?? ''}
                   onChange={e => {

@@ -134,6 +134,40 @@ async def test_get_session_adapter_status_returns_status(http_client):
     assert data["effective_segment_count"] == 1
 
 
+async def test_get_session_seek_diagnostics_returns_last_attempts(http_client):
+    sessions = [_active_session()]
+    diagnostics = {
+        "started_at": "2026-04-25T09:00:00",
+        "client_identifier": "client-1",
+        "offset_ms": 63000,
+        "success": False,
+        "attempts": [
+            {"method": "proxy", "ok": False, "detail": "proxy failed"},
+            {"method": "direct", "ok": False, "detail": "connection refused", "client_port": 32500},
+        ],
+    }
+    mock_client = make_mock_plex_client(sessions=sessions)
+    mock_client.get_last_seek_failure.return_value = {"detail": "connection refused"}
+    mock_client.get_last_seek_diagnostics.return_value = diagnostics
+
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+        resp = await http_client.get("/api/sessions/s1/seek-diagnostics")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["session"]["client_identifier"] == "client-1"
+    assert data["last_seek_failure"]["detail"] == "connection refused"
+    assert data["last_seek_diagnostics"]["attempts"][1]["client_port"] == 32500
+
+
+async def test_get_session_seek_diagnostics_returns_404_for_missing_session(http_client):
+    mock_client = make_mock_plex_client(sessions=[])
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+        resp = await http_client.get("/api/sessions/missing/seek-diagnostics")
+
+    assert resp.status_code == 404
+
+
 # ── GET /api/sessions/scanner-status ─────────────────────────────────────────
 
 async def test_scanner_status_returns_expected_shape(http_client):

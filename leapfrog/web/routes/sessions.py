@@ -22,10 +22,12 @@ async def _build_skipper_status() -> dict:
         client = plex_mod.get_client()
         last_seek_failure = client.get_last_seek_failure()
         last_seek_success_at = client.get_last_seek_success_at()
+        last_seek_diagnostics = client.get_last_seek_diagnostics()
         connected = True
     except RuntimeError:
         last_seek_failure = None
         last_seek_success_at = None
+        last_seek_diagnostics = None
         connected = False
 
     seek_failure_active = False
@@ -62,6 +64,7 @@ async def _build_skipper_status() -> dict:
         "last_session_count": runtime.get("last_session_count"),
         "last_seek_success_at": last_seek_success_at,
         "last_seek_failure": last_seek_failure,
+        "last_seek_diagnostics": last_seek_diagnostics,
     }
 
 
@@ -120,6 +123,38 @@ async def get_session_adapter_status(session_key: str):
 
     context = await resolve_plex_playback_context(session)
     return context.to_status_record()
+
+
+@router.get("/{session_key}/seek-diagnostics")
+async def get_session_seek_diagnostics(session_key: str):
+    """Return active-session seek diagnostics for troubleshooting Plex control failures."""
+    try:
+        client = plex_mod.get_client()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Plex not configured")
+
+    sessions = await client.get_active_sessions()
+    session = next((s for s in sessions if s.session_key == session_key), None)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Active session not found")
+
+    return {
+        "session": {
+            "session_key": session.session_key,
+            "title": session.full_title,
+            "user": session.user,
+            "client": session.client_title,
+            "client_identifier": session.client_identifier,
+            "client_address": session.client_address,
+            "client_port": session.client_port,
+            "is_controllable": session.is_controllable,
+            "position_ms": session.position_ms,
+            "rating_key": session.rating_key,
+        },
+        "last_seek_success_at": client.get_last_seek_success_at(),
+        "last_seek_failure": client.get_last_seek_failure(),
+        "last_seek_diagnostics": client.get_last_seek_diagnostics(),
+    }
 
 
 @router.get("/scanner-status")

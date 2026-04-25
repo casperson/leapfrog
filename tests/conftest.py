@@ -59,4 +59,5 @@ def make_mock_plex_client(
     mock.test_connection = AsyncMock(return_value=(connection_ok, "My Plex"))
     mock.get_last_seek_failure = MagicMock(return_value=None)
     mock.get_last_seek_success_at = MagicMock(return_value=None)
+    mock.get_last_seek_diagnostics = MagicMock(return_value=None)
     return mock
