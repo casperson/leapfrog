@@ -157,38 +157,34 @@ Open `http://localhost:7979`.
 
 ### Windows: run after install
 
-If the repository is already installed and the frontend has already been built, you do not need to rerun the full install flow each time.
+If the repository is already installed, use the Windows helper script for normal starts after pulling changes.
 
-Start Leapfrog in a PowerShell window:
-
-```powershell
-cd C:\path\to\leapfrog
-.\.venv\Scripts\Activate.ps1
-.\.venv\Scripts\leapfrog.exe
-```
-
-Or without activating the virtualenv first:
+Start or restart Leapfrog in the background:
 
 ```powershell
 cd C:\path\to\leapfrog
-.\.venv\Scripts\python.exe -m leapfrog
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1
 ```
+
+That script now:
+
+- stops the existing background Leapfrog process if one is running,
+- refreshes the editable Python install with `pip install -e .`,
+- runs `npm install` if `frontend\node_modules` is missing,
+- runs `npm run build`,
+- starts `.\.venv\Scripts\leapfrog.exe` hidden in the background.
 
 Open `http://localhost:7979`.
 
-If you pull frontend changes later, rebuild the UI before starting again:
+For a faster start when you know nothing changed, you can skip the refresh/build steps:
 
 ```powershell
-cd C:\path\to\leapfrog\frontend
-npm install
-npm run build
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1 -SkipPackageRefresh -SkipFrontendBuild
 ```
-
-You only need `npm install` again when frontend dependencies change. Otherwise `npm run build` is enough after UI changes.
 
 ### Windows: run without leaving a terminal open
 
-Yes. Leapfrog can run in the background on Windows without keeping a terminal window open.
+Leapfrog can run in the background on Windows without keeping a terminal window open.
 
 Start it detached:
 
@@ -199,6 +195,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows-start.ps1
 
 That helper script:
 
+- stops an existing Leapfrog background process before relaunching,
+- refreshes the editable Python package,
+- rebuilds frontend assets,
 - launches `.\.venv\Scripts\leapfrog.exe` in the background,
 - writes stdout to `leapfrog.out.log`,
 - writes stderr to `leapfrog.err.log`,

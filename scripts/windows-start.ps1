@@ -1,19 +1,22 @@
 param(
   [string]$DataDir = "",
   [string]$ListenHost = "",
-  [string]$Port = ""
+  [string]$Port = "",
+  [switch]$SkipPackageRefresh,
+  [switch]$SkipFrontendBuild
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$pythonExe = Join-Path $repoRoot ".venv\Scripts\python.exe"
 $leapfrogExe = Join-Path $repoRoot ".venv\Scripts\leapfrog.exe"
 $pidFile = Join-Path $repoRoot ".leapfrog-windows.pid"
 $stdoutLog = Join-Path $repoRoot "leapfrog.out.log"
 $stderrLog = Join-Path $repoRoot "leapfrog.err.log"
 
-if (-not (Test-Path $leapfrogExe)) {
-  throw "Could not find $leapfrogExe. Run the install steps first so the virtualenv and Leapfrog entrypoint exist."
+if (-not (Test-Path $pythonExe)) {
+  throw "Could not find $pythonExe. Run the install steps first so the virtualenv exists."
 }
 
 if (Test-Path $pidFile) {
@@ -21,12 +24,50 @@ if (Test-Path $pidFile) {
   if ($existingPid) {
     $existingProcess = Get-Process -Id ([int]$existingPid) -ErrorAction SilentlyContinue
     if ($existingProcess) {
-      Write-Host "Leapfrog is already running in the background (PID $existingPid)."
-      Write-Host "Stop it first with: powershell -ExecutionPolicy Bypass -File .\scripts\windows-stop.ps1"
-      exit 0
+      Write-Host "Stopping existing Leapfrog background process (PID $existingPid)..."
+      Stop-Process -Id $existingProcess.Id
+      Start-Sleep -Seconds 1
     }
   }
   Remove-Item $pidFile -ErrorAction SilentlyContinue
+}
+
+if (-not $SkipPackageRefresh) {
+  Write-Host "Refreshing editable Python install..."
+  & $pythonExe -m pip install -e $repoRoot
+  if ($LASTEXITCODE -ne 0) {
+    throw "Python package refresh failed."
+  }
+}
+
+if (-not $SkipFrontendBuild) {
+  $frontendDir = Join-Path $repoRoot "frontend"
+  $packageJson = Join-Path $frontendDir "package.json"
+  $nodeModules = Join-Path $frontendDir "node_modules"
+  if (Test-Path $packageJson) {
+    Push-Location $frontendDir
+    try {
+      if (-not (Test-Path $nodeModules)) {
+        Write-Host "Installing frontend dependencies..."
+        & npm install
+        if ($LASTEXITCODE -ne 0) {
+          throw "Frontend dependency install failed."
+        }
+      }
+      Write-Host "Building frontend assets..."
+      & npm run build
+      if ($LASTEXITCODE -ne 0) {
+        throw "Frontend build failed."
+      }
+    }
+    finally {
+      Pop-Location
+    }
+  }
+}
+
+if (-not (Test-Path $leapfrogExe)) {
+  throw "Could not find $leapfrogExe after refresh. Check the pip install output above."
 }
 
 if (Test-Path $stdoutLog) {
