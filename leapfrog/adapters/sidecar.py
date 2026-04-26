@@ -29,9 +29,11 @@ class SidecarSegmentAdapter(SegmentExportAdapter):
                     "category": segment.category,
                     "source": segment.source,
                     "confidence": segment.confidence,
+                    "labels": segment.labels,
                     "text_excerpt": segment.text_excerpt,
                     "created_at": segment.created_at,
                     "updated_at": segment.updated_at,
+                    "review_status": segment.review_status,
                 }
                 for segment in media_export.segments
             ],

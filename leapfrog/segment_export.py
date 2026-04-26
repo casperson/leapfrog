@@ -26,6 +26,7 @@ class CanonicalSegmentRecord:
     source: str
     confidence: float | None
     text_excerpt: str | None
+    labels: str
     created_at: str | None
     updated_at: str | None
     id: int | None = None
@@ -47,6 +48,7 @@ class CanonicalSegmentRecord:
                 else None
             ),
             text_excerpt=normalized.get("text_excerpt"),
+            labels=str(normalized.get("labels") or ""),
             created_at=normalized.get("created_at"),
             updated_at=normalized.get("updated_at"),
             id=int(normalized["id"]) if normalized.get("id") is not None else None,
@@ -63,6 +65,7 @@ class CanonicalSegmentRecord:
             "source": self.source,
             "confidence": self.confidence,
             "text_excerpt": self.text_excerpt,
+            "labels": self.labels,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "review_status": self.review_status,

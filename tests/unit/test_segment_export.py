@@ -143,6 +143,7 @@ async def test_sidecar_payload_round_trips_through_file(tmp_path):
         category="profanity",
         source="subtitles",
         confidence=0.88,
+        labels="damn",
         text_excerpt="sidecar excerpt",
     )
 
@@ -153,6 +154,7 @@ async def test_sidecar_payload_round_trips_through_file(tmp_path):
     assert restored["format"] == "leapfrog.segment.sidecar/v1"
     assert restored["media_id"] == "guid-sidecar"
     assert restored["segments"][0]["confidence"] == pytest.approx(0.88)
+    assert restored["segments"][0]["labels"] == "damn"
     assert restored["segments"][0]["text_excerpt"] == "sidecar excerpt"
 
 

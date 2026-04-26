@@ -674,3 +674,34 @@ async def test_get_segment_library_entries_by_hashes():
 async def test_get_segment_library_entries_by_hashes_empty_returns_empty():
     rows = await db.get_segment_library_entries_by_hashes([])
     assert rows == []
+
+
+async def test_insert_skip_event_returns_recent_dashboard_shape():
+    event_id = await db.insert_skip_event(
+        session_key="s1",
+        user_id="alice",
+        media_id="guid-1",
+        title="Movie",
+        position_ms=10000,
+        seek_to_ms=22000,
+        segment_start_ms=12000,
+        segment_end_ms=20000,
+        category="violence",
+        source="edl",
+        labels="fight",
+        client_identifier="client-1",
+        client_title="Plex Web",
+        client_address="127.0.0.1",
+        client_port=32500,
+        success=True,
+        detail="seek accepted",
+    )
+
+    events = await db.get_recent_skip_events()
+
+    assert events[0]["id"] == event_id
+    assert events[0]["user"] == "alice"
+    assert events[0]["client"] == "Plex Web"
+    assert events[0]["category"] == "violence"
+    assert events[0]["labels"] == "fight"
+    assert events[0]["success"] is True

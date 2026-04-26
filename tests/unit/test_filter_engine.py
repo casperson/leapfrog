@@ -184,7 +184,7 @@ async def test_position_past_segment_does_not_seek():
 async def test_recently_skipped_prevents_re_trigger():
     session = _session(position_ms=35000)
     client = _make_client()
-    fe._recently_skipped["sess-1"] = 50000
+    fe._recently_skipped["sess-1"] = {"key": "guid-1|30000|40000|nudity|db|", "until_ms": 50000}
     segments = _segs(30000, 40000)
     with patch(
         "leapfrog.filter_engine.resolve_plex_playback_context",
@@ -197,7 +197,7 @@ async def test_recently_skipped_prevents_re_trigger():
 async def test_recently_skipped_cleared_when_past_end():
     session = _session(position_ms=60000)
     client = _make_client()
-    fe._recently_skipped["sess-1"] = 50000
+    fe._recently_skipped["sess-1"] = {"key": "guid-1|30000|40000|nudity|db|", "until_ms": 50000}
     segments = _segs(30000, 40000)
     with patch(
         "leapfrog.filter_engine.resolve_plex_playback_context",
@@ -242,7 +242,8 @@ async def test_successful_seek_records_recently_skipped():
         AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
     ):
         await fe.process(session, client, skip_buffer_ms=3000)
-    assert fe._recently_skipped["sess-1"] == 45000
+    assert fe._recently_skipped["sess-1"]["until_ms"] == 45000
+    assert fe._recently_skipped["sess-1"]["key"] == "guid-1|30000|40000|nudity|db|"
 
 
 async def test_successful_seek_clears_backoff():

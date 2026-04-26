@@ -15,6 +15,7 @@ This repository is derived from [Cleanplex](https://github.com/nazmolla/Cleanple
 - Optional Whisper audio fallback when subtitles are unavailable and the local Whisper dependency is installed
 - Per-user profile controls for all five categories, including toggles, thresholds, and granular label skip choices
 - Server-side playback enforcement through Plex session polling and seek commands
+- Adjacent sidecar skip files for using existing segment data without rescanning the video
 - Browser UI for scan settings, queue management, title scan detail, segment review, live logs, and linked-user preferences
 
 Leapfrog keeps scanning, segment storage, playback filtering, and UI review local to the server box. Optional GitHub-based segment sync remains manual and is not required for scanning or playback.
@@ -63,6 +64,8 @@ When Plex sessions are active, Leapfrog:
 4. seeks the active client past matching content.
 
 Playback-time filtering is still a database lookup plus a server-side seek. No ML inference runs in the playback hot path.
+
+Leapfrog also checks for adjacent sidecar skip files before falling back to SQLite segments. A sidecar is a small file stored next to the media file that describes skip ranges for that title. Supported names are `Movie.leapfrog.json`, `Movie.segments.json`, `Movie.edl`, and `Movie.csv`. JSON sidecars preserve Leapfrog categories and labels; CSV rows may include `start_time`, `end_time`, `category`, `labels`, and `confidence`; EDL rows use start/end times and may optionally include a supported category and label after the timing fields.
 
 If the dashboard shows `Skipping...` logs followed by proxy and direct seek failures, Leapfrog has matched a segment but Plex client control is failing. Check `/api/status` or `/api/sessions/{session_key}/seek-diagnostics` for the last seek attempt list, including the client identifier, advertised address/port, HTTP status, and failure detail.
 

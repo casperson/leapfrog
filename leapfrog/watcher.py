@@ -79,7 +79,7 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
             for session in sessions:
                 preferences = resolved_preferences.get(session.user, {})
                 if any(bool(pref["enabled"]) for pref in preferences.values()):
-                    await filter_engine.process(
+                    skip_result = await filter_engine.process(
                         session,
                         client,
                         config.skip_buffer_ms,
@@ -87,15 +87,15 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
                         user_preferences=preferences,
                     )
 
-                    # Log skip event if a skip just happened (detect by checking _recently_skipped)
-                    sk = filter_engine._recently_skipped.get(session.session_key, 0)
-                    if sk and sk > session.position_ms:
+                    if skip_result and skip_result.get("success"):
                         skip_events.appendleft({
                             "time": datetime.now().isoformat(timespec="seconds"),
-                            "user": session.user,
-                            "title": session.full_title,
-                            "position_ms": session.position_ms,
-                            "client": session.client_title,
+                            "user": skip_result["user"],
+                            "title": skip_result["title"],
+                            "position_ms": skip_result["position_ms"],
+                            "client": skip_result["client"],
+                            "category": skip_result["category"],
+                            "source": skip_result["source"],
                         })
                         _mark_skipper_skip()
 

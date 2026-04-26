@@ -71,6 +71,30 @@ CREATE INDEX IF NOT EXISTS idx_segments_guid ON segments(plex_guid);
 CREATE INDEX IF NOT EXISTS idx_segments_media_category ON segments(media_id, category);
 CREATE INDEX IF NOT EXISTS idx_segments_guid_category ON segments(plex_guid, category);
 
+CREATE TABLE IF NOT EXISTS skip_events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    session_key       TEXT    DEFAULT '',
+    user_id           TEXT    DEFAULT '',
+    media_id          TEXT    DEFAULT '',
+    title             TEXT    DEFAULT '',
+    position_ms       INTEGER DEFAULT 0,
+    seek_to_ms        INTEGER DEFAULT 0,
+    segment_start_ms  INTEGER DEFAULT 0,
+    segment_end_ms    INTEGER DEFAULT 0,
+    category          TEXT    DEFAULT '',
+    source            TEXT    DEFAULT '',
+    labels            TEXT    DEFAULT '',
+    client_identifier TEXT    DEFAULT '',
+    client_title      TEXT    DEFAULT '',
+    client_address    TEXT    DEFAULT '',
+    client_port       INTEGER,
+    success           INTEGER DEFAULT 0,
+    detail            TEXT    DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_skip_events_created_at ON skip_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_skip_events_category_client ON skip_events(category, client_title);
+
 CREATE TABLE IF NOT EXISTS user_filters (
     plex_username TEXT PRIMARY KEY,
     enabled       INTEGER DEFAULT 1
@@ -860,6 +884,98 @@ async def insert_segments(plex_guid: str, segments: list[Segment | dict[str, Any
             ],
         )
         await conn.commit()
+
+
+async def insert_skip_event(
+    *,
+    session_key: str,
+    user_id: str,
+    media_id: str,
+    title: str,
+    position_ms: int,
+    seek_to_ms: int,
+    segment_start_ms: int,
+    segment_end_ms: int,
+    category: str,
+    source: str,
+    labels: str = "",
+    client_identifier: str = "",
+    client_title: str = "",
+    client_address: str = "",
+    client_port: int | None = None,
+    success: bool = False,
+    detail: str = "",
+) -> int:
+    """Persist one playback skip attempt for diagnostics and analytics."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            """
+            INSERT INTO skip_events(
+                session_key, user_id, media_id, title, position_ms, seek_to_ms,
+                segment_start_ms, segment_end_ms, category, source, labels,
+                client_identifier, client_title, client_address, client_port,
+                success, detail
+            )
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                session_key,
+                user_id,
+                media_id,
+                title,
+                position_ms,
+                seek_to_ms,
+                segment_start_ms,
+                segment_end_ms,
+                category,
+                source,
+                labels,
+                client_identifier,
+                client_title,
+                client_address,
+                client_port,
+                1 if success else 0,
+                detail,
+            ),
+        )
+        await conn.commit()
+        return cursor.lastrowid
+
+
+async def get_recent_skip_events(limit: int = 50) -> list[dict[str, Any]]:
+    """Return recent skip attempts in the dashboard event shape."""
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT
+                id,
+                created_at AS time,
+                user_id AS user,
+                title,
+                position_ms,
+                client_title AS client,
+                media_id,
+                seek_to_ms,
+                segment_start_ms,
+                segment_end_ms,
+                category,
+                source,
+                labels,
+                client_identifier,
+                client_address,
+                client_port,
+                success,
+                detail
+            FROM skip_events
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        events = [dict(row) for row in rows]
+        for event in events:
+            event["success"] = bool(event.get("success"))
+        return events
 
 
 async def delete_segment(segment_id: int) -> bool:

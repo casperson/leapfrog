@@ -105,7 +105,31 @@ async def get_sessions():
 
 @router.get("/events")
 async def get_skip_events():
-    return {"events": list(skip_events)}
+    stored_events = await db.get_recent_skip_events()
+    in_memory_events = list(skip_events)
+    seen_keys = {
+        (
+            event.get("user"),
+            event.get("title"),
+            event.get("position_ms"),
+            event.get("client"),
+            event.get("category"),
+        )
+        for event in in_memory_events
+    }
+    combined = [*in_memory_events]
+    for event in stored_events:
+        key = (
+            event.get("user"),
+            event.get("title"),
+            event.get("position_ms"),
+            event.get("client"),
+            event.get("category"),
+        )
+        if key in seen_keys:
+            continue
+        combined.append(event)
+    return {"events": combined[:50]}
 
 
 @router.get("/{session_key}/adapter-status")
@@ -251,7 +275,46 @@ async def skip_session_title(session_key: str):
         session.client_port,
     )
     if not ok:
+        await db.insert_skip_event(
+            session_key=session.session_key,
+            user_id=session.user,
+            media_id=str(target_seg.get("media_id") or session.plex_guid),
+            title=session.full_title,
+            position_ms=pos,
+            seek_to_ms=seek_to_ms,
+            segment_start_ms=int(target_seg["start_ms"]),
+            segment_end_ms=int(target_seg["end_ms"]),
+            category=str(target_seg.get("category") or "nudity"),
+            source=str(target_seg.get("source") or ""),
+            labels=str(target_seg.get("labels") or ""),
+            client_identifier=session.client_identifier,
+            client_title=session.client_title,
+            client_address=session.client_address,
+            client_port=session.client_port,
+            success=False,
+            detail="manual skip seek failed",
+        )
         raise HTTPException(status_code=502, detail="Failed to seek Plex client")
+
+    await db.insert_skip_event(
+        session_key=session.session_key,
+        user_id=session.user,
+        media_id=str(target_seg.get("media_id") or session.plex_guid),
+        title=session.full_title,
+        position_ms=pos,
+        seek_to_ms=seek_to_ms,
+        segment_start_ms=int(target_seg["start_ms"]),
+        segment_end_ms=int(target_seg["end_ms"]),
+        category=str(target_seg.get("category") or "nudity"),
+        source=str(target_seg.get("source") or ""),
+        labels=str(target_seg.get("labels") or ""),
+        client_identifier=session.client_identifier,
+        client_title=session.client_title,
+        client_address=session.client_address,
+        client_port=session.client_port,
+        success=True,
+        detail="manual skip accepted",
+    )
 
     return {
         "ok": True,

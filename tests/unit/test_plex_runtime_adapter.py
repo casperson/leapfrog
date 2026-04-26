@@ -125,6 +125,7 @@ async def test_resolve_plex_playback_context_uses_sidecar_when_available(tmp_pat
                     "category": "profanity",
                     "source": "subtitles",
                     "confidence": 0.8,
+                    "labels": "damn",
                     "text_excerpt": "sidecar line",
                 }
             ],
@@ -145,6 +146,99 @@ async def test_resolve_plex_playback_context_uses_sidecar_when_available(tmp_pat
     assert context.sidecar_path == str(sidecar_path)
     assert context.effective_segment_count == 1
     assert context.effective_segments[0]["text_excerpt"] == "sidecar line"
+    assert context.effective_segments[0]["labels"] == "damn"
+
+
+async def test_resolve_plex_playback_context_respects_sidecar_label_preferences(tmp_path):
+    media_path = tmp_path / "Movie.mkv"
+    media_path.write_text("stub", encoding="utf-8")
+    await write_sidecar_file(
+        media_path.with_suffix(".segments.json"),
+        {
+            "format": "leapfrog.segment.sidecar/v1",
+            "media_id": "sidecar-media",
+            "segments": [
+                {
+                    "start_time": 1.0,
+                    "end_time": 3.0,
+                    "category": "sexual_content",
+                    "source": "sidecar",
+                    "confidence": 0.9,
+                    "labels": "brief_kiss",
+                },
+                {
+                    "start_time": 4.0,
+                    "end_time": 6.0,
+                    "category": "sexual_content",
+                    "source": "sidecar",
+                    "confidence": 0.9,
+                    "labels": "explicit_sex",
+                },
+            ],
+        },
+    )
+
+    context = await resolve_plex_playback_context(
+        _session(file_path=str(media_path)),
+        user_preferences={
+            "sexual_content": {
+                "enabled": True,
+                "threshold": 0.5,
+                "labels": {
+                    "brief_kiss": {"enabled": False, "threshold": None},
+                    "explicit_sex": {"enabled": True, "threshold": None},
+                },
+            },
+        },
+    )
+
+    assert context.effective_segment_count == 1
+    assert context.effective_segments[0]["labels"] == "explicit_sex"
+
+
+async def test_resolve_plex_playback_context_reads_adjacent_edl_file(tmp_path):
+    media_path = tmp_path / "Movie.mkv"
+    media_path.write_text("stub", encoding="utf-8")
+    media_path.with_suffix(".edl").write_text(
+        "10.0 20.5 0 violence fight\n",
+        encoding="utf-8",
+    )
+
+    context = await resolve_plex_playback_context(
+        _session(file_path=str(media_path)),
+        user_preferences={"violence": {"enabled": True, "threshold": 0.5}},
+    )
+
+    assert context.segment_source == "sidecar"
+    assert context.effective_segments[0]["start_ms"] == 10000
+    assert context.effective_segments[0]["end_ms"] == 20500
+    assert context.effective_segments[0]["category"] == "violence"
+    assert context.effective_segments[0]["labels"] == "fight"
+
+
+async def test_resolve_plex_playback_context_reads_adjacent_csv_file(tmp_path):
+    media_path = tmp_path / "Movie.mkv"
+    media_path.write_text("stub", encoding="utf-8")
+    media_path.with_suffix(".csv").write_text(
+        "start_time,end_time,category,labels,confidence\n"
+        "00:01:00,00:01:10,drugs,marijuana,0.91\n",
+        encoding="utf-8",
+    )
+
+    context = await resolve_plex_playback_context(
+        _session(file_path=str(media_path)),
+        user_preferences={
+            "drugs": {
+                "enabled": True,
+                "threshold": 0.5,
+                "labels": {"marijuana": {"enabled": True, "threshold": None}},
+            },
+        },
+    )
+
+    assert context.segment_source == "sidecar"
+    assert context.effective_segments[0]["start_ms"] == 60000
+    assert context.effective_segments[0]["category"] == "drugs"
 
 
 async def test_resolve_plex_playback_context_falls_back_to_db_without_sidecar():
