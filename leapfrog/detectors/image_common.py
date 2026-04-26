@@ -24,6 +24,7 @@ def cluster_frame_hits(
     hits: list[FrameHit],
     gap_ms: int,
     min_hits: int,
+    max_duration_ms: int | None = None,
 ) -> list[MediaSegment]:
     """Cluster adjacent detector hits into category segments with one thumbnail."""
     if not hits:
@@ -48,12 +49,15 @@ def cluster_frame_hits(
         filename = f"{target.media_id.replace('/', '_')}_{category}_{cluster_hits[0].offset_ms}.jpg"
         full_path = thumbnails_dir / filename
         full_path.write_bytes(best_hit.jpeg_bytes)
+        end_ms = cluster_hits[-1].offset_ms + gap_ms
+        if max_duration_ms and max_duration_ms > 0:
+            end_ms = min(end_ms, cluster_hits[0].offset_ms + max_duration_ms)
         segments.append(
             MediaSegment(
                 media_id=target.media_id,
                 title=target.title,
                 start_ms=cluster_hits[0].offset_ms,
-                end_ms=cluster_hits[-1].offset_ms + gap_ms,
+                end_ms=end_ms,
                 category=category,
                 source=source,
                 confidence=best_hit.confidence,
@@ -63,7 +67,13 @@ def cluster_frame_hits(
         )
 
     for hit in ordered_hits[1:]:
-        if hit.offset_ms - cluster_hits[-1].offset_ms > gap_ms:
+        exceeds_gap = hit.offset_ms - cluster_hits[-1].offset_ms > gap_ms
+        exceeds_max_duration = bool(
+            max_duration_ms
+            and max_duration_ms > 0
+            and hit.offset_ms - cluster_hits[0].offset_ms > max_duration_ms
+        )
+        if exceeds_gap or exceeds_max_duration:
             flush()
             cluster_hits = [hit]
             continue

@@ -287,7 +287,7 @@ async def test_skip_session_seeks_to_next_segment(http_client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
-    assert data["seek_to_ms"] == 63000
+    assert data["seek_to_ms"] == 61000
     assert data["adapter_status"]["segment_source"] == "db"
 
 
@@ -301,7 +301,7 @@ async def test_skip_session_with_nudity_enabled_only_ignores_other_categories(ht
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 63000
+    assert resp.json()["seek_to_ms"] == 61000
 
 
 async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_client):
@@ -314,7 +314,7 @@ async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_clie
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 23000
+    assert resp.json()["seek_to_ms"] == 21000
 
 
 async def test_skip_session_returns_404_when_all_categories_disabled(http_client):
@@ -337,7 +337,7 @@ async def test_skip_session_with_missing_preferences_defaults_to_nudity_only(htt
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 63000
+    assert resp.json()["seek_to_ms"] == 61000
 
 
 async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
@@ -369,5 +369,5 @@ async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 63000
+    assert resp.json()["seek_to_ms"] == 61000
     assert resp.json()["adapter_status"]["segment_source"] == "sidecar"

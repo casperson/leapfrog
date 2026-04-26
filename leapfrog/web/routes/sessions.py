@@ -265,7 +265,7 @@ async def skip_session_title(session_key: str):
     if target_seg is None:
         raise HTTPException(status_code=409, detail="No remaining segments ahead of current position")
 
-    skip_buffer_ms = int(await db.get_setting("skip_buffer_ms", "3000"))
+    skip_buffer_ms = int(await db.get_setting("skip_buffer_ms", "1000"))
     seek_to_ms = int(target_seg["end_ms"]) + skip_buffer_ms
 
     ok = await client.seek(

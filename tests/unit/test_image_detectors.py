@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from leapfrog.detectors.image_common import FrameHit, cluster_frame_hits
 from leapfrog.detectors.nudity import NudityDetector
 from leapfrog.detectors.semantic import DrugsDetector, SexualContentDetector, ViolenceDetector
 from leapfrog.domain import MediaScanTarget, SampledFrame
@@ -23,8 +24,9 @@ def _target() -> MediaScanTarget:
 def _config(**kwargs):
     defaults = {
         "scan_step_ms": 250,
-        "segment_gap_ms": 12000,
-        "segment_min_hits": 1,
+        "segment_gap_ms": 2000,
+        "segment_min_hits": 2,
+        "image_segment_max_ms": 15000,
         "confidence_threshold": 0.4,
         "scan_labels": ["FEMALE_BREAST_EXPOSED"],
         "nudenet_model": "640m",
@@ -40,6 +42,27 @@ def _frames() -> list[SampledFrame]:
         SampledFrame(offset_ms=5000, jpeg_bytes=b"frame-b"),
         SampledFrame(offset_ms=10000, jpeg_bytes=b"frame-c"),
     ]
+
+
+def test_cluster_frame_hits_caps_long_segments():
+    hits = [
+        FrameHit(offset_ms=0, confidence=0.9, labels=["fight"], jpeg_bytes=b"a"),
+        FrameHit(offset_ms=1000, confidence=0.8, labels=["fight"], jpeg_bytes=b"b"),
+        FrameHit(offset_ms=2000, confidence=0.7, labels=["fight"], jpeg_bytes=b"c"),
+    ]
+
+    segments = cluster_frame_hits(
+        target=_target(),
+        category="violence",
+        source="semantic_clip",
+        hits=hits,
+        gap_ms=12000,
+        min_hits=1,
+        max_duration_ms=3000,
+    )
+
+    assert len(segments) == 1
+    assert segments[0].end_ms == 3000
 
 
 class FakeBackend:
@@ -66,7 +89,12 @@ async def test_nudity_detector_scan_frames_still_clusters_hits():
             (False, 0.0, []),
         ],
     ):
-        result = await detector.scan_frames(_target(), _frames(), _config(), progress_callback=AsyncMock())
+        result = await detector.scan_frames(
+            _target(),
+            _frames(),
+            _config(segment_gap_ms=12000),
+            progress_callback=AsyncMock(),
+        )
 
     assert result.status == "done"
     assert len(result.segments) == 1
@@ -84,7 +112,12 @@ async def test_sexual_content_detector_triggers_on_non_nude_prompt_hits():
         )
     )
 
-    result = await detector.scan_frames(_target(), _frames(), _config(), progress_callback=AsyncMock())
+    result = await detector.scan_frames(
+        _target(),
+        _frames(),
+        _config(segment_gap_ms=12000),
+        progress_callback=AsyncMock(),
+    )
 
     assert result.status == "done"
     assert len(result.segments) == 1
@@ -104,7 +137,12 @@ async def test_violence_detector_triggers_on_violence_prompts_and_merges_labels(
         )
     )
 
-    result = await detector.scan_frames(_target(), _frames(), _config(), progress_callback=AsyncMock())
+    result = await detector.scan_frames(
+        _target(),
+        _frames(),
+        _config(segment_gap_ms=12000),
+        progress_callback=AsyncMock(),
+    )
 
     assert result.status == "done"
     assert len(result.segments) == 1
@@ -123,7 +161,12 @@ async def test_drugs_detector_triggers_on_drug_prompts():
         )
     )
 
-    result = await detector.scan_frames(_target(), _frames(), _config(), progress_callback=AsyncMock())
+    result = await detector.scan_frames(
+        _target(),
+        _frames(),
+        _config(segment_gap_ms=12000),
+        progress_callback=AsyncMock(),
+    )
 
     assert result.status == "done"
     assert len(result.segments) == 1

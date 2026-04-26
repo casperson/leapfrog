@@ -21,6 +21,18 @@ logger = get_logger(__name__)
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9\s']")
 _WHITESPACE_RE = re.compile(r"\s+")
+_ROOT_FALSE_POSITIVE_TOKENS: dict[str, set[str]] = {
+    "hell": {
+        "hello",
+        "hellos",
+        "shell",
+        "shells",
+        "shelling",
+        "shelled",
+        "hellenic",
+        "hellenistic",
+    },
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,8 +76,8 @@ def _build_rules(terms: list[str]) -> list[ProfanityRule]:
     return rules
 
 
-def _token_allowed(token: str, allowlist: set[str]) -> bool:
-    return token in allowlist
+def _token_allowed(token: str, rule: ProfanityRule, allowlist: set[str]) -> bool:
+    return token in allowlist or token in _ROOT_FALSE_POSITIVE_TOKENS.get(rule.normalized, set())
 
 
 def _match_rules(
@@ -86,7 +98,7 @@ def _match_rules(
             continue
         matched = False
         for token in tokens:
-            if _token_allowed(token, allowlist):
+            if _token_allowed(token, rule, allowlist):
                 continue
             if rule.normalized == token:
                 matched = True

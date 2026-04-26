@@ -81,9 +81,9 @@ SEMANTIC_NEGATIVE_PROMPTS: dict[str, tuple[str, ...]] = {
 }
 
 SEMANTIC_LABEL_THRESHOLDS: dict[str, float] = {
-    "sexual_content": 0.30,
-    "violence": 0.28,
-    "drugs": 0.30,
+    "sexual_content": 0.45,
+    "violence": 0.45,
+    "drugs": 0.45,
 }
 
 
@@ -262,8 +262,18 @@ class SemanticCategoryDetector:
                 SEMANTIC_LABEL_THRESHOLDS[self.category],
             )
         )
-        gap_ms = max(1000, int(getattr(config, "segment_gap_ms", 12000)))
-        min_hits = max(1, int(getattr(config, "segment_min_hits", 1)))
+        gap_ms = max(
+            1000,
+            int(getattr(config, f"{self.category}_segment_gap_ms", getattr(config, "segment_gap_ms", 2000))),
+        )
+        min_hits = max(
+            1,
+            int(getattr(config, f"{self.category}_segment_min_hits", getattr(config, "segment_min_hits", 2))),
+        )
+        max_duration_ms = max(
+            1000,
+            int(getattr(config, f"{self.category}_segment_max_ms", getattr(config, "image_segment_max_ms", 15000))),
+        )
         total_steps = max(1, len(frames))
         backend = self._backend or get_semantic_backend(config)
 
@@ -334,6 +344,7 @@ class SemanticCategoryDetector:
             hits=hits,
             gap_ms=gap_ms,
             min_hits=min_hits,
+            max_duration_ms=max_duration_ms,
         )
         if progress_callback:
             await progress_callback(1.0)

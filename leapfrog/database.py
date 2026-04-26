@@ -237,11 +237,12 @@ DEFAULT_SETTINGS = {
     "plex_token": "",
     "poll_interval": "5",
     "confidence_threshold": "0.4",
-    "skip_buffer_ms": "3000",
+    "skip_buffer_ms": "1000",
     "scan_step_ms": "250",
     "scan_workers": "2",
-    "segment_gap_ms": "12000",
-    "segment_min_hits": "1",
+    "segment_gap_ms": "2000",
+    "segment_min_hits": "2",
+    "image_segment_max_ms": "15000",
     "scan_window_start": "23:00",
     "scan_window_end": "06:00",
     "log_level": "INFO",
@@ -256,9 +257,9 @@ DEFAULT_SETTINGS = {
     "profanity_terms": json.dumps(DEFAULT_PROFANITY_TERMS),
     "profanity_allowlist": json.dumps(DEFAULT_PROFANITY_ALLOWLIST),
     "default_profanity_threshold": "0.5",
-    "sexual_content_detection_threshold": "0.30",
-    "violence_detection_threshold": "0.28",
-    "drugs_detection_threshold": "0.30",
+    "sexual_content_detection_threshold": "0.45",
+    "violence_detection_threshold": "0.45",
+    "drugs_detection_threshold": "0.45",
     "default_skip_labels": json.dumps(DEFAULT_SKIP_LABELS),
     "semantic_detection_labels": json.dumps(DEFAULT_DETECT_LABELS),
     "profanity_merge_gap_ms": "1500",
@@ -272,6 +273,14 @@ DEFAULT_SETTINGS = {
     "sync_conflict_resolution": "consensus",
     "sync_verified_threshold": "2",
     "sync_timing_tolerance_ms": "2000",
+}
+
+OLD_DEFAULT_SKIP_LABELS = {
+    category: [
+        label for label in labels
+        if label not in {"romantic_kiss", "marijuana"}
+    ]
+    for category, labels in DEFAULT_SKIP_LABELS.items()
 }
 
 
@@ -456,6 +465,14 @@ async def init_db() -> None:
             ("scan_step_ms", "5000", DEFAULT_SETTINGS["scan_step_ms"]),
             ("scan_step_ms", "1000", DEFAULT_SETTINGS["scan_step_ms"]),
             ("nudenet_model", "320n", DEFAULT_SETTINGS["nudenet_model"]),
+            ("skip_buffer_ms", "3000", DEFAULT_SETTINGS["skip_buffer_ms"]),
+            ("segment_gap_ms", "12000", DEFAULT_SETTINGS["segment_gap_ms"]),
+            ("segment_min_hits", "1", DEFAULT_SETTINGS["segment_min_hits"]),
+            ("sexual_content_detection_threshold", "0.30", DEFAULT_SETTINGS["sexual_content_detection_threshold"]),
+            ("violence_detection_threshold", "0.28", DEFAULT_SETTINGS["violence_detection_threshold"]),
+            ("drugs_detection_threshold", "0.26", DEFAULT_SETTINGS["drugs_detection_threshold"]),
+            ("drugs_detection_threshold", "0.30", DEFAULT_SETTINGS["drugs_detection_threshold"]),
+            ("default_skip_labels", json.dumps(OLD_DEFAULT_SKIP_LABELS), DEFAULT_SETTINGS["default_skip_labels"]),
         ):
             await conn.execute(
                 "UPDATE settings SET value=? WHERE key=? AND value=?",

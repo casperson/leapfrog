@@ -16,7 +16,7 @@ class Config:
     plex_token: str = ""
     poll_interval: int = 5
     confidence_threshold: float = 0.4
-    skip_buffer_ms: int = 3000
+    skip_buffer_ms: int = 1000
     scan_step_ms: int = 250
     scan_workers: int = 2
     nudenet_model: str = "640m"
@@ -26,14 +26,15 @@ class Config:
     semantic_model_variant: str = "int8"
     semantic_detection_labels: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_DETECT_LABELS))
     default_skip_labels: dict[str, list[str]] = field(default_factory=lambda: dict(DEFAULT_SKIP_LABELS))
-    segment_gap_ms: int = 12000
-    segment_min_hits: int = 1
+    segment_gap_ms: int = 2000
+    segment_min_hits: int = 2
+    image_segment_max_ms: int = 15000
     profanity_terms: list[str] = field(default_factory=list)
     profanity_allowlist: list[str] = field(default_factory=list)
     default_profanity_threshold: float = 0.5
-    sexual_content_detection_threshold: float = 0.30
-    violence_detection_threshold: float = 0.28
-    drugs_detection_threshold: float = 0.30
+    sexual_content_detection_threshold: float = 0.45
+    violence_detection_threshold: float = 0.45
+    drugs_detection_threshold: float = 0.45
     profanity_merge_gap_ms: int = 1500
     whisper_enabled: bool = True
     whisper_model: str = "base"
@@ -86,7 +87,7 @@ class Config:
             plex_token=s.get("plex_token", ""),
             poll_interval=int(s.get("poll_interval", "5")),
             confidence_threshold=float(s.get("confidence_threshold", "0.4")),
-            skip_buffer_ms=int(s.get("skip_buffer_ms", "3000")),
+            skip_buffer_ms=int(s.get("skip_buffer_ms", "1000")),
             scan_step_ms=int(s.get("scan_step_ms", "250")),
             scan_workers=max(1, int(s.get("scan_workers", "2"))),
             nudenet_model=s.get("nudenet_model", "640m"),
@@ -102,14 +103,15 @@ class Config:
                 s.get("default_skip_labels", json.dumps(DEFAULT_SKIP_LABELS)),
                 DEFAULT_SKIP_LABELS,
             ),
-            segment_gap_ms=int(s.get("segment_gap_ms", "12000")),
-            segment_min_hits=int(s.get("segment_min_hits", "1")),
+            segment_gap_ms=int(s.get("segment_gap_ms", "2000")),
+            segment_min_hits=int(s.get("segment_min_hits", "2")),
+            image_segment_max_ms=int(s.get("image_segment_max_ms", "15000")),
             profanity_terms=_labels(s.get("profanity_terms", "[]")),
             profanity_allowlist=_labels(s.get("profanity_allowlist", "[]")),
             default_profanity_threshold=float(s.get("default_profanity_threshold", "0.5")),
-            sexual_content_detection_threshold=float(s.get("sexual_content_detection_threshold", "0.30")),
-            violence_detection_threshold=float(s.get("violence_detection_threshold", "0.28")),
-            drugs_detection_threshold=float(s.get("drugs_detection_threshold", "0.30")),
+            sexual_content_detection_threshold=float(s.get("sexual_content_detection_threshold", "0.45")),
+            violence_detection_threshold=float(s.get("violence_detection_threshold", "0.45")),
+            drugs_detection_threshold=float(s.get("drugs_detection_threshold", "0.45")),
             profanity_merge_gap_ms=int(s.get("profanity_merge_gap_ms", "1500")),
             whisper_enabled=s.get("whisper_enabled", "1") == "1",
             whisper_model=s.get("whisper_model", "base"),

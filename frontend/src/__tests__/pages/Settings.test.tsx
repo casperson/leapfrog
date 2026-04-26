@@ -23,14 +23,15 @@ const defaultSettings = {
   plex_token: 'abc',
   poll_interval: '5',
   confidence_threshold: '0.4',
-  sexual_content_detection_threshold: '0.30',
-  violence_detection_threshold: '0.28',
-  drugs_detection_threshold: '0.26',
-  skip_buffer_ms: '3000',
+  sexual_content_detection_threshold: '0.45',
+  violence_detection_threshold: '0.45',
+  drugs_detection_threshold: '0.45',
+  skip_buffer_ms: '1000',
   scan_step_ms: '250',
   scan_workers: '2',
-  segment_gap_ms: '12000',
-  segment_min_hits: '1',
+  segment_gap_ms: '2000',
+  segment_min_hits: '2',
+  image_segment_max_ms: '15000',
   scan_window_start: '23:00',
   scan_window_end: '06:00',
   log_level: 'INFO',
@@ -116,7 +117,7 @@ describe('Settings', () => {
   it('renders semantic detector threshold controls', async () => {
     renderSettings()
 
-    await waitFor(() => expect(screen.getByDisplayValue('0.30')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByDisplayValue('0.45').length).toBeGreaterThan(0))
     expect(screen.getByText('Sexual Content Threshold')).toBeInTheDocument()
     expect(screen.getByText('Violence Threshold')).toBeInTheDocument()
     expect(screen.getByText('Drugs Threshold')).toBeInTheDocument()

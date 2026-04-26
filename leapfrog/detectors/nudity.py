@@ -198,8 +198,18 @@ class NudityDetector:
     ) -> DetectorResult:
         """Run NudeNet inference over shared sampled frames."""
         total_steps = max(1, len(frames))
-        gap_ms = max(1000, int(getattr(config, "segment_gap_ms", 12000)))
-        min_hits = max(1, int(getattr(config, "segment_min_hits", 1)))
+        gap_ms = max(
+            1000,
+            int(getattr(config, "nudity_segment_gap_ms", getattr(config, "segment_gap_ms", 2000))),
+        )
+        min_hits = max(
+            1,
+            int(getattr(config, "nudity_segment_min_hits", getattr(config, "segment_min_hits", 2))),
+        )
+        max_duration_ms = max(
+            1000,
+            int(getattr(config, "nudity_segment_max_ms", getattr(config, "image_segment_max_ms", 15000))),
+        )
         threshold = float(getattr(config, "confidence_threshold", 0.4))
         enabled_labels = set(getattr(config, "scan_labels", []))
         nudenet_model = str(getattr(config, "nudenet_model", "320n"))
@@ -271,6 +281,7 @@ class NudityDetector:
             hits=hits,
             gap_ms=gap_ms,
             min_hits=min_hits,
+            max_duration_ms=max_duration_ms,
         )
         if progress_callback:
             await progress_callback(1.0)

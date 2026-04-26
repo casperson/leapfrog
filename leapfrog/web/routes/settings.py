@@ -54,6 +54,7 @@ class SettingsPayload(BaseModel):
     semantic_model_variant: str | None = None
     segment_gap_ms: str | None = None
     segment_min_hits: str | None = None
+    image_segment_max_ms: str | None = None
     profanity_terms: str | None = None
     profanity_allowlist: str | None = None
     default_profanity_threshold: str | None = None

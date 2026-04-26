@@ -18,6 +18,7 @@ interface Settings {
   nudenet_model_path: string
   segment_gap_ms: string
   segment_min_hits: string
+  image_segment_max_ms: string
   profanity_terms: string
   default_profanity_threshold: string
   profanity_merge_gap_ms: string
@@ -54,16 +55,17 @@ const DEFAULT: Settings = {
   plex_token: '',
   poll_interval: '5',
   confidence_threshold: '0.4',
-  sexual_content_detection_threshold: '0.30',
-  violence_detection_threshold: '0.28',
-  drugs_detection_threshold: '0.26',
-  skip_buffer_ms: '3000',
+  sexual_content_detection_threshold: '0.45',
+  violence_detection_threshold: '0.45',
+  drugs_detection_threshold: '0.45',
+  skip_buffer_ms: '1000',
   scan_step_ms: '250',
   scan_workers: '2',
   nudenet_model: '640m',
   nudenet_model_path: '',
-  segment_gap_ms: '12000',
-  segment_min_hits: '1',
+  segment_gap_ms: '2000',
+  segment_min_hits: '2',
+  image_segment_max_ms: '15000',
   profanity_terms: '["asshole","bastard","bitch","bullshit","dammit","damn","dick","fucker","fucking","goddamn","hell","motherfucker","pissed off","shit","son of a bitch"]',
   default_profanity_threshold: '0.5',
   profanity_merge_gap_ms: '1500',
@@ -559,6 +561,9 @@ export default function SettingsPage() {
           </Field>
           <Field label="Minimum Hits Per Segment" hint="Require at least this many flagged frames in a cluster to keep a segment. Increase to reduce false positives.">
             <input type="number" min="1" max="6" step="1" value={form.segment_min_hits} onChange={set('segment_min_hits')} className={inputCls} />
+          </Field>
+          <Field label="Maximum Image Segment (ms)" hint="Caps image-detector segments so sparse hits cannot become multi-minute skips.">
+            <input type="number" min="1000" max="120000" step="1000" value={form.image_segment_max_ms} onChange={set('image_segment_max_ms')} className={inputCls} />
           </Field>
           <Field label="Profanity Terms" hint="JSON list of words or phrases to match in subtitles or transcripts.">
             <textarea

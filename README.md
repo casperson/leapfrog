@@ -89,6 +89,7 @@ Important settings:
 - Semantic ONNX CLIP model preparation and per-category semantic thresholds
 - Granular label defaults for detection and skip behavior
 - Category default thresholds exposed through canonical category metadata
+- Segment clustering defaults tuned for review: 2s merge gap, 2-hit minimum, and a 15s image-segment cap
 - Profanity term list
 - Profanity allowlist for known false positives
 - Default profanity threshold

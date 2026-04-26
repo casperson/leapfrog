@@ -21,10 +21,16 @@ async def test_config_load_returns_defaults():
     assert config.confidence_threshold == pytest.approx(0.4)
     assert config.scan_step_ms == 250
     assert config.nudenet_model == "640m"
-    assert config.skip_buffer_ms == 3000
+    assert config.skip_buffer_ms == 1000
     assert config.scan_workers == 2
     assert config.semantic_model_repo == "Xenova/clip-vit-base-patch32"
     assert config.semantic_model_variant == "int8"
+    assert config.segment_gap_ms == 2000
+    assert config.segment_min_hits == 2
+    assert config.image_segment_max_ms == 15000
+    assert config.sexual_content_detection_threshold == pytest.approx(0.45)
+    assert config.violence_detection_threshold == pytest.approx(0.45)
+    assert config.drugs_detection_threshold == pytest.approx(0.45)
     assert config.log_level == "INFO"
 
 

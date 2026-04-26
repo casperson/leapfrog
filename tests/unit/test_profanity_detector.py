@@ -169,3 +169,23 @@ async def test_profanity_detector_allowlist_reduces_false_positives():
 
     assert result.status == "done"
     assert result.segments == []
+
+
+async def test_profanity_detector_ignores_built_in_root_false_positives():
+    detector = ProfanityDetector()
+    cues = [
+        SubtitleCue(start_ms=1000, end_ms=2000, text="Hello from the shell station."),
+        SubtitleCue(start_ms=3000, end_ms=4000, text="This is a hellish place."),
+    ]
+    with patch(
+        "leapfrog.detectors.profanity.load_external_subtitles",
+        new=AsyncMock(return_value=cues),
+    ), patch(
+        "leapfrog.detectors.profanity.extract_embedded_subtitles",
+        new=AsyncMock(return_value=[]),
+    ):
+        result = await detector.scan(_target(), _config(profanity_terms=["hell"]))
+
+    assert result.status == "done"
+    assert len(result.segments) == 1
+    assert result.segments[0].text_excerpt == "This is a hellish place."
