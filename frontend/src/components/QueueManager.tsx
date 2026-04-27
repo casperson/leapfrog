@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowBigDown, ArrowBigUp, ChevronsDown, ChevronsUp, RefreshCw, StopCircle, Trash2, Zap } from 'lucide-react'
+import {
+  ArrowBigDown,
+  ArrowBigUp,
+  ChevronsDown,
+  ChevronsUp,
+  PlayCircle,
+  RefreshCw,
+  StopCircle,
+  Trash2,
+  Zap,
+} from 'lucide-react'
 import { api } from '../api/client'
 import { usePageVisibility } from '../lib/polling'
 import { formatTimestamp } from '../lib/scan'
@@ -146,6 +156,16 @@ export default function QueueManager() {
           <RefreshCw size={13} />
           Refresh
         </button>
+        {snapshot?.paused && (
+          <button
+            onClick={() => void runMutation('resume-scanner', '/api/scan/resume')}
+            disabled={mutating === 'resume-scanner'}
+            className="inline-flex items-center gap-1 rounded-lg border border-plex-border px-3 py-1.5 text-xs text-gray-300 transition-colors hover:border-plex-orange/50 hover:text-white disabled:opacity-40"
+          >
+            <PlayCircle size={13} />
+            Resume scanner
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-plex-border bg-black/10 px-3 py-2">

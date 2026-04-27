@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
-import { Monitor, SkipForward, Clock, Wifi, WifiOff } from 'lucide-react'
+import {
+  Clock,
+  Monitor,
+  PlayCircle,
+  SkipForward,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
 import { usePageVisibility } from '../lib/polling'
 import QueueManager from '../components/QueueManager'
 
@@ -182,6 +189,11 @@ export default function Dashboard() {
     }
   }
 
+  const setScannerPaused = async (paused: boolean) => {
+    await api.post(paused ? '/api/scan/pause' : '/api/scan/resume')
+    await refresh()
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-100">Dashboard</h1>
@@ -209,6 +221,15 @@ export default function Dashboard() {
             )}
             {scanner.queue_size > 0 && (
               <span className="text-gray-500 sm:ml-auto">Queue: <span className="text-gray-300">{scanner.queue_size}</span></span>
+            )}
+            {scanner.paused && (
+              <button
+                onClick={() => void setScannerPaused(false)}
+                className="inline-flex items-center gap-1 rounded-lg border border-plex-border px-2.5 py-1 text-xs text-gray-300 transition-colors hover:border-plex-orange/50 hover:text-white"
+              >
+                <PlayCircle size={13} />
+                Resume
+              </button>
             )}
           </div>
           {scanner.skipper && (

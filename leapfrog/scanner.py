@@ -79,8 +79,11 @@ def pause_scanner() -> None:
 
 def resume_scanner() -> None:
     global _paused
+    was_paused = _paused
     _paused = False
-    logger.info("Scanner resumed")
+    _queue_wakeup_event.set()
+    if was_paused:
+        logger.info("Scanner resumed")
 
 
 def is_paused() -> bool:

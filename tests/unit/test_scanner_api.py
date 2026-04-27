@@ -110,8 +110,10 @@ def test_is_paused_initially_false():
 def test_pause_and_resume_scanner():
     scanner.pause_scanner()
     assert scanner.is_paused() is True
+    scanner._queue_wakeup_event.clear()
     scanner.resume_scanner()
     assert scanner.is_paused() is False
+    assert scanner._queue_wakeup_event.is_set()
 
 
 def test_get_current_scan_returns_sorted_guid():

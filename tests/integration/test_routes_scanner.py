@@ -59,6 +59,16 @@ async def test_scan_title_force_moves_job_to_front(http_client):
     assert [job["plex_guid"] for job in queued] == ["force-me", "first"]
 
 
+async def test_scan_title_now_resumes_scanner(http_client):
+    await _make_job("force-me")
+
+    with patch("leapfrog.web.routes.scanner_routes.scan_mod.resume_scanner") as mock_resume:
+        resp = await http_client.post("/api/scan/title", json={"plex_guid": "force-me", "now": True})
+
+    assert resp.status_code == 200
+    mock_resume.assert_called_once()
+
+
 async def test_scan_title_returns_404_when_job_not_found(http_client):
     with patch("leapfrog.web.routes.scanner_routes.plex_mod.get_client", side_effect=RuntimeError):
         resp = await http_client.post("/api/scan/title", json={"plex_guid": "no-such-guid"})
@@ -66,17 +76,13 @@ async def test_scan_title_returns_404_when_job_not_found(http_client):
 
 
 async def test_pause_and_resume_scanner(http_client):
-    with patch("leapfrog.web.routes.scanner_routes.scan_mod.pause_scanner") as mock_pause:
-        pause_resp = await http_client.post("/api/scan/pause")
-    with patch("leapfrog.web.routes.scanner_routes.scan_mod.resume_scanner") as mock_resume:
-        resume_resp = await http_client.post("/api/scan/resume")
+    pause_resp = await http_client.post("/api/scan/pause")
+    resume_resp = await http_client.post("/api/scan/resume")
 
     assert pause_resp.status_code == 200
     assert pause_resp.json()["paused"] is True
-    mock_pause.assert_called_once()
     assert resume_resp.status_code == 200
     assert resume_resp.json()["paused"] is False
-    mock_resume.assert_called_once()
 
 
 async def test_skip_current_scan_returns_404_when_nothing_scanning(http_client):

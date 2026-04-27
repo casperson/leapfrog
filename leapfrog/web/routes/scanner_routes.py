@@ -120,6 +120,7 @@ async def scan_title(body: ScanTitleRequest):
     await db.reset_scan_job(plex_guid)
     await db.reset_media_scan_state(plex_guid)
     if body.now:
+        scan_mod.resume_scanner()
         await scan_mod.force_scan_job(plex_guid)
     else:
         await scan_mod.enqueue(plex_guid)
@@ -160,6 +161,7 @@ async def scan_library(library_id: str, body: ScanLibraryRequest):
             await db.reset_scan_job(job["plex_guid"])
             await db.reset_media_scan_state(job["plex_guid"])
             if body.now:
+                scan_mod.resume_scanner()
                 await scan_mod.force_scan_job(job["plex_guid"])
             else:
                 await scan_mod.enqueue(job["plex_guid"])
@@ -172,13 +174,15 @@ async def scan_library(library_id: str, body: ScanLibraryRequest):
 @router.post("/pause")
 async def pause_scanner():
     scan_mod.pause_scanner()
-    return {"ok": True, "paused": True}
+    payload = await _queue_payload()
+    return {"ok": True, **payload}
 
 
 @router.post("/resume")
 async def resume_scanner():
     scan_mod.resume_scanner()
-    return {"ok": True, "paused": False}
+    payload = await _queue_payload()
+    return {"ok": True, **payload}
 
 
 @router.post("/skip-current")
@@ -236,6 +240,8 @@ async def queue_unscanned_titles(body: QueueUnscannedRequest):
     else:
         raise HTTPException(status_code=422, detail="media_type must be movie, episode, or all")
 
+    if body.now:
+        scan_mod.resume_scanner()
     queued = await scan_mod.enqueue_pending(selected_media_type, force=body.now)
     payload = await _queue_payload()
     return {"ok": True, "queued": queued, **payload}
