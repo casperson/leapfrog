@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,7 +36,8 @@ def _config():
     )
 
 
-async def test_scan_video_persists_detector_results(tmp_path):
+async def test_scan_video_persists_detector_results(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger="leapfrog.scanner")
     media_path = tmp_path / "movie.mkv"
     media_path.write_bytes(b"fake")
     await db.upsert_scan_job(
@@ -161,6 +163,10 @@ async def test_scan_video_persists_detector_results(tmp_path):
     stage_rows = await db.get_media_scan_stage_statuses_for_media("guid-scan")
     assert any(row["stage_key"] == "prepare" for row in stage_rows)
     sample_frames.assert_awaited_once()
+    assert "Scan prepare complete: Movie" in caplog.text
+    assert "Scan frame sampling complete: Movie (1 frame(s))" in caplog.text
+    assert "Scan stage started: Movie — nudity (1/5)" in caplog.text
+    assert "Scan stage complete: Movie — profanity source=subtitles segments=1" in caplog.text
 
 
 async def test_scan_video_replaces_category_segments_and_deletes_stale_thumbnails(tmp_path):

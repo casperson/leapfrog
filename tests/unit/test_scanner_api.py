@@ -130,3 +130,10 @@ def test_request_skip_scan_returns_true_when_active():
     scanner._current_guids.add("active")
     assert scanner.request_skip_scan("active") is True
     assert "active" in scanner._skip_requested_guids
+
+
+def test_auto_pause_for_scan_window_ignores_idle_window_when_scan_active():
+    assert scanner._should_auto_pause_for_scan_window(in_window=False) is True
+    scanner._current_guids.add("active")
+    assert scanner._should_auto_pause_for_scan_window(in_window=False) is False
+    assert scanner._should_auto_pause_for_scan_window(in_window=True) is False

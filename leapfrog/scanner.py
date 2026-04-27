@@ -90,6 +90,10 @@ def is_paused() -> bool:
     return _paused
 
 
+def _should_auto_pause_for_scan_window(in_window: bool) -> bool:
+    return not in_window and not _current_guids
+
+
 async def force_scan_job(plex_guid: str) -> None:
     """Prioritize a title for immediate scanning in the persisted queue."""
     await db.set_force_scan(plex_guid, True)
@@ -317,11 +321,12 @@ async def scan_video(plex_guid: str, config) -> None:
         progress=0.0,
     )
     await db.update_scan_job_status(plex_guid, "scanning", progress=0.0)
-    logger.info("Scanning: %s", title)
+    logger.info("Scan started: %s (guid=%s, force_scan=%s)", title, plex_guid, is_force_scan)
 
     stage_total = len(SUPPORTED_CATEGORIES) + 2
 
     try:
+        logger.info("Scan prepare started: %s", title)
         if str(getattr(config, "nudenet_model", "320n")).startswith("640") and not str(
             getattr(config, "nudenet_model_path", "")
         ):
@@ -337,6 +342,7 @@ async def scan_video(plex_guid: str, config) -> None:
             progress=1.0,
         )
         await db.update_scan_job_status(plex_guid, "scanning", progress=1 / stage_total)
+        logger.info("Scan prepare complete: %s", title)
 
         target = MediaScanTarget(
             media_id=plex_guid,
@@ -381,10 +387,25 @@ async def scan_video(plex_guid: str, config) -> None:
         if not duration_ms:
             raise RuntimeError("Could not determine video duration.")
         step_ms = max(250, int(getattr(config, "scan_step_ms", 250)))
+        logger.info(
+            "Scan frame sampling started: %s (duration_ms=%d, step_ms=%d)",
+            title,
+            duration_ms,
+            step_ms,
+        )
         frames = await sample_video_frames(file_path, step_ms, duration_ms)
+        logger.info("Scan frame sampling complete: %s (%d frame(s))", title, len(frames))
 
         for stage_index, category in enumerate(SUPPORTED_CATEGORIES, start=1):
             detector = image_detectors.get(category) or detectors.get(category)
+            logged_progress_milestone = 0
+            logger.info(
+                "Scan stage started: %s — %s (%d/%d)",
+                title,
+                category,
+                stage_index,
+                len(SUPPORTED_CATEGORIES),
+            )
 
             await db.upsert_media_scan_stage_status(
                 plex_guid,
@@ -405,8 +426,12 @@ async def scan_video(plex_guid: str, config) -> None:
                 progress=0.0,
             )
 
-            async def report(detector_progress: float, stage_offset: int = stage_index) -> None:
-                nonlocal last_progress
+            async def report(
+                detector_progress: float,
+                stage_offset: int = stage_index,
+                category_name: str = category,
+            ) -> None:
+                nonlocal last_progress, logged_progress_milestone
                 clamped = min(1.0, max(0.0, detector_progress))
                 last_progress = (stage_offset + clamped) / stage_total
                 await db.upsert_media_scan_stage_status(
@@ -428,6 +453,16 @@ async def scan_video(plex_guid: str, config) -> None:
                     progress=clamped,
                 )
                 await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
+                milestone = int(clamped * 100) // 25 * 25
+                if 0 < milestone < 100 and milestone > logged_progress_milestone:
+                    logged_progress_milestone = milestone
+                    logger.info(
+                        "Scan stage progress: %s — %s %d%% (overall %d%%)",
+                        title,
+                        category_name,
+                        milestone,
+                        int(last_progress * 100),
+                    )
 
             if category in image_detectors:
                 result = await image_detectors[category].scan_frames(
@@ -460,7 +495,7 @@ async def scan_video(plex_guid: str, config) -> None:
                     progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
-                logger.info("Scan of '%s' skipped by user request", title)
+                logger.info("Scan stage stopped: %s — %s skipped by user request", title, category)
                 return
 
             if result.status == "pending_pause":
@@ -484,7 +519,11 @@ async def scan_video(plex_guid: str, config) -> None:
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
                 await enqueue(plex_guid)
-                logger.info("Scan paused mid-way through %s, re-queued", title)
+                logger.info(
+                    "Scan stage stopped: %s — %s paused mid-scan and re-queued",
+                    title,
+                    category,
+                )
                 return
 
             if result.status == "pending_window":
@@ -508,7 +547,11 @@ async def scan_video(plex_guid: str, config) -> None:
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
                 await enqueue(plex_guid)
-                logger.info("Scan window ended during scan of '%s', re-queued", title)
+                logger.info(
+                    "Scan stage stopped: %s — %s scan window ended and title was re-queued",
+                    title,
+                    category,
+                )
                 if not _paused:
                     pause_scanner()
                 return
@@ -532,6 +575,7 @@ async def scan_video(plex_guid: str, config) -> None:
                     segment_count=0,
                     progress=1.0,
                 )
+                logger.error("Scan stage failed: %s — %s: %s", title, category, result.detail)
                 raise RuntimeError(result.detail or f"{result.category} detector failed")
 
             if result.status == "unavailable":
@@ -555,6 +599,12 @@ async def scan_video(plex_guid: str, config) -> None:
                 )
                 last_progress = (stage_index + 1) / stage_total
                 await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
+                logger.info(
+                    "Scan stage unavailable: %s — %s (%s)",
+                    title,
+                    category,
+                    result.detail or "detector unavailable",
+                )
                 continue
 
             stale_thumbnail_paths = await db.get_thumbnail_paths_for_guid_category(
@@ -606,7 +656,16 @@ async def scan_video(plex_guid: str, config) -> None:
             )
             last_progress = (stage_index + 1) / stage_total
             await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
+            logger.info(
+                "Scan stage complete: %s — %s source=%s segments=%d overall=%d%%",
+                title,
+                category,
+                result.source,
+                segment_count,
+                int(last_progress * 100),
+            )
 
+        logger.info("Scan finalize started: %s", title)
         await db.upsert_media_scan_stage_status(
             plex_guid,
             "finalize",
@@ -664,7 +723,7 @@ async def _scanner_worker_loop(worker_id: int, get_config_fn) -> None:
         job = await db.get_next_ready_queue_job(allow_windowed_only=in_window)
         if job is None:
             await _refresh_queue_size_snapshot()
-            if not in_window:
+            if _should_auto_pause_for_scan_window(in_window):
                 if not _paused:
                     pause_scanner()
             elif _paused:
