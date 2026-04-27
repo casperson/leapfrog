@@ -29,7 +29,7 @@ const scannerIdle = {
   paused: false,
   skipper: {
     healthy: true,
-    status: 'active',
+    status: 'idle',
     last_poll_at: '2026-04-25T09:00:00',
     last_success_at: '2026-04-25T09:00:00',
     last_skip_at: null,
@@ -139,10 +139,10 @@ describe('Dashboard', () => {
     await waitFor(() => expect(screen.getByText(/Paused/)).toBeInTheDocument())
   })
 
-  it('shows skipper health status', async () => {
+  it('shows idle skipper status when there are no sessions', async () => {
     renderDashboard()
     const skipperLabel = await screen.findByText('Skipper:')
-    expect(skipperLabel.parentElement).toHaveTextContent('Skipper: Active')
+    expect(skipperLabel.parentElement).toHaveTextContent('Skipper: Idle')
   })
 
   it('backs off dashboard polling while idle', async () => {

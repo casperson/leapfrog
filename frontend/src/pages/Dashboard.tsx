@@ -240,17 +240,21 @@ export default function Dashboard() {
                   <span className={
                     scanner.skipper.status === 'active'
                       ? 'text-green-400'
+                      : scanner.skipper.status === 'idle'
+                        ? 'text-gray-300'
                       : scanner.skipper.status === 'degraded'
                         ? 'text-amber-300'
                         : 'text-gray-500'
                   }>
                     {scanner.skipper.status === 'active'
                       ? 'Active'
-                      : scanner.skipper.status === 'degraded'
-                        ? 'Degraded'
-                        : scanner.skipper.status === 'not_configured'
-                          ? 'Not configured'
-                          : 'Starting'}
+                      : scanner.skipper.status === 'idle'
+                        ? 'Idle'
+                        : scanner.skipper.status === 'degraded'
+                          ? 'Degraded'
+                          : scanner.skipper.status === 'not_configured'
+                            ? 'Not configured'
+                            : 'Starting'}
                   </span>
                 </span>
                 {typeof scanner.skipper.last_session_count === 'number' && (
@@ -274,7 +278,7 @@ export default function Dashboard() {
                   Watcher error: {scanner.skipper.last_error}
                 </p>
               )}
-              {scanner.skipper.last_seek_failure?.detail && (
+              {scanner.skipper.status === 'degraded' && scanner.skipper.last_seek_failure?.detail && (
                 <p className="mt-1 text-xs text-amber-300">
                   Last seek failure: {scanner.skipper.last_seek_failure.detail}
                 </p>

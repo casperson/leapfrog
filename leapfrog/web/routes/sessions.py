@@ -39,6 +39,7 @@ async def _build_skipper_status() -> dict:
             or failure_at >= last_seek_success_at
         )
 
+    active_session_count = int(runtime.get("last_session_count") or 0)
     status = "starting"
     healthy = False
     if not connected:
@@ -46,11 +47,11 @@ async def _build_skipper_status() -> dict:
     elif runtime.get("last_error"):
         status = "degraded"
         healthy = False
-    elif seek_failure_active:
+    elif seek_failure_active and active_session_count > 0:
         status = "degraded"
         healthy = False
     elif runtime.get("last_poll_at"):
-        status = "active"
+        status = "active" if active_session_count > 0 else "idle"
         healthy = True
 
     return {

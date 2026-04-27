@@ -221,6 +221,41 @@ async def test_scanner_status_marks_skipper_degraded_after_seek_failure(http_cli
     assert skipper["last_seek_failure"]["detail"] == "Connection refused"
 
 
+async def test_scanner_status_marks_skipper_idle_when_no_sessions_after_seek_failure(http_client):
+    mock_client = make_mock_plex_client()
+    mock_client.get_last_seek_failure.return_value = {
+        "at": "2026-04-25T08:00:00",
+        "method": "direct",
+        "detail": "Connection refused",
+    }
+    mock_client.get_last_seek_success_at.return_value = None
+
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client), \
+         patch("leapfrog.web.routes.sessions.get_current_scan", return_value=None), \
+         patch("leapfrog.web.routes.sessions.get_current_scans", return_value=[]), \
+         patch("leapfrog.web.routes.sessions.get_queue_size", return_value=0), \
+         patch("leapfrog.web.routes.sessions.get_worker_pool_size", return_value=2), \
+         patch("leapfrog.web.routes.sessions.is_paused", return_value=False), \
+         patch(
+             "leapfrog.web.routes.sessions.get_skipper_runtime_state",
+             return_value={
+                 "last_poll_at": "2026-04-25T08:00:01",
+                 "last_success_at": "2026-04-25T08:00:01",
+                 "last_error": None,
+                 "last_error_at": None,
+                 "last_skip_at": None,
+                 "last_session_count": 0,
+             },
+         ):
+        resp = await http_client.get("/api/sessions/scanner-status")
+
+    assert resp.status_code == 200
+    skipper = resp.json()["skipper"]
+    assert skipper["healthy"] is True
+    assert skipper["status"] == "idle"
+    assert skipper["last_seek_failure"]["detail"] == "Connection refused"
+
+
 async def test_scanner_status_batches_db_lookup(http_client):
     """scanner-status must call get_scan_jobs_by_guids (batch), not per-guid."""
     guid = "scan-guid-1"
