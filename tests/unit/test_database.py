@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sqlite3
 
@@ -85,6 +86,34 @@ async def test_init_db_migrates_queue_updated_at_without_non_constant_default(tm
         columns = await conn.execute_fetchall("PRAGMA table_info(scan_jobs)")
         queue_updated_at = next((col for col in columns if col["name"] == "queue_updated_at"), None)
         assert queue_updated_at is not None
+
+
+async def test_init_db_migrates_untouched_semantic_detection_defaults(tmp_path):
+    legacy_db_path = tmp_path / "legacy-semantic-settings.db"
+    sqlite_conn = sqlite3.connect(legacy_db_path)
+    try:
+        sqlite_conn.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+        sqlite_conn.executemany(
+            "INSERT INTO settings(key, value) VALUES (?, ?)",
+            [
+                ("sexual_content_detection_threshold", "0.45"),
+                ("violence_detection_threshold", "0.45"),
+                ("drugs_detection_threshold", "0.45"),
+                ("semantic_detection_labels", json.dumps(db.OLD_DEFAULT_DETECT_LABELS)),
+            ],
+        )
+        sqlite_conn.commit()
+    finally:
+        sqlite_conn.close()
+
+    db.set_db_path(legacy_db_path)
+    await db.init_db()
+
+    settings = await db.get_all_settings()
+    assert settings["sexual_content_detection_threshold"] == "0.70"
+    assert settings["violence_detection_threshold"] == "0.65"
+    assert settings["drugs_detection_threshold"] == "0.70"
+    assert settings["semantic_detection_labels"] == db.DEFAULT_SETTINGS["semantic_detection_labels"]
 
 
 # ── User Filters ───────────────────────────────────────────────────────────────

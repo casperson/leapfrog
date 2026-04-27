@@ -32,9 +32,9 @@ class Config:
     profanity_terms: list[str] = field(default_factory=list)
     profanity_allowlist: list[str] = field(default_factory=list)
     default_profanity_threshold: float = 0.5
-    sexual_content_detection_threshold: float = 0.45
-    violence_detection_threshold: float = 0.45
-    drugs_detection_threshold: float = 0.45
+    sexual_content_detection_threshold: float = 0.70
+    violence_detection_threshold: float = 0.65
+    drugs_detection_threshold: float = 0.70
     profanity_merge_gap_ms: int = 1500
     whisper_enabled: bool = True
     whisper_model: str = "base"
@@ -109,9 +109,9 @@ class Config:
             profanity_terms=_labels(s.get("profanity_terms", "[]")),
             profanity_allowlist=_labels(s.get("profanity_allowlist", "[]")),
             default_profanity_threshold=float(s.get("default_profanity_threshold", "0.5")),
-            sexual_content_detection_threshold=float(s.get("sexual_content_detection_threshold", "0.45")),
-            violence_detection_threshold=float(s.get("violence_detection_threshold", "0.45")),
-            drugs_detection_threshold=float(s.get("drugs_detection_threshold", "0.45")),
+            sexual_content_detection_threshold=float(s.get("sexual_content_detection_threshold", "0.70")),
+            violence_detection_threshold=float(s.get("violence_detection_threshold", "0.65")),
+            drugs_detection_threshold=float(s.get("drugs_detection_threshold", "0.70")),
             profanity_merge_gap_ms=int(s.get("profanity_merge_gap_ms", "1500")),
             whisper_enabled=s.get("whisper_enabled", "1") == "1",
             whisper_model=s.get("whisper_model", "base"),

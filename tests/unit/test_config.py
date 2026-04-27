@@ -28,9 +28,11 @@ async def test_config_load_returns_defaults():
     assert config.segment_gap_ms == 2000
     assert config.segment_min_hits == 2
     assert config.image_segment_max_ms == 15000
-    assert config.sexual_content_detection_threshold == pytest.approx(0.45)
-    assert config.violence_detection_threshold == pytest.approx(0.45)
-    assert config.drugs_detection_threshold == pytest.approx(0.45)
+    assert config.sexual_content_detection_threshold == pytest.approx(0.70)
+    assert config.violence_detection_threshold == pytest.approx(0.65)
+    assert config.drugs_detection_threshold == pytest.approx(0.70)
+    assert "heavy_making_out" not in config.semantic_detection_labels["sexual_content"]
+    assert "romantic_kiss" in config.semantic_detection_labels["sexual_content"]
     assert config.log_level == "INFO"
 
 

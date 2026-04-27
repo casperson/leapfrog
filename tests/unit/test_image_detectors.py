@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+from PIL import Image, ImageDraw
 
 from leapfrog.detectors.image_common import FrameHit, cluster_frame_hits
 from leapfrog.detectors.nudity import NudityDetector
@@ -42,6 +45,27 @@ def _frames() -> list[SampledFrame]:
         SampledFrame(offset_ms=5000, jpeg_bytes=b"frame-b"),
         SampledFrame(offset_ms=10000, jpeg_bytes=b"frame-c"),
     ]
+
+
+def _title_card_jpeg() -> bytes:
+    image = Image.new("RGB", (320, 180), (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 72, 240, 88), fill=(245, 245, 245))
+    draw.rectangle((118, 98, 202, 108), fill=(245, 245, 245))
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _title_sequence_scene_jpeg() -> bytes:
+    image = Image.new("RGB", (320, 180), (18, 18, 18))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((96, 42, 224, 150), fill=(198, 135, 112))
+    draw.rectangle((130, 68, 190, 120), fill=(224, 158, 128))
+    draw.rectangle((72, 18, 248, 31), fill=(245, 245, 245))
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG")
+    return buf.getvalue()
 
 
 def test_cluster_frame_hits_caps_long_segments():
@@ -115,7 +139,12 @@ async def test_sexual_content_detector_triggers_on_non_nude_prompt_hits():
     result = await detector.scan_frames(
         _target(),
         _frames(),
-        _config(segment_gap_ms=12000),
+        _config(
+            segment_gap_ms=12000,
+            semantic_detection_labels={
+                "sexual_content": ["heavy_making_out", "romantic_kiss", "intimate_touch"],
+            },
+        ),
         progress_callback=AsyncMock(),
     )
 
@@ -172,3 +201,54 @@ async def test_drugs_detector_triggers_on_drug_prompts():
     assert len(result.segments) == 1
     assert result.segments[0].category == "drugs"
     assert "smoking_drugs" in result.segments[0].labels or "pill_abuse" in result.segments[0].labels
+
+
+async def test_semantic_detector_suppresses_text_only_title_cards():
+    title_card = _title_card_jpeg()
+    detector = DrugsDetector(
+        backend=FakeBackend(
+            {
+                title_card: {"marijuana": 0.96, "drug_paraphernalia": 0.91},
+            }
+        )
+    )
+
+    result = await detector.scan_frames(
+        _target(),
+        [
+            SampledFrame(offset_ms=0, jpeg_bytes=title_card),
+            SampledFrame(offset_ms=1000, jpeg_bytes=title_card),
+        ],
+        _config(segment_gap_ms=2000, segment_min_hits=1),
+        progress_callback=AsyncMock(),
+    )
+
+    assert result.status == "done"
+    assert result.segments == []
+    assert "Suppressed 2 title-card-like frame(s)." in result.detail
+
+
+async def test_semantic_detector_keeps_title_sequence_frames_with_scene_content():
+    scene_frame = _title_sequence_scene_jpeg()
+    detector = SexualContentDetector(
+        backend=FakeBackend(
+            {
+                scene_frame: {"explicit_sex": 0.96},
+            }
+        )
+    )
+
+    result = await detector.scan_frames(
+        _target(),
+        [
+            SampledFrame(offset_ms=0, jpeg_bytes=scene_frame),
+            SampledFrame(offset_ms=1000, jpeg_bytes=scene_frame),
+        ],
+        _config(segment_gap_ms=2000, segment_min_hits=1),
+        progress_callback=AsyncMock(),
+    )
+
+    assert result.status == "done"
+    assert len(result.segments) == 1
+    assert result.segments[0].category == "sexual_content"
+    assert "Suppressed" not in result.detail

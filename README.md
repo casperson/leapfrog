@@ -86,7 +86,9 @@ Important settings:
 - Poll interval
 - NudeNet confidence threshold
 - NudeNet model selection; the default is `640m` with a `250ms` frame interval and `0.4` threshold for higher sensitivity
-- Semantic ONNX CLIP model preparation and per-category semantic thresholds
+- Semantic ONNX CLIP model preparation and conservative per-category semantic thresholds
+- Semantic frame filtering suppresses text-only title/credits cards for sexual-content and drug detections
+- Semantic detection defaults keep broad sexual-content labels opt-in to reduce repeated false positives
 - Granular label defaults for detection and skip behavior
 - Category default thresholds exposed through canonical category metadata
 - Segment clustering defaults tuned for review: 2s merge gap, 2-hit minimum, and a 15s image-segment cap

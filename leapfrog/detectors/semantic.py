@@ -10,7 +10,7 @@ from typing import Protocol
 
 from PIL import Image, ImageFilter, ImageStat
 
-from ..domain import MediaScanTarget, SampledFrame
+from ..domain import DEFAULT_DETECT_LABELS, MediaScanTarget, SampledFrame
 from ..frame_extractor import get_duration_ms, sample_video_frames
 from ..logger import get_logger
 from .base import DetectorResult, ProgressCallback
@@ -81,9 +81,9 @@ SEMANTIC_NEGATIVE_PROMPTS: dict[str, tuple[str, ...]] = {
 }
 
 SEMANTIC_LABEL_THRESHOLDS: dict[str, float] = {
-    "sexual_content": 0.45,
-    "violence": 0.45,
-    "drugs": 0.45,
+    "sexual_content": 0.70,
+    "violence": 0.65,
+    "drugs": 0.70,
 }
 
 
@@ -110,6 +110,11 @@ class ImageFeatures:
     skin_ratio: float
 
 
+def _rgb_pixels(image: Image.Image) -> list[tuple[int, int, int]]:
+    raw = image.tobytes()
+    return list(zip(raw[0::3], raw[1::3], raw[2::3]))
+
+
 class HeuristicSemanticBackend:
     """Pure-local fallback backend using image statistics as prompt proxies."""
 
@@ -128,7 +133,7 @@ class HeuristicSemanticBackend:
 
     def _extract_features(self, jpeg_bytes: bytes) -> ImageFeatures:
         image = Image.open(io.BytesIO(jpeg_bytes)).convert("RGB")
-        pixels = list(image.getdata())
+        pixels = _rgb_pixels(image)
         total = max(1, len(pixels))
 
         red_ratio = sum(1 for r, g, b in pixels if r > 140 and r > g * 1.15 and r > b * 1.15) / total
@@ -185,6 +190,30 @@ class HeuristicSemanticBackend:
         return 0.0
 
 
+def _looks_like_text_only_title_card(jpeg_bytes: bytes) -> bool:
+    """Return True only for flat text cards with no meaningful scene content."""
+    try:
+        image = Image.open(io.BytesIO(jpeg_bytes)).convert("RGB")
+    except Exception:
+        return False
+
+    image.thumbnail((96, 96))
+    pixels = _rgb_pixels(image)
+    total = max(1, len(pixels))
+    dark_ratio = sum(1 for r, g, b in pixels if max(r, g, b) < 60) / total
+    bright_ratio = sum(1 for r, g, b in pixels if min(r, g, b) > 190) / total
+    gray_ratio = sum(1 for r, g, b in pixels if max(r, g, b) - min(r, g, b) < 24) / total
+    skin_ratio = sum(
+        1
+        for r, g, b in pixels
+        if r > 95 and g > 40 and b > 20 and max(r, g, b) - min(r, g, b) > 15 and abs(r - g) > 15 and r > g and r > b
+    ) / total
+    red_ratio = sum(1 for r, g, b in pixels if r > 140 and r > g * 1.15 and r > b * 1.15) / total
+    monochrome_card = gray_ratio > 0.92 and dark_ratio + bright_ratio > 0.84
+    sparse_visual_content = skin_ratio < 0.02 and red_ratio < 0.04
+    return monochrome_card and sparse_visual_content
+
+
 class SemanticCategoryDetector:
     """Category-specific semantic detector built on a shared local prompt backend."""
 
@@ -239,7 +268,7 @@ class SemanticCategoryDetector:
         enabled_detection_labels = set(
             getattr(config, "semantic_detection_labels", {}).get(
                 self.category,
-                list(prompt_bank),
+                DEFAULT_DETECT_LABELS.get(self.category, list(prompt_bank)),
             )
         )
         prompt_bank = {
@@ -278,6 +307,7 @@ class SemanticCategoryDetector:
         backend = self._backend or get_semantic_backend(config)
 
         hits: list[FrameHit] = []
+        suppressed_title_cards = 0
         for idx, frame in enumerate(frames):
             if self._should_abort and self._should_abort(target.media_id):
                 return DetectorResult(
@@ -325,6 +355,14 @@ class SemanticCategoryDetector:
                 if float(score) >= threshold
             ]
             if matched_labels:
+                if (
+                    self.category in {"sexual_content", "drugs"}
+                    and _looks_like_text_only_title_card(frame.jpeg_bytes)
+                ):
+                    suppressed_title_cards += 1
+                    if progress_callback and idx % 30 == 0:
+                        await progress_callback((idx + 1) / total_steps)
+                    continue
                 best_score = max(float(scores[label]) for label in matched_labels)
                 hits.append(
                     FrameHit(
@@ -348,15 +386,24 @@ class SemanticCategoryDetector:
         )
         if progress_callback:
             await progress_callback(1.0)
+        detail = (
+            f"Scored {len(frames)} sampled frame(s) with local ONNX CLIP "
+            f"against {len(prompt_bank)} prompt labels."
+        )
+        if suppressed_title_cards:
+            detail += f" Suppressed {suppressed_title_cards} title-card-like frame(s)."
+            logger.info(
+                "Semantic detector suppressed %d title-card-like frame(s): %s — %s",
+                suppressed_title_cards,
+                target.title,
+                self.category,
+            )
         return DetectorResult(
             category=self.category,
             source=self.source,
             status="done",
             segments=segments,
-            detail=(
-                f"Scored {len(frames)} sampled frame(s) with local ONNX CLIP "
-                f"against {len(prompt_bank)} prompt labels."
-            ),
+            detail=detail,
         )
 
 

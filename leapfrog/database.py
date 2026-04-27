@@ -12,6 +12,7 @@ from typing import Any
 import aiosqlite
 
 from .domain import (
+    CATEGORY_LABEL_DEFINITIONS,
     DEFAULT_DETECT_LABELS,
     DEFAULT_PROFANITY_ALLOWLIST,
     DEFAULT_PROFANITY_TERMS,
@@ -257,9 +258,9 @@ DEFAULT_SETTINGS = {
     "profanity_terms": json.dumps(DEFAULT_PROFANITY_TERMS),
     "profanity_allowlist": json.dumps(DEFAULT_PROFANITY_ALLOWLIST),
     "default_profanity_threshold": "0.5",
-    "sexual_content_detection_threshold": "0.45",
-    "violence_detection_threshold": "0.45",
-    "drugs_detection_threshold": "0.45",
+    "sexual_content_detection_threshold": "0.70",
+    "violence_detection_threshold": "0.65",
+    "drugs_detection_threshold": "0.70",
     "default_skip_labels": json.dumps(DEFAULT_SKIP_LABELS),
     "semantic_detection_labels": json.dumps(DEFAULT_DETECT_LABELS),
     "profanity_merge_gap_ms": "1500",
@@ -281,6 +282,11 @@ OLD_DEFAULT_SKIP_LABELS = {
         if label not in {"romantic_kiss", "marijuana"}
     ]
     for category, labels in DEFAULT_SKIP_LABELS.items()
+}
+
+OLD_DEFAULT_DETECT_LABELS = {
+    category: [definition.key for definition in definitions]
+    for category, definitions in CATEGORY_LABEL_DEFINITIONS.items()
 }
 
 
@@ -469,10 +475,14 @@ async def init_db() -> None:
             ("segment_gap_ms", "12000", DEFAULT_SETTINGS["segment_gap_ms"]),
             ("segment_min_hits", "1", DEFAULT_SETTINGS["segment_min_hits"]),
             ("sexual_content_detection_threshold", "0.30", DEFAULT_SETTINGS["sexual_content_detection_threshold"]),
+            ("sexual_content_detection_threshold", "0.45", DEFAULT_SETTINGS["sexual_content_detection_threshold"]),
             ("violence_detection_threshold", "0.28", DEFAULT_SETTINGS["violence_detection_threshold"]),
+            ("violence_detection_threshold", "0.45", DEFAULT_SETTINGS["violence_detection_threshold"]),
             ("drugs_detection_threshold", "0.26", DEFAULT_SETTINGS["drugs_detection_threshold"]),
             ("drugs_detection_threshold", "0.30", DEFAULT_SETTINGS["drugs_detection_threshold"]),
+            ("drugs_detection_threshold", "0.45", DEFAULT_SETTINGS["drugs_detection_threshold"]),
             ("default_skip_labels", json.dumps(OLD_DEFAULT_SKIP_LABELS), DEFAULT_SETTINGS["default_skip_labels"]),
+            ("semantic_detection_labels", json.dumps(OLD_DEFAULT_DETECT_LABELS), DEFAULT_SETTINGS["semantic_detection_labels"]),
         ):
             await conn.execute(
                 "UPDATE settings SET value=? WHERE key=? AND value=?",

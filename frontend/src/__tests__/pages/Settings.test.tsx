@@ -23,9 +23,9 @@ const defaultSettings = {
   plex_token: 'abc',
   poll_interval: '5',
   confidence_threshold: '0.4',
-  sexual_content_detection_threshold: '0.45',
-  violence_detection_threshold: '0.45',
-  drugs_detection_threshold: '0.45',
+  sexual_content_detection_threshold: '0.70',
+  violence_detection_threshold: '0.65',
+  drugs_detection_threshold: '0.70',
   skip_buffer_ms: '1000',
   scan_step_ms: '250',
   scan_workers: '2',
@@ -82,7 +82,7 @@ beforeEach(() => {
                 label: 'Brief Kiss',
                 description: 'Brief peck or non-explicit kiss.',
                 default_skip: false,
-                default_detect: true,
+                default_detect: false,
               },
             ],
           },
@@ -117,7 +117,7 @@ describe('Settings', () => {
   it('renders semantic detector threshold controls', async () => {
     renderSettings()
 
-    await waitFor(() => expect(screen.getAllByDisplayValue('0.45').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByDisplayValue('0.70').length).toBeGreaterThan(0))
     expect(screen.getByText('Sexual Content Threshold')).toBeInTheDocument()
     expect(screen.getByText('Violence Threshold')).toBeInTheDocument()
     expect(screen.getByText('Drugs Threshold')).toBeInTheDocument()
