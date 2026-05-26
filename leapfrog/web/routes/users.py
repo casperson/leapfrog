@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ...domain import CATEGORY_LABEL_DEFINITIONS, PREFERENCE_CATEGORIES
+from ...domain import PREFERENCE_CATEGORIES
 from ...logger import get_logger
 from ...preferences import (
     build_user_category_preferences_map,
     build_user_filter_map,
     build_user_label_preferences_map,
+    get_category_metadata,
     get_default_skip_label_settings,
     get_preference_threshold_settings,
     resolve_preferences_for_users,
@@ -54,6 +55,11 @@ async def get_users():
     )
     threshold_defaults = await get_preference_threshold_settings()
     default_skip_labels = await get_default_skip_label_settings()
+    category_metadata = await get_category_metadata()
+    label_definitions_by_category = {
+        str(category["key"]): [dict(label) for label in category.get("labels", [])]
+        for category in category_metadata
+    }
     known_usernames = sorted(
         set(filters) | set(category_preferences) | set(label_preferences) | {u["username"] for u in plex_users}
     )
@@ -63,6 +69,7 @@ async def get_users():
         stored_preferences_by_user=category_preferences,
         threshold_defaults=threshold_defaults,
         stored_label_preferences_by_user=label_preferences,
+        label_definitions_by_category=label_definitions_by_category,
         default_skip_labels=default_skip_labels,
     )
 
@@ -125,7 +132,13 @@ async def update_user_label_preference(
 ):
     if category not in PREFERENCE_CATEGORIES:
         return {"ok": False, "error": f"Unsupported category: {category}"}
-    valid_labels = {definition.key for definition in CATEGORY_LABEL_DEFINITIONS.get(category, ())}
+    category_metadata = await get_category_metadata()
+    valid_labels = {
+        str(label.get("key"))
+        for category_row in category_metadata
+        if str(category_row.get("key")) == category
+        for label in category_row.get("labels", [])
+    }
     if label not in valid_labels:
         return {"ok": False, "error": f"Unsupported label for {category}: {label}"}
     await db.set_user_label_preference(

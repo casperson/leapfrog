@@ -88,7 +88,7 @@ async def get_settings():
 @router.get("/categories")
 async def get_categories():
     """Return the canonical category metadata for backend/frontend consumers."""
-    return {"categories": get_category_metadata()}
+    return {"categories": await get_category_metadata()}
 
 
 @router.get("/plex-server-id")

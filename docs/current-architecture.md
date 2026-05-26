@@ -35,6 +35,10 @@ Leapfrog is organized around a server-side media-filtering execution loop: Plex 
   Resolves effective user category and label settings and filters stored segments before playback enforcement.
 - `leapfrog/adapters/runtime_common.py`
   Owns shared runtime adapter types, sidecar precedence, DB fallback, and effective segment filtering for Plex, Emby, and Jellyfin.
+- `leapfrog/vidangel_export.py`
+  Fetches VidAngel catalog data and tag trees through authenticated JSON endpoints, writes exact raw event exports plus tag definitions, and converts those events into Leapfrog sidecar JSON.
+- `leapfrog/vidangel_sidecars.py`
+  Matches the exported VidAngel catalog against local Plex scan jobs, writes adjacent sidecars only for local media files, and relies on runtime user preferences to decide which VidAngel labels actually trigger skips during playback.
 
 ## Data model
 

@@ -584,6 +584,23 @@ class PlexClient:
             logger.debug("Failed to resolve show art for rating_key %s: %s", rating_key, exc)
             return "", "", "", "", ""
 
+    async def get_episode_match_info(self, rating_key: str) -> tuple[str, int | None, int | None]:
+        """Return (show_title, season_number, episode_number) for one episode rating key."""
+        try:
+            srv = await asyncio.to_thread(self._get_server)
+            item = await asyncio.to_thread(srv.fetchItem, int(rating_key))
+            show_title = getattr(item, "grandparentTitle", "") or ""
+            season_number = getattr(item, "parentIndex", None)
+            episode_number = getattr(item, "index", None)
+            return (
+                str(show_title),
+                int(season_number) if season_number is not None else None,
+                int(episode_number) if episode_number is not None else None,
+            )
+        except Exception as exc:
+            logger.debug("Failed to resolve episode match info for rating_key %s: %s", rating_key, exc)
+            return "", None, None
+
     async def fetch_image(self, image_path: str) -> tuple[bytes, str]:
         """Fetch an image from Plex and return (bytes, content_type)."""
         if not image_path:

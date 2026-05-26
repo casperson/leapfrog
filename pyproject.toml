@@ -42,6 +42,8 @@ Issues = "https://github.com/casperson/leapfrog/issues"
 
 [project.scripts]
 leapfrog = "leapfrog.main:main"
+leapfrog-vidangel-export = "leapfrog.vidangel_export:main"
+leapfrog-vidangel-sidecars = "leapfrog.vidangel_sidecars:main"
 
 [project.optional-dependencies]
 test = [

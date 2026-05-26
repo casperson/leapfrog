@@ -43,6 +43,8 @@ Every change — regardless of size — must follow these rules. No exceptions.
 | `filter_engine.py` | Playback position checks and seek decisions |
 | `watcher.py` | Polling loops only — no business logic |
 | `sync.py` / `sync_merge.py` | GitHub sync and segment merge logic |
+| `vidangel_export.py` | VidAngel catalog scraping, raw event export, and Leapfrog sidecar generation |
+| `vidangel_sidecars.py` | Match VidAngel export data to Plex media files and write adjacent sidecars |
 | `bg_jobs.py` | Background job lifecycle — no domain logic |
 | `web/routes/` | HTTP surface only — call domain modules, never raw DB |
 

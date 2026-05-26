@@ -15,6 +15,7 @@ from .domain import (
     PREFERENCE_CATEGORIES,
     Segment,
 )
+from .vidangel_export import load_vidangel_tag_definition_records
 
 
 def resolve_user_category_preferences(
@@ -92,20 +93,37 @@ def build_user_label_preferences_map(
 def resolve_user_label_preferences(
     *,
     stored_label_preferences: dict[str, dict[str, Any]],
+    label_definitions_by_category: dict[str, list[dict[str, Any]]] | None = None,
     default_skip_labels: dict[str, list[str]] | None = None,
 ) -> dict[str, dict[str, dict[str, float | bool | None]]]:
     """Return effective label preferences grouped by category and label."""
     defaults = default_skip_labels or DEFAULT_SKIP_LABELS
     resolved: dict[str, dict[str, dict[str, float | bool | None]]] = {}
-    for category, definitions in CATEGORY_LABEL_DEFINITIONS.items():
+    metadata = label_definitions_by_category or {
+        category: [
+            {
+                "key": definition.key,
+                "label": definition.label,
+                "description": definition.description,
+                "default_skip": definition.default_skip,
+                "default_detect": definition.default_detect,
+            }
+            for definition in definitions
+        ]
+        for category, definitions in CATEGORY_LABEL_DEFINITIONS.items()
+    }
+    for category, definitions in metadata.items():
         category_defaults = set(defaults.get(category, []))
         stored_for_category = stored_label_preferences.get(category, {})
         resolved[category] = {}
         for definition in definitions:
-            raw = stored_for_category.get(definition.key, {})
+            label_key = str(definition.get("key") or "").strip()
+            if not label_key:
+                continue
+            raw = stored_for_category.get(label_key, {})
             threshold = raw.get("threshold")
-            resolved[category][definition.key] = {
-                "enabled": bool(raw.get("enabled", definition.key in category_defaults)),
+            resolved[category][label_key] = {
+                "enabled": bool(raw.get("enabled", label_key in category_defaults)),
                 "threshold": float(threshold) if threshold is not None else None,
             }
     return resolved
@@ -118,6 +136,7 @@ def resolve_preferences_for_users(
     stored_preferences_by_user: dict[str, dict[str, dict[str, Any]]],
     threshold_defaults: dict[str, float] | None = None,
     stored_label_preferences_by_user: dict[str, dict[str, dict[str, dict[str, Any]]]] | None = None,
+    label_definitions_by_category: dict[str, list[dict[str, Any]]] | None = None,
     default_skip_labels: dict[str, list[str]] | None = None,
 ) -> dict[str, dict[str, dict[str, Any]]]:
     """Resolve effective category preferences for multiple users at once."""
@@ -131,6 +150,7 @@ def resolve_preferences_for_users(
         )
         label_preferences = resolve_user_label_preferences(
             stored_label_preferences=label_preferences_by_user.get(user_id, {}),
+            label_definitions_by_category=label_definitions_by_category,
             default_skip_labels=default_skip_labels,
         )
         for category, preferences in user_preferences.items():
@@ -162,6 +182,11 @@ async def get_preference_threshold_settings() -> dict[str, float]:
 async def get_default_skip_label_settings() -> dict[str, list[str]]:
     """Return server default labels that should skip when a category is enabled."""
     raw = await db.get_setting("default_skip_labels", json.dumps(DEFAULT_SKIP_LABELS))
+    category_metadata = await get_category_metadata()
+    valid_labels_by_category = {
+        str(category["key"]): {str(label["key"]) for label in category.get("labels", [])}
+        for category in category_metadata
+    }
     try:
         parsed = json.loads(raw)
     except Exception:
@@ -170,17 +195,17 @@ async def get_default_skip_label_settings() -> dict[str, list[str]]:
         return DEFAULT_SKIP_LABELS
     result = dict(DEFAULT_SKIP_LABELS)
     for category, labels in parsed.items():
-        if category not in CATEGORY_LABEL_DEFINITIONS or not isinstance(labels, list):
+        if category not in valid_labels_by_category or not isinstance(labels, list):
             continue
-        valid_labels = {definition.key for definition in CATEGORY_LABEL_DEFINITIONS[category]}
+        valid_labels = valid_labels_by_category[category]
         result[str(category)] = [str(label) for label in labels if str(label) in valid_labels]
     return result
 
 
-def get_category_metadata() -> list[dict[str, Any]]:
-    """Return the canonical backend category metadata for API payloads."""
+async def get_category_metadata() -> list[dict[str, Any]]:
+    """Return canonical category metadata merged with dynamic VidAngel label definitions."""
     default_skip_labels = DEFAULT_SKIP_LABELS
-    return [
+    category_rows = [
         {
             "key": definition.key,
             "label": definition.label,
@@ -199,6 +224,41 @@ def get_category_metadata() -> list[dict[str, Any]]:
         }
         for definition in CATEGORY_DEFINITIONS
     ]
+    categories_by_key = {str(row["key"]): row for row in category_rows}
+    for record in load_vidangel_tag_definition_records():
+        category_key = str(record.get("mapped_category") or "").strip()
+        if category_key not in categories_by_key:
+            continue
+        vidangel_key = f"vidangel:{str(record.get('key') or '').strip()}"
+        if vidangel_key == "vidangel:":
+            continue
+        labels = categories_by_key[category_key].setdefault("labels", [])
+        if any(str(label.get("key")) == vidangel_key for label in labels):
+            continue
+        path_titles = record.get("path_titles") or []
+        if isinstance(path_titles, list):
+            path_text = " > ".join(str(part) for part in path_titles if str(part).strip())
+        else:
+            path_text = str(path_titles or "")
+        example = str(record.get("example_description") or "").strip()
+        description = path_text
+        if example:
+            description = f"{path_text}. Example: {example}" if path_text else example
+        labels.append(
+            {
+                "key": vidangel_key,
+                "label": str(record.get("display_title") or record.get("key") or vidangel_key),
+                "description": description or "VidAngel filter event.",
+                "default_skip": False,
+                "default_detect": False,
+            }
+        )
+    for row in category_rows:
+        row["labels"] = sorted(
+            row.get("labels", []),
+            key=lambda label: (0 if not str(label.get("key", "")).startswith("vidangel:") else 1, str(label.get("label") or "").lower()),
+        )
+    return category_rows
 
 
 async def get_resolved_preferences_for_users(
@@ -214,12 +274,18 @@ async def get_resolved_preferences_for_users(
     stored_label_preferences = build_user_label_preferences_map(
         await db.get_all_user_label_preferences()
     )
+    category_metadata = await get_category_metadata()
+    label_definitions_by_category = {
+        str(category["key"]): [dict(label) for label in category.get("labels", [])]
+        for category in category_metadata
+    }
     return resolve_preferences_for_users(
         user_ids,
         overall_filters=overall_filters,
         stored_preferences_by_user=stored_preferences,
         threshold_defaults=threshold_defaults,
         stored_label_preferences_by_user=stored_label_preferences,
+        label_definitions_by_category=label_definitions_by_category,
         default_skip_labels=await get_default_skip_label_settings(),
     )
 
@@ -237,6 +303,11 @@ async def get_resolved_preferences_for_user(
     stored_label_preferences = build_user_label_preferences_map(
         await db.get_user_label_preferences(user_id)
     ).get(user_id, {})
+    category_metadata = await get_category_metadata()
+    label_definitions_by_category = {
+        str(category["key"]): [dict(label) for label in category.get("labels", [])]
+        for category in category_metadata
+    }
     category_preferences = resolve_user_category_preferences(
         overall_enabled=overall_filter is None or bool(overall_filter["enabled"]),
         stored_preferences=stored_preferences,
@@ -244,6 +315,7 @@ async def get_resolved_preferences_for_user(
     )
     label_preferences = resolve_user_label_preferences(
         stored_label_preferences=stored_label_preferences,
+        label_definitions_by_category=label_definitions_by_category,
         default_skip_labels=await get_default_skip_label_settings(),
     )
     for category, preferences in category_preferences.items():

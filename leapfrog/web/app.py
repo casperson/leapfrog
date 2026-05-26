@@ -19,6 +19,7 @@ from .routes.scanner_routes import router as scanner_router
 from .routes.thumbnails import router as thumbnails_router
 from .routes.sync_routes import router as sync_router
 from .routes.logs import router as logs_router
+from .routes.vidangel_routes import router as vidangel_router
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(thumbnails_router)
     app.include_router(sync_router)
     app.include_router(logs_router)
+    app.include_router(vidangel_router)
 
     @app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"], include_in_schema=False)
     async def api_not_found(full_path: str):

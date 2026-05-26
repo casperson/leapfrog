@@ -16,6 +16,7 @@ This repository is derived from [Cleanplex](https://github.com/nazmolla/Cleanple
 - Per-user profile controls for all five categories, including toggles, thresholds, and granular label skip choices
 - Server-side playback enforcement through Plex session polling and seek commands
 - Adjacent sidecar skip files for using existing segment data without rescanning the video
+- Headless VidAngel export into exact raw event files, tag definitions, and Leapfrog sidecar JSON
 - Browser UI for scan settings, queue management, title scan detail, segment review, live logs, and linked-user preferences
 
 Leapfrog keeps scanning, segment storage, playback filtering, and UI review local to the server box. Optional GitHub-based segment sync remains manual and is not required for scanning or playback.
@@ -138,6 +139,16 @@ Labels provide detail without expanding the top-level category list. Examples in
   Bind port for the FastAPI server. Default: `7979`
 - `LEAPFROG_SYNC_GITHUB_TOKEN`
   Optional GitHub token for manual sync upload/download features
+- `LEAPFROG_VIDANGEL_AUTHORIZATION`
+  VidAngel API authorization header value, for example `Token ...`
+- `LEAPFROG_VIDANGEL_PROFILE_ID`
+  VidAngel profile id used for tag-set requests
+- `LEAPFROG_VIDANGEL_HEADERS_FILE`
+  Optional JSON or plain-text header file containing `authorization`, `x-profile`, and related VidAngel headers
+- `LEAPFROG_VIDANGEL_APP_VERSION`
+  Optional override for the VidAngel web app version header
+- `LEAPFROG_VIDANGEL_CONCURRENCY`
+  Optional max concurrent VidAngel requests for the exporter. Default: `6`
 
 ### Install
 
@@ -160,6 +171,108 @@ cd ..
 ```
 
 Open `http://localhost:7979`.
+
+### Export VidAngel filters
+
+Once you have a valid VidAngel authorization token and profile id, Leapfrog can export:
+
+- exact raw VidAngel events as JSON and CSV,
+- leaf tag definitions with example descriptions when VidAngel provides them,
+- a master title catalog you can filter against your own Plex library later.
+
+The most reliable command is the module entrypoint:
+
+```bash
+LEAPFROG_VIDANGEL_AUTHORIZATION='Token ...' \
+LEAPFROG_VIDANGEL_PROFILE_ID='736336' \
+.venv/bin/python -m leapfrog.vidangel_export
+```
+
+By default the exporter writes to `~/.leapfrog/vidangel_exports/`:
+
+- `catalog_manifest.json`
+- `title_catalog.json`
+- `title_catalog.csv`
+- `movies_catalog.json`
+- `movies_catalog.csv`
+- `tv_catalog.json`
+- `tv_catalog.csv`
+- `shows_catalog.json`
+- `shows_catalog.csv`
+- `tag_definitions.json`
+- `tag_definitions.csv`
+- `raw_filter_events.csv`
+- `movie_filter_events.csv`
+- `tv_filter_events.csv`
+- `vidangel_catalog.xlsx`
+
+This default output is intentionally database-first: one master catalog plus one master event table, not one file per VidAngel title.
+
+If you explicitly want one raw JSON and one Leapfrog sidecar per exported title, add:
+
+```bash
+--write-per-title-artifacts
+```
+
+That creates:
+
+- `raw_titles/*.json`
+- `sidecars/*.leapfrog.json`
+
+Important: Leapfrog only auto-loads sidecars that live adjacent to the actual movie or episode file, for example:
+
+- `/media/Movies/Angel Has Fallen (2019).mkv`
+- `/media/Movies/Angel Has Fallen (2019).leapfrog.json`
+
+That means the current workflow is:
+
+1. export VidAngel data,
+2. match rows from `title_catalog.csv` or `title_catalog.json` against titles in your Plex library,
+3. use `raw_filter_events.csv` plus `tag_definitions.*` to generate sidecars only for the titles you actually own,
+4. place the matching `.leapfrog.json` file next to that media file.
+
+Once the sidecar is adjacent to the local media file, Leapfrog will use it during playback and apply the current user's category and label preferences before deciding whether to skip.
+
+To generate sidecars only for titles in your local Plex library, run:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars
+```
+
+Options:
+
+- `--library-id <id>` limits sidecar generation to one Plex library
+- `--dry-run` reports matches without writing files
+- `--overwrite` rewrites existing `.leapfrog.json` files
+
+The generator matches:
+
+- movies by normalized title and year
+- episodes by show title, season number, and episode number resolved from Plex
+
+Generated sidecars preserve exact VidAngel leaf labels using keys like `vidangel:fuck` or `vidangel:graphic`. Those labels are exposed in the Profiles UI when `tag_definitions.json` exists in the VidAngel export directory, so each user can enable or disable specific VidAngel filters independently. At playback time Leapfrog loads the sidecar, checks the current user's category and label preferences, and skips only the timestamp windows whose labels are enabled for that user.
+
+For unattended runs, store the VidAngel headers in a file and point the exporter at it:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_export \
+  --output-dir ~/.leapfrog/vidangel_exports
+```
+
+with either:
+
+- `LEAPFROG_VIDANGEL_AUTHORIZATION` and `LEAPFROG_VIDANGEL_PROFILE_ID`, or
+- `LEAPFROG_VIDANGEL_HEADERS_FILE=/path/to/vidangel-headers.json`
+
+where `vidangel-headers.json` looks like:
+
+```json
+{
+  "authorization": "Token ...",
+  "x-profile": "736336",
+  "x-app-version": "2026-05-22_07-35-15"
+}
+```
 
 ### Windows: run after install
 
