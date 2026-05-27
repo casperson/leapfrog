@@ -100,6 +100,16 @@ def _load_tv_catalog(export_dir: Path) -> list[dict[str, Any]]:
     return _parse_json_file(export_dir / "tv_catalog.json", "titles")
 
 
+def _parse_optional_int(value: Any) -> int | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return int(float(raw))
+
+
 def _load_raw_events(export_dir: Path) -> dict[tuple[str, str], list[RawFilterEvent]]:
     source = export_dir / "raw_filter_events.csv"
     if not source.exists():
@@ -120,8 +130,8 @@ def _load_raw_events(export_dir: Path) -> dict[tuple[str, str], list[RawFilterEv
             slug=str(row.get("slug") or ""),
             service_slug=str(row.get("service_slug") or ""),
             tag_set_id=int(row.get("tag_set_id") or 0),
-            season_number=int(row["season_number"]) if str(row.get("season_number") or "").strip() else None,
-            episode_number=int(row["episode_number"]) if str(row.get("episode_number") or "").strip() else None,
+            season_number=_parse_optional_int(row.get("season_number")),
+            episode_number=_parse_optional_int(row.get("episode_number")),
             path_keys=tuple(part for part in str(row.get("path_keys") or "").split("/") if part),
             path_titles=tuple(part for part in str(row.get("path_titles") or "").split(" > ") if part),
             display_title=str(row.get("display_title") or ""),

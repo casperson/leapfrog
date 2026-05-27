@@ -11,10 +11,12 @@ from leapfrog import database as db
 from leapfrog.vidangel_sidecars import (
     _build_episode_index,
     _build_movie_index,
+    _parse_optional_int,
     generate_vidangel_sidecars,
     match_episode_catalog_row,
     match_movie_catalog_row,
 )
+from leapfrog.vidangel_export import get_vidangel_export_dir
 
 
 def test_match_movie_catalog_row_uses_exact_title_and_year():
@@ -80,6 +82,18 @@ def test_match_episode_catalog_row_uses_show_and_numbers():
 
     assert match == row
     assert detail == "exact show/season/episode match"
+
+
+def test_parse_optional_int_accepts_blank_and_float_like_values():
+    assert _parse_optional_int("") is None
+    assert _parse_optional_int("1") == 1
+    assert _parse_optional_int("1.0") == 1
+
+
+def test_get_vidangel_export_dir_defaults_to_repo_vidangel():
+    path = get_vidangel_export_dir()
+    assert path.name == "vidangel"
+    assert path.parent.name == "leapfrog"
 
 
 @pytest.mark.asyncio

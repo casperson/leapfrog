@@ -200,7 +200,7 @@ LEAPFROG_VIDANGEL_PROFILE_ID='736336' \
 Flags:
 
 - `--output-dir PATH`
-  Write export files somewhere other than the default export directory.
+  Write export files somewhere other than the default export directory (`repo_root/vidangel/`).
 - `--concurrency N`
   Limit concurrent VidAngel HTTP requests. Default: `6`
 - `--write-per-title-artifacts`
@@ -214,7 +214,7 @@ Authentication may be provided with either:
 - `LEAPFROG_VIDANGEL_AUTHORIZATION` and `LEAPFROG_VIDANGEL_PROFILE_ID`, or
 - `LEAPFROG_VIDANGEL_HEADERS_FILE=/path/to/vidangel-headers.json`
 
-By default the exporter writes to `~/.leapfrog/vidangel_exports/`:
+By default the exporter writes to `repo_root/vidangel/`:
 
 - `catalog_manifest.json`
 - `title_catalog.json`
@@ -274,7 +274,7 @@ Flags:
 If `--export-dir` is omitted, the generator reads from:
 
 - `LEAPFROG_VIDANGEL_EXPORT_DIR`, if set
-- otherwise `~/.leapfrog/vidangel_exports/`
+- otherwise `repo_root/vidangel/`
 
 The generator matches:
 
@@ -315,7 +315,7 @@ For unattended runs, store the VidAngel headers in a file and point the exporter
 
 ```bash
 .venv/bin/python -m leapfrog.vidangel_export \
-  --output-dir ~/.leapfrog/vidangel_exports
+  --output-dir ./vidangel
 ```
 
 with either:

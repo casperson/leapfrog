@@ -370,7 +370,7 @@ def get_vidangel_export_dir() -> Path:
     override = os.environ.get("LEAPFROG_VIDANGEL_EXPORT_DIR", "").strip()
     if override:
         return Path(override)
-    return get_data_dir() / "vidangel_exports"
+    return Path(__file__).resolve().parent.parent / "vidangel"
 
 
 def load_vidangel_tag_definition_records(export_dir: Path | None = None) -> list[dict[str, Any]]:
