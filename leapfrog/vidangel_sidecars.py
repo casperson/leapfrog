@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import json
 import re
 from dataclasses import dataclass
@@ -61,6 +62,34 @@ def _parse_json_file(path: Path, list_key: str) -> list[dict[str, Any]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows = payload.get(list_key)
     return [dict(row) for row in rows] if isinstance(rows, list) else []
+
+
+async def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    await asyncio.to_thread(path.write_text, f"{json.dumps(payload, indent=2, sort_keys=True)}\n", "utf-8")
+
+
+async def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    fieldnames = list(rows[0].keys()) if rows else [
+        "plex_guid",
+        "file_path",
+        "media_type",
+        "title",
+        "status",
+        "detail",
+        "matched_media_id",
+        "matched_slug",
+        "sidecar_path",
+        "event_count",
+    ]
+
+    def _write() -> None:
+        with path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+
+    await asyncio.to_thread(_write)
 
 
 def _load_movie_catalog(export_dir: Path) -> list[dict[str, Any]]:
@@ -285,13 +314,48 @@ async def generate_vidangel_sidecars(
         "unmatched": sum(1 for result in results if result.status == "unmatched"),
         "skipped": sum(1 for result in results if result.status == "skipped"),
     }
+    result_rows = [result.to_record() for result in results]
+    matched_rows = [row for row in result_rows if row["status"] in {"written", "matched"}]
+    unmatched_rows = [row for row in result_rows if row["status"] == "unmatched"]
+    ambiguous_rows = [row for row in unmatched_rows if str(row.get("detail") or "").startswith("ambiguous")]
+    skipped_rows = [row for row in result_rows if row["status"] == "skipped"]
+    await _write_json(
+        source_dir / "matched_plex_titles.json",
+        {"count": len(matched_rows), "titles": matched_rows},
+    )
+    await _write_json(
+        source_dir / "unmatched_plex_titles.json",
+        {"count": len(unmatched_rows), "titles": unmatched_rows},
+    )
+    await _write_json(
+        source_dir / "ambiguous_plex_titles.json",
+        {"count": len(ambiguous_rows), "titles": ambiguous_rows},
+    )
+    await _write_json(
+        source_dir / "skipped_plex_titles.json",
+        {"count": len(skipped_rows), "titles": skipped_rows},
+    )
+    await _write_csv(source_dir / "matched_plex_titles.csv", matched_rows)
+    await _write_csv(source_dir / "unmatched_plex_titles.csv", unmatched_rows)
+    await _write_csv(source_dir / "ambiguous_plex_titles.csv", ambiguous_rows)
+    await _write_csv(source_dir / "skipped_plex_titles.csv", skipped_rows)
     return {
         "library_id": library_id,
         "export_dir": str(source_dir),
         "only_missing": only_missing,
         "dry_run": dry_run,
         "summary": summary,
-        "results": [result.to_record() for result in results],
+        "report_files": {
+            "matched_json": str(source_dir / "matched_plex_titles.json"),
+            "matched_csv": str(source_dir / "matched_plex_titles.csv"),
+            "unmatched_json": str(source_dir / "unmatched_plex_titles.json"),
+            "unmatched_csv": str(source_dir / "unmatched_plex_titles.csv"),
+            "ambiguous_json": str(source_dir / "ambiguous_plex_titles.json"),
+            "ambiguous_csv": str(source_dir / "ambiguous_plex_titles.csv"),
+            "skipped_json": str(source_dir / "skipped_plex_titles.json"),
+            "skipped_csv": str(source_dir / "skipped_plex_titles.csv"),
+        },
+        "results": result_rows,
     }
 
 

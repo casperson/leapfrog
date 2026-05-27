@@ -188,6 +188,32 @@ LEAPFROG_VIDANGEL_PROFILE_ID='736336' \
 .venv/bin/python -m leapfrog.vidangel_export
 ```
 
+#### `vidangel_export` command reference
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_export \
+  [--output-dir PATH] \
+  [--concurrency N] \
+  [--write-per-title-artifacts]
+```
+
+Flags:
+
+- `--output-dir PATH`
+  Write export files somewhere other than the default export directory.
+- `--concurrency N`
+  Limit concurrent VidAngel HTTP requests. Default: `6`
+- `--write-per-title-artifacts`
+  Also emit:
+  - `raw_titles/*.json`
+  - `sidecars/*.leapfrog.json`
+  The default export stays database-first and does not create one file per VidAngel title.
+
+Authentication may be provided with either:
+
+- `LEAPFROG_VIDANGEL_AUTHORIZATION` and `LEAPFROG_VIDANGEL_PROFILE_ID`, or
+- `LEAPFROG_VIDANGEL_HEADERS_FILE=/path/to/vidangel-headers.json`
+
 By default the exporter writes to `~/.leapfrog/vidangel_exports/`:
 
 - `catalog_manifest.json`
@@ -208,17 +234,6 @@ By default the exporter writes to `~/.leapfrog/vidangel_exports/`:
 
 This default output is intentionally database-first: one master catalog plus one master event table, not one file per VidAngel title.
 
-If you explicitly want one raw JSON and one Leapfrog sidecar per exported title, add:
-
-```bash
---write-per-title-artifacts
-```
-
-That creates:
-
-- `raw_titles/*.json`
-- `sidecars/*.leapfrog.json`
-
 Important: Leapfrog only auto-loads sidecars that live adjacent to the actual movie or episode file, for example:
 
 - `/media/Movies/Angel Has Fallen (2019).mkv`
@@ -233,17 +248,33 @@ That means the current workflow is:
 
 Once the sidecar is adjacent to the local media file, Leapfrog will use it during playback and apply the current user's category and label preferences before deciding whether to skip.
 
+#### `vidangel_sidecars` command reference
+
 To generate sidecars only for titles in your local Plex library, run:
 
 ```bash
 .venv/bin/python -m leapfrog.vidangel_sidecars
 ```
 
-Options:
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars \
+  [--library-id ID] \
+  [--export-dir PATH] \
+  [--dry-run] \
+  [--overwrite]
+```
+
+Flags:
 
 - `--library-id <id>` limits sidecar generation to one Plex library
+- `--export-dir PATH` reads the VidAngel export database from a different directory
 - `--dry-run` reports matches without writing files
 - `--overwrite` rewrites existing `.leapfrog.json` files
+
+If `--export-dir` is omitted, the generator reads from:
+
+- `LEAPFROG_VIDANGEL_EXPORT_DIR`, if set
+- otherwise `~/.leapfrog/vidangel_exports/`
 
 The generator matches:
 
@@ -251,6 +282,34 @@ The generator matches:
 - episodes by show title, season number, and episode number resolved from Plex
 
 Generated sidecars preserve exact VidAngel leaf labels using keys like `vidangel:fuck` or `vidangel:graphic`. Those labels are exposed in the Profiles UI when `tag_definitions.json` exists in the VidAngel export directory, so each user can enable or disable specific VidAngel filters independently. At playback time Leapfrog loads the sidecar, checks the current user's category and label preferences, and skips only the timestamp windows whose labels are enabled for that user.
+
+Each sidecar-generation run also writes coverage reports into the VidAngel export directory:
+
+- `matched_plex_titles.json`
+- `matched_plex_titles.csv`
+- `unmatched_plex_titles.json`
+- `unmatched_plex_titles.csv`
+- `ambiguous_plex_titles.json`
+- `ambiguous_plex_titles.csv`
+- `skipped_plex_titles.json`
+- `skipped_plex_titles.csv`
+
+Use `unmatched_plex_titles.*` to see which Plex titles do not have a usable VidAngel match, and `ambiguous_plex_titles.*` to see titles that need manual cleanup or better matching rules.
+
+#### VidAngel environment variables
+
+- `LEAPFROG_VIDANGEL_AUTHORIZATION`
+  VidAngel API authorization header value, for example `Token ...`
+- `LEAPFROG_VIDANGEL_PROFILE_ID`
+  VidAngel profile id used for tag-set requests
+- `LEAPFROG_VIDANGEL_HEADERS_FILE`
+  Optional JSON or plain-text header file containing `authorization`, `x-profile`, and related VidAngel headers
+- `LEAPFROG_VIDANGEL_APP_VERSION`
+  Optional override for the VidAngel web app version header
+- `LEAPFROG_VIDANGEL_CONCURRENCY`
+  Optional max concurrent VidAngel requests for the exporter. Default: `6`
+- `LEAPFROG_VIDANGEL_EXPORT_DIR`
+  Optional default directory used by the sidecar generator when `--export-dir` is omitted
 
 For unattended runs, store the VidAngel headers in a file and point the exporter at it:
 
@@ -272,6 +331,80 @@ where `vidangel-headers.json` looks like:
   "x-profile": "736336",
   "x-app-version": "2026-05-22_07-35-15"
 }
+```
+
+#### Sidecar generation API
+
+Route:
+
+```http
+POST /api/vidangel/sidecars/generate
+```
+
+Example body:
+
+```json
+{
+  "library_id": "5",
+  "dry_run": true,
+  "overwrite": false
+}
+```
+
+Fields:
+
+- `library_id`: optional Plex library id
+- `dry_run`: optional, default `false`
+- `overwrite`: optional, default `false`
+
+#### Common workflows
+
+Build the master VidAngel database:
+
+```bash
+LEAPFROG_VIDANGEL_AUTHORIZATION='Token ...' \
+LEAPFROG_VIDANGEL_PROFILE_ID='736336' \
+.venv/bin/python -m leapfrog.vidangel_export
+```
+
+Build the database and also emit one raw JSON and one sidecar per VidAngel title:
+
+```bash
+LEAPFROG_VIDANGEL_AUTHORIZATION='Token ...' \
+LEAPFROG_VIDANGEL_PROFILE_ID='736336' \
+.venv/bin/python -m leapfrog.vidangel_export --write-per-title-artifacts
+```
+
+Check which Plex titles match before writing sidecars:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars --dry-run
+```
+
+Generate sidecars for all Plex titles that match:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars
+```
+
+Generate sidecars for one Plex library only:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars --library-id 5
+```
+
+Rewrite sidecars even if they already exist:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars --overwrite
+```
+
+Use a non-default VidAngel export directory:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_sidecars \
+  --export-dir /path/to/vidangel_exports \
+  --dry-run
 ```
 
 ### Windows: run after install
