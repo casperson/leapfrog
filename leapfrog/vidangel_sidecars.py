@@ -130,45 +130,44 @@ def _load_raw_events(export_dir: Path) -> dict[tuple[str, str], list[RawFilterEv
     source = export_dir / "raw_filter_events.csv"
     if not source.exists():
         raise FileNotFoundError(source)
-    rows = source.read_text(encoding="utf-8").splitlines()
-    if not rows:
+    if source.stat().st_size == 0:
         return {}
-    import csv
 
     grouped: dict[tuple[str, str], list[RawFilterEvent]] = {}
-    for row in csv.DictReader(rows):
-        media_type = str(row.get("media_type") or "").strip()
-        media_id = str(row.get("media_id") or "").strip()
-        try:
-            event = RawFilterEvent(
-                media_id=media_id,
-                media_type=media_type,
-                title=str(row.get("title") or ""),
-                slug=str(row.get("slug") or ""),
-                service_slug=str(row.get("service_slug") or ""),
-                tag_set_id=_parse_required_int(row.get("tag_set_id"), field_name="tag_set_id"),
-                season_number=_parse_optional_int(row.get("season_number")),
-                episode_number=_parse_optional_int(row.get("episode_number")),
-                path_keys=tuple(part for part in str(row.get("path_keys") or "").split("/") if part),
-                path_titles=tuple(part for part in str(row.get("path_titles") or "").split(" > ") if part),
-                display_title=str(row.get("display_title") or ""),
-                description=str(row.get("description") or "").strip() or None,
-                tag_type=str(row.get("tag_type") or ""),
-                start_ms=_parse_required_int(row.get("start_ms"), field_name="start_ms"),
-                end_ms=_parse_required_int(row.get("end_ms"), field_name="end_ms"),
-                mapped_category=str(row.get("mapped_category") or "").strip() or None,
-                leaf_key=str(row.get("leaf_key") or ""),
-            )
-        except ValueError as exc:
-            logger.warning(
-                "Skipping malformed VidAngel event row from %s for media_id=%r title=%r: %s",
-                source,
-                media_id,
-                row.get("title"),
-                exc,
-            )
-            continue
-        grouped.setdefault((media_type, media_id), []).append(event)
+    with source.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            media_type = str(row.get("media_type") or "").strip()
+            media_id = str(row.get("media_id") or "").strip()
+            try:
+                event = RawFilterEvent(
+                    media_id=media_id,
+                    media_type=media_type,
+                    title=str(row.get("title") or ""),
+                    slug=str(row.get("slug") or ""),
+                    service_slug=str(row.get("service_slug") or ""),
+                    tag_set_id=_parse_required_int(row.get("tag_set_id"), field_name="tag_set_id"),
+                    season_number=_parse_optional_int(row.get("season_number")),
+                    episode_number=_parse_optional_int(row.get("episode_number")),
+                    path_keys=tuple(part for part in str(row.get("path_keys") or "").split("/") if part),
+                    path_titles=tuple(part for part in str(row.get("path_titles") or "").split(" > ") if part),
+                    display_title=str(row.get("display_title") or ""),
+                    description=str(row.get("description") or "").strip() or None,
+                    tag_type=str(row.get("tag_type") or ""),
+                    start_ms=_parse_required_int(row.get("start_ms"), field_name="start_ms"),
+                    end_ms=_parse_required_int(row.get("end_ms"), field_name="end_ms"),
+                    mapped_category=str(row.get("mapped_category") or "").strip() or None,
+                    leaf_key=str(row.get("leaf_key") or ""),
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "Skipping malformed VidAngel event row from %s for media_id=%r title=%r: %s",
+                    source,
+                    media_id,
+                    row.get("title"),
+                    exc,
+                )
+                continue
+            grouped.setdefault((media_type, media_id), []).append(event)
     return grouped
 
 
@@ -274,7 +273,33 @@ async def generate_vidangel_sidecars(
                 )
             )
             continue
-        sidecar_path = str(Path(file_path).with_suffix(".leapfrog.json"))
+        media_path = Path(file_path)
+        media_dir = media_path.parent
+        if not media_dir.exists():
+            results.append(
+                SidecarGenerationResult(
+                    plex_guid=str(job.get("plex_guid") or ""),
+                    file_path=file_path,
+                    media_type=media_type,
+                    title=title,
+                    status="skipped",
+                    detail="media directory does not exist",
+                )
+            )
+            continue
+        if not media_path.exists():
+            results.append(
+                SidecarGenerationResult(
+                    plex_guid=str(job.get("plex_guid") or ""),
+                    file_path=file_path,
+                    media_type=media_type,
+                    title=title,
+                    status="skipped",
+                    detail="media file does not exist",
+                )
+            )
+            continue
+        sidecar_path = str(media_path.with_suffix(".leapfrog.json"))
         if only_missing and Path(sidecar_path).exists():
             results.append(
                 SidecarGenerationResult(
@@ -329,7 +354,24 @@ async def generate_vidangel_sidecars(
             events=events,
         )
         if not dry_run:
-            await write_sidecar_file(sidecar_path, payload)
+            try:
+                await write_sidecar_file(sidecar_path, payload)
+            except OSError as exc:
+                results.append(
+                    SidecarGenerationResult(
+                        plex_guid=str(job.get("plex_guid") or ""),
+                        file_path=file_path,
+                        media_type=media_type,
+                        title=title,
+                        status="skipped",
+                        detail=f"failed to write sidecar: {exc.strerror or exc}",
+                        matched_media_id=matched_media_id,
+                        matched_slug=str(match_row.get("slug") or ""),
+                        sidecar_path=sidecar_path,
+                        event_count=len(events),
+                    )
+                )
+                continue
         results.append(
             SidecarGenerationResult(
                 plex_guid=str(job.get("plex_guid") or ""),

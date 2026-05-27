@@ -149,6 +149,29 @@ def test_load_raw_events_skips_malformed_rows(tmp_path: Path):
     assert grouped[("movie", "1")][0].season_number is None
 
 
+def test_load_raw_events_preserves_multiline_descriptions(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+    (export_dir / "raw_filter_events.csv").write_text(
+        "\n".join(
+            [
+                "media_id,media_type,title,slug,service_slug,season_number,episode_number,tag_set_id,path_keys,path_titles,display_title,description,tag_type,start_ms,end_ms,mapped_category,leaf_key",
+                '701978,episode,The Fourth of You Lie,the-fourth-of-you-lie,crunchyroll,1,4,1824000,sex_nudity_immodesty/immodesty_female,Nudity & Immodesty > Female Immodesty,Female Immodesty,"A teenage girl\'s shirt shows her cleavage',
+                'and remains visible for a moment.",audiovisual,123000,126000,nudity,immodesty_female',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    grouped = _load_raw_events(export_dir)
+
+    assert list(grouped.keys()) == [("episode", "701978")]
+    assert grouped[("episode", "701978")][0].description == (
+        "A teenage girl's shirt shows her cleavage\nand remains visible for a moment."
+    )
+
+
 def test_get_vidangel_export_dir_defaults_to_repo_vidangel():
     path = get_vidangel_export_dir()
     assert path.name == "vidangel"
@@ -161,10 +184,12 @@ async def test_generate_vidangel_sidecars_writes_coverage_reports(tmp_path: Path
     data_dir.mkdir()
     db.set_db_path(data_dir / "leapfrog.db")
     await db.init_db()
+    movie_path = tmp_path / "Angel Has Fallen (2019).mkv"
+    movie_path.write_text("", encoding="utf-8")
     await db.upsert_scan_job(
         plex_guid="movie-guid",
         title="Angel Has Fallen",
-        file_path=str(tmp_path / "Angel Has Fallen (2019).mkv"),
+        file_path=str(movie_path),
         rating_key="100",
         library_id="1",
         library_title="Movies",
@@ -172,10 +197,12 @@ async def test_generate_vidangel_sidecars_writes_coverage_reports(tmp_path: Path
         media_type="movie",
         year=2019,
     )
+    missing_movie_path = tmp_path / "Missing Movie (2024).mkv"
+    missing_movie_path.write_text("", encoding="utf-8")
     await db.upsert_scan_job(
         plex_guid="missing-guid",
         title="Missing Movie",
-        file_path=str(tmp_path / "Missing Movie (2024).mkv"),
+        file_path=str(missing_movie_path),
         rating_key="101",
         library_id="1",
         library_title="Movies",
@@ -224,3 +251,60 @@ async def test_generate_vidangel_sidecars_writes_coverage_reports(tmp_path: Path
     assert (export_dir / "skipped_plex_titles.csv").exists()
     unmatched_payload = json.loads((export_dir / "unmatched_plex_titles.json").read_text(encoding="utf-8"))
     assert unmatched_payload["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_generate_vidangel_sidecars_skips_missing_media_paths(tmp_path: Path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    db.set_db_path(data_dir / "leapfrog.db")
+    await db.init_db()
+    media_dir = tmp_path / "missing-library" / "Movie"
+    missing_file = media_dir / "Missing Movie (2024).mkv"
+    await db.upsert_scan_job(
+        plex_guid="missing-file-guid",
+        title="Angel Has Fallen",
+        file_path=str(missing_file),
+        rating_key="100",
+        library_id="1",
+        library_title="Movies",
+        content_rating="R",
+        media_type="movie",
+        year=2019,
+    )
+
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+    (export_dir / "movies_catalog.json").write_text(
+        json.dumps(
+            {
+                "titles": [
+                    {
+                        "media_id": "1",
+                        "media_type": "movie",
+                        "title": "Angel Has Fallen",
+                        "slug": "angel-has-fallen",
+                        "extra_metadata": {"year": 2019},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (export_dir / "tv_catalog.json").write_text(json.dumps({"titles": []}), encoding="utf-8")
+    (export_dir / "raw_filter_events.csv").write_text(
+        "\n".join(
+            [
+                "media_id,media_type,title,slug,service_slug,season_number,episode_number,tag_set_id,path_keys,path_titles,display_title,description,tag_type,start_ms,end_ms,mapped_category,leaf_key",
+                "1,movie,Angel Has Fallen,angel-has-fallen,netflix,,,41696,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,12000,12000,profanity,fuck",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = await generate_vidangel_sidecars(export_dir=export_dir, dry_run=False)
+
+    assert result["summary"]["skipped"] == 1
+    assert result["summary"]["written"] == 0
+    assert result["results"][0]["detail"] == "media directory does not exist"
