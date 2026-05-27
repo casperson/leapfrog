@@ -11,6 +11,7 @@ from leapfrog import database as db
 from leapfrog.vidangel_sidecars import (
     _build_episode_index,
     _build_movie_index,
+    _load_raw_events,
     _parse_optional_int,
     generate_vidangel_sidecars,
     match_episode_catalog_row,
@@ -61,6 +62,24 @@ def test_match_movie_catalog_row_reports_ambiguous_title_only_match():
     assert detail == "ambiguous movie title match"
 
 
+def test_match_movie_catalog_row_tolerates_non_numeric_year():
+    row = {
+        "media_id": "1",
+        "title": "Angel Has Fallen",
+        "slug": "angel-has-fallen",
+        "extra_metadata": {"year": "not-a-year"},
+    }
+    index = _build_movie_index([row])
+
+    match, detail = match_movie_catalog_row(
+        {"title": "Angel Has Fallen", "year": "2019.0"},
+        index,
+    )
+
+    assert match == row
+    assert detail == "title-only movie match"
+
+
 def test_match_episode_catalog_row_uses_show_and_numbers():
     row = {
         "media_id": "10",
@@ -84,10 +103,50 @@ def test_match_episode_catalog_row_uses_show_and_numbers():
     assert detail == "exact show/season/episode match"
 
 
+def test_build_episode_index_skips_non_numeric_episode_numbers():
+    index = _build_episode_index(
+        [
+            {
+                "media_id": "10",
+                "media_type": "episode",
+                "title": "Pilot",
+                "slug": "sample-show-s1-e1",
+                "season_number": "1.0",
+                "episode_number": "immodesty_female",
+                "extra_metadata": {"show_title": "Sample Show"},
+            }
+        ]
+    )
+
+    assert index == {}
+
+
 def test_parse_optional_int_accepts_blank_and_float_like_values():
     assert _parse_optional_int("") is None
     assert _parse_optional_int("1") == 1
     assert _parse_optional_int("1.0") == 1
+    assert _parse_optional_int("immodesty_female") is None
+
+
+def test_load_raw_events_skips_malformed_rows(tmp_path: Path):
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+    (export_dir / "raw_filter_events.csv").write_text(
+        "\n".join(
+            [
+                "media_id,media_type,title,slug,service_slug,season_number,episode_number,tag_set_id,path_keys,path_titles,display_title,description,tag_type,start_ms,end_ms,mapped_category,leaf_key",
+                "1,movie,Angel Has Fallen,angel-has-fallen,netflix,immodesty_female,,41696,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,12000,12000,profanity,fuck",
+                "2,movie,Broken Row,broken-row,netflix,immodesty_female,,not-a-number,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,12000,12000,profanity,fuck",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    grouped = _load_raw_events(export_dir)
+
+    assert list(grouped.keys()) == [("movie", "1")]
+    assert grouped[("movie", "1")][0].season_number is None
 
 
 def test_get_vidangel_export_dir_defaults_to_repo_vidangel():

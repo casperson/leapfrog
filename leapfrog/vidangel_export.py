@@ -31,6 +31,32 @@ DEFAULT_VISUAL_MERGE_GAP_MS = 2000
 DEFAULT_MIN_SEGMENT_MS = 500
 
 
+def _parse_optional_int(value: Any) -> int | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            return int(float(raw))
+        except ValueError:
+            return None
+
+
+def _parse_required_int(value: Any, *, field_name: str) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError(f"missing required integer field: {field_name}")
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            return int(float(raw))
+        except ValueError as exc:
+            raise ValueError(f"invalid integer for {field_name}: {raw}") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class QueryPlan:
     """One catalog query to replay against the works endpoint."""
@@ -56,14 +82,14 @@ class WorkStub:
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "WorkStub":
         return cls(
-            id=int(payload["id"]),
+            id=_parse_required_int(payload.get("id"), field_name="work.id"),
             slug=str(payload["slug"]),
             title=str(payload.get("title") or payload.get("name") or ""),
             work_type=str(payload.get("type") or payload.get("item_type") or ""),
             rating=str(payload.get("rating") or payload.get("mpaa_rating") or ""),
-            year=int(payload["year"]) if payload.get("year") is not None else None,
+            year=_parse_optional_int(payload.get("year")),
             poster_url=str(payload.get("poster_url") or payload.get("poster") or ""),
-            tag_count=int(payload.get("tag_count") or 0),
+            tag_count=_parse_optional_int(payload.get("tag_count")) or 0,
             service_slug=_pick_service_slug(payload),
         )
 
@@ -397,10 +423,11 @@ def build_catalog_queries(parameters: dict[str, Any]) -> list[QueryPlan]:
     type_values = [None, "movie", "show"]
     service_catalog_ids = sorted(
         {
-            int(catalog["id"])
+            parsed
             for option in parameters.get("services", {}).get("options", [])
             for catalog in option.get("catalogs", [])
-            if catalog.get("id") is not None
+            for parsed in [_parse_optional_int(catalog.get("id"))]
+            if parsed is not None
         }
     )
     category_slugs = sorted(
@@ -509,7 +536,7 @@ def _collect_leaf_data(
             example_description = description
             break
     definitions[leaf_key] = TagDefinition(
-        category_id=int(category_node.get("id") or 0),
+        category_id=_parse_optional_int(category_node.get("id")) or 0,
         key=leaf_key,
         display_title=str(category_node.get("display_title") or leaf_key),
         path_keys=path_keys,
@@ -519,6 +546,8 @@ def _collect_leaf_data(
         example_description=example_description,
     )
     for tag in category_node.get("tags") or []:
+        start_approx = _parse_optional_int(tag.get("start_approx")) or 0
+        end_approx = _parse_optional_int(tag.get("end_approx")) or 0
         events.append(
             RawFilterEvent(
                 media_id=str(media["media_id"]),
@@ -526,7 +555,7 @@ def _collect_leaf_data(
                 title=str(media["title"]),
                 slug=str(media["slug"]),
                 service_slug=str(media["service_slug"]),
-                tag_set_id=int(media["tag_set_id"]),
+                tag_set_id=_parse_required_int(media.get("tag_set_id"), field_name="media.tag_set_id"),
                 season_number=media.get("season_number"),
                 episode_number=media.get("episode_number"),
                 path_keys=path_keys,
@@ -534,8 +563,8 @@ def _collect_leaf_data(
                 display_title=str(category_node.get("display_title") or leaf_key),
                 description=(str(tag.get("description")).strip() if tag.get("description") else None),
                 tag_type=str(tag.get("type") or category_node.get("default_type") or ""),
-                start_ms=int(tag.get("start_approx") or 0) * 1000,
-                end_ms=int(tag.get("end_approx") or 0) * 1000,
+                start_ms=start_approx * 1000,
+                end_ms=end_approx * 1000,
                 mapped_category=mapped_category,
                 leaf_key=leaf_key,
             )
@@ -658,7 +687,11 @@ async def collect_catalog(client: VidAngelClient) -> tuple[list[WorkStub], dict[
             payload = await client.fetch_works_page(params)
             results = payload.get("results") or []
             for result in results:
-                work = WorkStub.from_payload(dict(result))
+                try:
+                    work = WorkStub.from_payload(dict(result))
+                except ValueError as exc:
+                    logger.warning("Skipping malformed VidAngel work payload %r: %s", result, exc)
+                    continue
                 works_by_id[work.id] = work
             total_fetched += len(results)
             page += 1
@@ -729,21 +762,23 @@ def build_show_summaries(artifacts: list[TitleArtifact]) -> list[ShowSummary]:
             if event.mapped_category
         }
         tag_set_ids = {
-            int(episode.summary.get("tag_set_id") or 0)
+            parsed
             for episode in episodes
-            if int(episode.summary.get("tag_set_id") or 0) > 0
+            for parsed in [_parse_optional_int(episode.summary.get("tag_set_id")) or 0]
+            if parsed > 0
         }
         season_numbers = {
-            int(episode.season_number)
+            parsed
             for episode in episodes
-            if episode.season_number is not None
+            for parsed in [_parse_optional_int(episode.season_number)]
+            if parsed is not None
         }
         summaries.append(
             ShowSummary(
                 show_title=show_title,
                 show_slug=show_slug,
                 service_slug=str(first.service_slug or ""),
-                year=min(int(year) for year in years) if years else None,
+                year=min(parsed_years) if (parsed_years := [parsed for year in years for parsed in [_parse_optional_int(year)] if parsed is not None]) else None,
                 rating=ratings[0] if ratings else "",
                 season_count=len(season_numbers),
                 episode_count=len(episodes),
@@ -761,7 +796,7 @@ async def build_movie_artifact(
 ) -> tuple[TitleArtifact | None, dict[str, TagDefinition]]:
     """Fetch all export data for one movie work."""
     summary = await client.fetch_filter_summary(work.id)
-    tag_set_id = int(summary.get("tag_set_id") or 0)
+    tag_set_id = _parse_optional_int(summary.get("tag_set_id")) or 0
     if tag_set_id <= 0:
         return None, {}
     tag_tree = await client.fetch_tag_tree(tag_set_id)
@@ -808,7 +843,7 @@ async def build_show_artifacts(
     guide_by_season: dict[int, dict[str, Any]] = {}
 
     for season in show.get("seasons") or []:
-        season_id = int(season.get("id") or 0)
+        season_id = _parse_optional_int(season.get("id")) or 0
         if season_id and season_id not in guide_by_season:
             try:
                 guide_by_season[season_id] = await client.fetch_season_guide(season_id)
@@ -819,26 +854,35 @@ async def build_show_artifacts(
             tag_set_id = 0
             service_slug = ""
             for offering in episode.get("offerings") or []:
-                if offering.get("tag_set_id"):
-                    tag_set_id = int(offering["tag_set_id"])
+                parsed_tag_set_id = _parse_optional_int(offering.get("tag_set_id")) or 0
+                if parsed_tag_set_id:
+                    tag_set_id = parsed_tag_set_id
                     service_slug = str(offering.get("catalog_id") or "")
                     break
+            episode_id = _parse_optional_int(episode.get("id")) or 0
+            if episode_id <= 0:
+                logger.warning("Skipping episode with invalid id in show %s: %r", work.slug, episode)
+                continue
             if tag_set_id <= 0:
-                summary = await client.fetch_filter_summary(int(episode["id"]))
-                tag_set_id = int(summary.get("tag_set_id") or 0)
+                summary = await client.fetch_filter_summary(episode_id)
+                tag_set_id = _parse_optional_int(summary.get("tag_set_id")) or 0
             else:
-                summary = await client.fetch_filter_summary(int(episode["id"]))
+                summary = await client.fetch_filter_summary(episode_id)
             if tag_set_id <= 0:
                 continue
             tag_tree = await client.fetch_tag_tree(tag_set_id)
+            season_number = _parse_optional_int(episode.get("season_number"))
+            if season_number is None:
+                season_number = _parse_optional_int(season.get("number"))
+            episode_number = _parse_optional_int(episode.get("episode_number"))
             media = {
-                "media_id": str(episode["id"]),
+                "media_id": str(episode_id),
                 "media_type": "episode",
                 "title": str(episode.get("title") or ""),
                 "slug": f"{work.slug}-s{season.get('number')}-e{episode.get('episode_number')}",
                 "service_slug": service_slug,
-                "season_number": int(episode.get("season_number") or season.get("number") or 0) or None,
-                "episode_number": int(episode.get("episode_number") or 0) or None,
+                "season_number": season_number,
+                "episode_number": episode_number,
                 "tag_set_id": tag_set_id,
             }
             episode_events, episode_definitions = flatten_tag_tree(tag_tree, media=media)

@@ -12,7 +12,10 @@ from leapfrog.vidangel_export import (
     ShowSummary,
     TitleArtifact,
     _create_simple_xlsx,
+    _parse_optional_int,
+    _parse_required_int,
     _show_catalog_rows,
+    WorkStub,
     build_catalog_queries,
     build_show_summaries,
     build_sidecar_payload,
@@ -54,6 +57,29 @@ def test_build_catalog_queries_includes_base_service_and_category_fanout():
     assert "genre:action-and-adventure:movie" in labels
     assert "genre:drama:show" in labels
     assert all("shuffle" not in query.label for query in queries)
+
+
+def test_parse_int_helpers_tolerate_float_like_and_invalid_values():
+    assert _parse_optional_int("1.0") == 1
+    assert _parse_optional_int("immodesty_female") is None
+    assert _parse_required_int("2.0", field_name="episode.id") == 2
+
+
+def test_work_stub_from_payload_tolerates_non_numeric_year_and_tag_count():
+    work = WorkStub.from_payload(
+        {
+            "id": "42",
+            "slug": "sample-title",
+            "title": "Sample Title",
+            "type": "movie",
+            "year": "not-a-year",
+            "tag_count": "not-a-count",
+        }
+    )
+
+    assert work.id == 42
+    assert work.year is None
+    assert work.tag_count == 0
 
 
 def test_flatten_tag_tree_collects_exact_events_and_leaf_definitions():
@@ -137,6 +163,45 @@ def test_flatten_tag_tree_collects_exact_events_and_leaf_definitions():
     assert events[1].mapped_category == "nudity"
     assert definitions["fuck"].path_keys == ("language", "profanity", "fuck")
     assert definitions["immodesty_female"].example_description == "A woman is seen in a bra and panties."
+
+
+def test_flatten_tag_tree_tolerates_non_numeric_timings():
+    tag_tree = {
+        "tag_categories": [
+            {
+                "id": "1",
+                "key": "language",
+                "display_title": "Language",
+                "default_type": "audio",
+                "tags": [
+                    {
+                        "description": "f-word",
+                        "type": "audio",
+                        "start_approx": "immodesty_female",
+                        "end_approx": "12.0",
+                    }
+                ],
+                "child_categories": [],
+            }
+        ]
+    }
+    media = {
+        "media_id": "701254",
+        "media_type": "episode",
+        "title": "S1:E1",
+        "slug": "show-s1-e1",
+        "service_slug": "appletv",
+        "season_number": 1,
+        "episode_number": 1,
+        "tag_set_id": "68845",
+    }
+
+    events, definitions = flatten_tag_tree(tag_tree, media=media)
+
+    assert len(events) == 1
+    assert events[0].start_ms == 0
+    assert events[0].end_ms == 12_000
+    assert definitions["language"].category_id == 1
 
 
 def test_build_sidecar_payload_merges_close_events_and_expands_zero_length_tags():
@@ -293,6 +358,27 @@ def test_build_show_summaries_rolls_up_episode_artifacts():
     assert summary.episode_count == 2
     assert summary.season_count == 1
     assert summary.tag_set_count == 2
+
+
+def test_build_show_summaries_tolerates_invalid_year_and_tag_set_id():
+    artifact = TitleArtifact(
+        media_id="701254",
+        media_type="episode",
+        title="Pilot",
+        slug="sample-show-s1-e1",
+        service_slug="appletv",
+        season_number=1,
+        episode_number=1,
+        summary={"tag_set_id": "bad-tag-set"},
+        events=(),
+        sidecar_payload={"format": "leapfrog.segment.sidecar/v1", "segments": []},
+        extra_metadata={"show_title": "Sample Show", "show_slug": "sample-show", "year": "unknown"},
+    )
+
+    summary = build_show_summaries([artifact])[0]
+
+    assert summary.year is None
+    assert summary.tag_set_count == 0
 
 
 def test_show_catalog_rows_returns_expected_columns():
