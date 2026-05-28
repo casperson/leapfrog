@@ -19,6 +19,7 @@ import httpx
 
 from .logger import get_logger, setup_logging
 from .paths import get_data_dir
+from .vidangel_taxonomy import normalize_vidangel_group_key
 
 logger = get_logger(__name__)
 
@@ -485,19 +486,9 @@ def build_catalog_queries(parameters: dict[str, Any]) -> list[QueryPlan]:
 
 
 def map_vidangel_category(path_keys: tuple[str, ...]) -> str | None:
-    """Map VidAngel taxonomy paths into Leapfrog's supported categories."""
-    key_blob = "/".join(path_keys)
-    if "violence" in key_blob:
-        return "violence"
-    if "drug" in key_blob or "alcohol" in key_blob or "smoking" in key_blob:
-        return "drugs"
-    if "sex_nudity_immodesty" in path_keys or "nudity" in key_blob or "immodesty" in key_blob:
-        return "nudity"
-    if "sex_any" in path_keys or "sexual" in key_blob or "seduction" in key_blob or "romance" in key_blob:
-        return "sexual_content"
-    if "language" in key_blob or "blasphemy" in key_blob or "profanity" in key_blob:
-        return "profanity"
-    return None
+    """Map a VidAngel taxonomy path to the canonical VidAngel category-group key."""
+    group_key = normalize_vidangel_group_key(path_keys)
+    return group_key or None
 
 
 def _collect_leaf_data(
@@ -613,7 +604,7 @@ def build_sidecar_payload(
         )
         start_ms = event.start_ms
         end_ms = max(event.end_ms, event.start_ms + DEFAULT_MIN_SEGMENT_MS)
-        label_token = f"vidangel:{event.leaf_key}"
+        label_token = event.leaf_key
         if (
             current
             and current["category"] == event.mapped_category

@@ -23,8 +23,8 @@ interface User {
 
 function defaultPreference(category: string): CategoryPreference {
   return {
-    enabled: category === 'nudity',
-    threshold: category === 'nudity' ? 0.4 : 0.55,
+    enabled: false,
+    threshold: category === 'sex_nudity_immodesty' ? 0.4 : 0.5,
   }
 }
 

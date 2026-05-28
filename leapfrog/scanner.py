@@ -20,7 +20,7 @@ from .detectors import (
 )
 from .detectors.nudity import ensure_640m_model_async, ensure_local_640m_model
 from .detectors.semantic import ensure_semantic_model_async, get_semantic_backend
-from .domain import MediaScanTarget, SUPPORTED_CATEGORIES
+from .domain import DETECTOR_STAGE_KEYS, MediaScanTarget, MediaSegment, SUPPORTED_CATEGORIES, get_vidangel_leaf_metadata
 from .frame_extractor import get_duration_ms, sample_video_frames
 from .logger import get_logger
 
@@ -237,6 +237,155 @@ def _cluster_frames(
     return segments
 
 
+_NUDENET_TO_VIDANGEL = {
+    "FEMALE_GENITALIA_EXPOSED": "nudity_female",
+    "FEMALE_BREAST_EXPOSED": "nudity_female",
+    "MALE_GENITALIA_EXPOSED": "nudity_male",
+    "MALE_BREAST_EXPOSED": "nudity_male",
+    "ANUS_EXPOSED": "nudity_both",
+    "BUTTOCKS_EXPOSED": "nudity_both",
+    "FEMALE_GENITALIA_COVERED": "immodesty_female",
+    "FEMALE_BREAST_COVERED": "immodesty_female",
+    "MALE_BREAST_COVERED": "immodesty_male",
+    "BUTTOCKS_COVERED": "immodesty_both",
+}
+
+_SEXUAL_TO_VIDANGEL = {
+    "brief_kiss": "kissing_normal",
+    "romantic_kiss": "kissing_normal",
+    "heavy_making_out": "kissing_passion",
+    "intimate_touch": "sexually_suggestive",
+    "bed_intimacy": "implied_not_shown",
+    "lingerie": "sexually_suggestive",
+    "striptease": "sexually_suggestive",
+    "simulated_sex": "shown_w_o_nudity",
+    "explicit_sex": "shown_w_nudity",
+    "oral_sex": "shown_w_nudity",
+    "masturbation": "shown_w_nudity",
+    "sexual_touching": "shown_w_o_nudity",
+}
+
+_VIOLENCE_TO_VIDANGEL = {
+    "graphic_violence": "graphic",
+    "fight": "non_graphic",
+    "blood": "gore",
+    "weapon_threat": "non_graphic",
+    "gunfire": "non_graphic",
+    "stabbing": "graphic",
+    "explosion": "non_graphic",
+    "dead_body": "objectionable",
+    "disturbing_image": "objectionable",
+    "medical_injury": "medical_graphic",
+}
+
+_DRUGS_TO_VIDANGEL = {
+    "hard_drug_use": "drugs_illegal",
+    "needle": "drugs_illegal",
+    "powder_drugs": "drugs_illegal",
+    "pill_abuse": "drugs_illegal",
+    "drug_paraphernalia": "drugs_implied",
+    "smoking_drugs": "drugs_illegal",
+    "marijuana": "drugs_illegal",
+    "alcohol_abuse": "drugs_legal",
+    "tobacco": "drugs_legal",
+}
+
+_SCANNER_STAGE_CATEGORY_GROUPS = {
+    "nudity": {"sex_nudity_immodesty"},
+    "sexual_content": {"sex_any", "kissing"},
+    "profanity": {
+        "language_blasphemy",
+        "language_language_childish",
+        "language_language_racial",
+        "language_language_sexual",
+        "language_profanity",
+        "language_profanity_captions",
+    },
+    "violence": {"violence_blood_gore", "human_functions"},
+    "drugs": {"alcohol_or_drug_use"},
+}
+
+
+def _group_for_leaf_key(leaf_key: str) -> str | None:
+    metadata = get_vidangel_leaf_metadata(leaf_key)
+    if not metadata:
+        return None
+    return str(metadata.get("category") or "").strip() or None
+
+
+def _split_segment_labels(raw: str) -> list[str]:
+    return [label.strip() for label in str(raw or "").split(",") if label.strip()]
+
+
+def _resolve_profanity_leaf(label: str, *, source: str) -> str | None:
+    token = str(label or "").strip().lower().replace(" ", "_")
+    candidates: list[str] = []
+    if source == "subtitles":
+        candidates.append(f"{token}_caption")
+    candidates.extend([token, "other_caption" if source == "subtitles" else "other_profanity"])
+    for candidate in candidates:
+        if _group_for_leaf_key(candidate):
+            return candidate
+    return None
+
+
+def _map_scanner_label(stage_key: str, label: str, *, source: str) -> tuple[str, str] | None:
+    leaf_key = None
+    if stage_key == "nudity":
+        leaf_key = _NUDENET_TO_VIDANGEL.get(label)
+    elif stage_key == "sexual_content":
+        leaf_key = _SEXUAL_TO_VIDANGEL.get(label)
+    elif stage_key == "violence":
+        leaf_key = _VIOLENCE_TO_VIDANGEL.get(label)
+    elif stage_key == "drugs":
+        leaf_key = _DRUGS_TO_VIDANGEL.get(label)
+    elif stage_key == "profanity":
+        leaf_key = _resolve_profanity_leaf(label, source=source)
+    if not leaf_key:
+        return None
+    group = _group_for_leaf_key(leaf_key)
+    if not group:
+        return None
+    return group, leaf_key
+
+
+def _remap_detector_segments(stage_key: str, segments: list[MediaSegment]) -> list[MediaSegment]:
+    remapped: list[MediaSegment] = []
+    for segment in segments:
+        grouped_labels: dict[str, list[str]] = {}
+        for label in _split_segment_labels(segment.labels):
+            mapped = _map_scanner_label(stage_key, label, source=segment.source)
+            if not mapped:
+                continue
+            group, leaf_key = mapped
+            bucket = grouped_labels.setdefault(group, [])
+            if leaf_key not in bucket:
+                bucket.append(leaf_key)
+        if not grouped_labels:
+            fallback_group = next(iter(_SCANNER_STAGE_CATEGORY_GROUPS.get(stage_key, set())), "")
+            if fallback_group:
+                grouped_labels[fallback_group] = []
+        if not grouped_labels:
+            continue
+        for group, leaf_keys in grouped_labels.items():
+            remapped.append(
+                MediaSegment(
+                    media_id=segment.media_id,
+                    title=segment.title,
+                    start_ms=segment.start_ms,
+                    end_ms=segment.end_ms,
+                    category=group,
+                    source=segment.source,
+                    confidence=segment.confidence,
+                    text_excerpt=segment.text_excerpt,
+                    thumbnail_path=segment.thumbnail_path,
+                    labels=",".join(leaf_keys),
+                    review_status=segment.review_status,
+                )
+            )
+    return remapped
+
+
 def skip_current_scan() -> None:
     """Request that the currently-running scan title be aborted and left as pending."""
     current = get_current_scan()
@@ -323,7 +472,7 @@ async def scan_video(plex_guid: str, config) -> None:
     await db.update_scan_job_status(plex_guid, "scanning", progress=0.0)
     logger.info("Scan started: %s (guid=%s, force_scan=%s)", title, plex_guid, is_force_scan)
 
-    stage_total = len(SUPPORTED_CATEGORIES) + 2
+    stage_total = len(DETECTOR_STAGE_KEYS) + 2
 
     try:
         logger.info("Scan prepare started: %s", title)
@@ -396,60 +545,42 @@ async def scan_video(plex_guid: str, config) -> None:
         frames = await sample_video_frames(file_path, step_ms, duration_ms)
         logger.info("Scan frame sampling complete: %s (%d frame(s))", title, len(frames))
 
-        for stage_index, category in enumerate(SUPPORTED_CATEGORIES, start=1):
-            detector = image_detectors.get(category) or detectors.get(category)
+        for stage_index, stage_key in enumerate(DETECTOR_STAGE_KEYS, start=1):
+            detector = image_detectors.get(stage_key) or detectors.get(stage_key)
             logged_progress_milestone = 0
             logger.info(
                 "Scan stage started: %s — %s (%d/%d)",
                 title,
-                category,
+                stage_key,
                 stage_index,
-                len(SUPPORTED_CATEGORIES),
+                len(DETECTOR_STAGE_KEYS),
             )
 
             await db.upsert_media_scan_stage_status(
                 plex_guid,
-                category,
+                stage_key,
                 "running",
-                category=category,
+                category=stage_key,
                 source="",
                 detail="Detector running.",
-                progress=0.0,
-            )
-            await db.upsert_media_scan_status(
-                plex_guid,
-                category,
-                "running",
-                source="",
-                detail="Detector running.",
-                segment_count=0,
                 progress=0.0,
             )
 
             async def report(
                 detector_progress: float,
                 stage_offset: int = stage_index,
-                category_name: str = category,
+                category_name: str = stage_key,
             ) -> None:
                 nonlocal last_progress, logged_progress_milestone
                 clamped = min(1.0, max(0.0, detector_progress))
                 last_progress = (stage_offset + clamped) / stage_total
                 await db.upsert_media_scan_stage_status(
                     plex_guid,
-                    category,
+                    stage_key,
                     "running",
-                    category=category,
+                    category=stage_key,
                     source="",
                     detail="Detector running.",
-                    progress=clamped,
-                )
-                await db.upsert_media_scan_status(
-                    plex_guid,
-                    category,
-                    "running",
-                    source="",
-                    detail="Detector running.",
-                    segment_count=0,
                     progress=clamped,
                 )
                 await db.update_scan_job_status(plex_guid, "scanning", progress=last_progress)
@@ -464,8 +595,8 @@ async def scan_video(plex_guid: str, config) -> None:
                         int(last_progress * 100),
                     )
 
-            if category in image_detectors:
-                result = await image_detectors[category].scan_frames(
+            if stage_key in image_detectors:
+                result = await image_detectors[stage_key].scan_frames(
                     target,
                     frames,
                     config,
@@ -478,43 +609,25 @@ async def scan_video(plex_guid: str, config) -> None:
                 _skip_requested_guids.discard(plex_guid)
                 await db.upsert_media_scan_stage_status(
                     plex_guid,
-                    category,
+                    stage_key,
                     "pending",
-                    category=category,
+                    category=stage_key,
                     source=result.source,
                     detail=result.detail,
-                    progress=1.0,
-                )
-                await db.upsert_media_scan_status(
-                    plex_guid,
-                    category,
-                    "pending",
-                    source=result.source,
-                    detail=result.detail,
-                    segment_count=0,
                     progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
-                logger.info("Scan stage stopped: %s — %s skipped by user request", title, category)
+                logger.info("Scan stage stopped: %s — %s skipped by user request", title, stage_key)
                 return
 
             if result.status == "pending_pause":
                 await db.upsert_media_scan_stage_status(
                     plex_guid,
-                    category,
+                    stage_key,
                     "pending",
-                    category=category,
+                    category=stage_key,
                     source=result.source,
                     detail=result.detail,
-                    progress=1.0,
-                )
-                await db.upsert_media_scan_status(
-                    plex_guid,
-                    category,
-                    "pending",
-                    source=result.source,
-                    detail=result.detail,
-                    segment_count=0,
                     progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
@@ -522,27 +635,18 @@ async def scan_video(plex_guid: str, config) -> None:
                 logger.info(
                     "Scan stage stopped: %s — %s paused mid-scan and re-queued",
                     title,
-                    category,
+                    stage_key,
                 )
                 return
 
             if result.status == "pending_window":
                 await db.upsert_media_scan_stage_status(
                     plex_guid,
-                    category,
+                    stage_key,
                     "pending",
-                    category=category,
+                    category=stage_key,
                     source=result.source,
                     detail=result.detail,
-                    progress=1.0,
-                )
-                await db.upsert_media_scan_status(
-                    plex_guid,
-                    category,
-                    "pending",
-                    source=result.source,
-                    detail=result.detail,
-                    segment_count=0,
                     progress=1.0,
                 )
                 await db.update_scan_job_status(plex_guid, "pending", progress=last_progress)
@@ -550,7 +654,7 @@ async def scan_video(plex_guid: str, config) -> None:
                 logger.info(
                     "Scan stage stopped: %s — %s scan window ended and title was re-queued",
                     title,
-                    category,
+                    stage_key,
                 )
                 if not _paused:
                     pause_scanner()
@@ -559,42 +663,24 @@ async def scan_video(plex_guid: str, config) -> None:
             if result.status == "failed":
                 await db.upsert_media_scan_stage_status(
                     plex_guid,
-                    category,
+                    stage_key,
                     "failed",
-                    category=category,
+                    category=stage_key,
                     source=result.source,
                     detail=result.detail,
                     progress=1.0,
                 )
-                await db.upsert_media_scan_status(
-                    plex_guid,
-                    category,
-                    "failed",
-                    source=result.source,
-                    detail=result.detail,
-                    segment_count=0,
-                    progress=1.0,
-                )
-                logger.error("Scan stage failed: %s — %s: %s", title, category, result.detail)
+                logger.error("Scan stage failed: %s — %s: %s", title, stage_key, result.detail)
                 raise RuntimeError(result.detail or f"{result.category} detector failed")
 
             if result.status == "unavailable":
                 await db.upsert_media_scan_stage_status(
                     plex_guid,
-                    category,
+                    stage_key,
                     "unavailable",
-                    category=category,
+                    category=stage_key,
                     source=result.source,
                     detail=result.detail,
-                    progress=1.0,
-                )
-                await db.upsert_media_scan_status(
-                    plex_guid,
-                    category,
-                    "unavailable",
-                    source=result.source,
-                    detail=result.detail,
-                    segment_count=0,
                     progress=1.0,
                 )
                 last_progress = (stage_index + 1) / stage_total
@@ -602,18 +688,19 @@ async def scan_video(plex_guid: str, config) -> None:
                 logger.info(
                     "Scan stage unavailable: %s — %s (%s)",
                     title,
-                    category,
+                    stage_key,
                     result.detail or "detector unavailable",
                 )
                 continue
 
-            stale_thumbnail_paths = await db.get_thumbnail_paths_for_guid_category(
-                plex_guid,
-                result.category,
-            )
-            await db.delete_segments_for_guid_category(plex_guid, result.category)
+            stale_thumbnail_paths: list[str] = []
+            cleanup_categories = set(_SCANNER_STAGE_CATEGORY_GROUPS.get(stage_key, set())) | {stage_key}
+            for group in cleanup_categories:
+                stale_thumbnail_paths.extend(await db.get_thumbnail_paths_for_guid_category(plex_guid, group))
+                await db.delete_segments_for_guid_category(plex_guid, group)
             _delete_thumbnail_files(stale_thumbnail_paths)
-            if result.segments:
+            remapped_segments = _remap_detector_segments(stage_key, result.segments)
+            if remapped_segments:
                 await db.insert_segments(
                     plex_guid,
                     [
@@ -630,28 +717,33 @@ async def scan_video(plex_guid: str, config) -> None:
                             "thumbnail_path": segment.thumbnail_path,
                             "review_status": segment.review_status,
                         }
-                        for segment in result.segments
+                        for segment in remapped_segments
                     ],
                 )
 
-            segment_count = len(result.segments)
+            counts_by_category: dict[str, int] = {}
+            for segment in remapped_segments:
+                counts_by_category[segment.category] = counts_by_category.get(segment.category, 0) + 1
+            for group in _SCANNER_STAGE_CATEGORY_GROUPS.get(stage_key, set()):
+                await db.upsert_media_scan_status(
+                    plex_guid,
+                    group,
+                    "done",
+                    source=result.source,
+                    detail=result.detail or f"Found {counts_by_category.get(group, 0)} segment(s).",
+                    segment_count=counts_by_category.get(group, 0),
+                    progress=1.0,
+                )
+
+            segment_count = len(remapped_segments)
             segments_inserted += segment_count
             await db.upsert_media_scan_stage_status(
                 plex_guid,
-                category,
+                stage_key,
                 "done",
-                category=category,
+                category=stage_key,
                 source=result.source,
                 detail=result.detail or f"Found {segment_count} segment(s).",
-                progress=1.0,
-            )
-            await db.upsert_media_scan_status(
-                plex_guid,
-                category,
-                "done",
-                source=result.source,
-                detail=result.detail or f"Found {segment_count} segment(s).",
-                segment_count=segment_count,
                 progress=1.0,
             )
             last_progress = (stage_index + 1) / stage_total
@@ -659,7 +751,7 @@ async def scan_video(plex_guid: str, config) -> None:
             logger.info(
                 "Scan stage complete: %s — %s source=%s segments=%d overall=%d%%",
                 title,
-                category,
+                stage_key,
                 result.source,
                 segment_count,
                 int(last_progress * 100),

@@ -20,6 +20,14 @@ from leapfrog.vidangel_sidecars import (
 from leapfrog.vidangel_export import get_vidangel_export_dir
 
 
+class FakePlexClient:
+    def __init__(self, episode_map: dict[str, tuple[str, int | None, int | None]]) -> None:
+        self._episode_map = episode_map
+
+    async def get_episode_match_info(self, rating_key: str) -> tuple[str, int | None, int | None]:
+        return self._episode_map.get(rating_key, ("", None, None))
+
+
 def test_match_movie_catalog_row_uses_exact_title_and_year():
     row = {
         "media_id": "1",
@@ -246,11 +254,20 @@ async def test_generate_vidangel_sidecars_writes_coverage_reports(tmp_path: Path
     assert result["summary"]["matched"] == 1
     assert result["summary"]["unmatched"] == 1
     assert (export_dir / "matched_plex_titles.csv").exists()
+    assert (export_dir / "matched_movie_plex_titles.csv").exists()
+    assert (export_dir / "matched_tv_plex_titles.csv").exists()
     assert (export_dir / "unmatched_plex_titles.csv").exists()
+    assert (export_dir / "unmatched_movie_plex_titles.csv").exists()
+    assert (export_dir / "unmatched_tv_plex_titles.csv").exists()
     assert (export_dir / "ambiguous_plex_titles.csv").exists()
     assert (export_dir / "skipped_plex_titles.csv").exists()
+    assert (export_dir / "out_plex_titles.csv").exists()
+    assert (export_dir / "out_movie_plex_titles.csv").exists()
+    assert (export_dir / "out_tv_plex_titles.csv").exists()
     unmatched_payload = json.loads((export_dir / "unmatched_plex_titles.json").read_text(encoding="utf-8"))
     assert unmatched_payload["count"] == 1
+    out_payload = json.loads((export_dir / "out_plex_titles.json").read_text(encoding="utf-8"))
+    assert out_payload["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -308,3 +325,113 @@ async def test_generate_vidangel_sidecars_skips_missing_media_paths(tmp_path: Pa
     assert result["summary"]["skipped"] == 1
     assert result["summary"]["written"] == 0
     assert result["results"][0]["detail"] == "media directory does not exist"
+
+
+@pytest.mark.asyncio
+async def test_generate_vidangel_sidecars_collapses_fully_uncovered_tv_shows(monkeypatch, tmp_path: Path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    db.set_db_path(data_dir / "leapfrog.db")
+    await db.init_db()
+
+    uncovered_dir = tmp_path / "tv" / "No Filters Show" / "Season 1"
+    uncovered_dir.mkdir(parents=True)
+    uncovered_paths = [
+        uncovered_dir / "No Filters Show - s01e01.mkv",
+        uncovered_dir / "No Filters Show - s01e02.mkv",
+    ]
+    for index, media_path in enumerate(uncovered_paths, start=1):
+        media_path.write_text("", encoding="utf-8")
+        await db.upsert_scan_job(
+            plex_guid=f"show-no-filters-ep{index}",
+            title=f"Episode {index}",
+            file_path=str(media_path),
+            rating_key=f"200{index}",
+            library_id="2",
+            library_title="TV",
+            content_rating="TV-14",
+            media_type="episode",
+            show_guid="show-no-filters",
+        )
+
+    partial_dir = tmp_path / "tv" / "Partial Filters Show" / "Season 1"
+    partial_dir.mkdir(parents=True)
+    partial_paths = [
+        partial_dir / "Partial Filters Show - s01e01.mkv",
+        partial_dir / "Partial Filters Show - s01e02.mkv",
+    ]
+    for index, media_path in enumerate(partial_paths, start=1):
+        media_path.write_text("", encoding="utf-8")
+        await db.upsert_scan_job(
+            plex_guid=f"show-partial-ep{index}",
+            title=f"Partial Episode {index}",
+            file_path=str(media_path),
+            rating_key=f"300{index}",
+            library_id="2",
+            library_title="TV",
+            content_rating="TV-14",
+            media_type="episode",
+            show_guid="show-partial",
+        )
+
+    export_dir = tmp_path / "exports"
+    export_dir.mkdir()
+    (export_dir / "movies_catalog.json").write_text(json.dumps({"titles": []}), encoding="utf-8")
+    (export_dir / "tv_catalog.json").write_text(
+        json.dumps(
+            {
+                "titles": [
+                    {
+                        "media_id": "tv-1",
+                        "media_type": "episode",
+                        "title": "Partial Episode 1",
+                        "slug": "partial-filters-show-s1-e1",
+                        "season_number": 1,
+                        "episode_number": 1,
+                        "extra_metadata": {"show_title": "Partial Filters Show"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (export_dir / "raw_filter_events.csv").write_text(
+        "\n".join(
+            [
+                "media_id,media_type,title,slug,service_slug,season_number,episode_number,tag_set_id,path_keys,path_titles,display_title,description,tag_type,start_ms,end_ms,mapped_category,leaf_key",
+                "tv-1,episode,Partial Episode 1,partial-filters-show-s1-e1,netflix,1,1,41696,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,12000,12000,profanity,fuck",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "leapfrog.vidangel_sidecars.plex_mod.get_client",
+        lambda: FakePlexClient(
+            {
+                "2001": ("No Filters Show", 1, 1),
+                "2002": ("No Filters Show", 1, 2),
+                "3001": ("Partial Filters Show", 1, 1),
+                "3002": ("Partial Filters Show", 1, 2),
+            }
+        ),
+    )
+
+    result = await generate_vidangel_sidecars(export_dir=export_dir, dry_run=True)
+
+    assert result["summary"]["matched"] == 1
+    assert result["summary"]["unmatched"] == 3
+
+    unmatched_tv_payload = json.loads((export_dir / "unmatched_tv_plex_titles.json").read_text(encoding="utf-8"))
+    assert unmatched_tv_payload["count"] == 2
+    assert {row["title"] for row in unmatched_tv_payload["titles"]} == {
+        "No Filters Show",
+        "Partial Episode 2",
+    }
+    collapsed_row = next(row for row in unmatched_tv_payload["titles"] if row["title"] == "No Filters Show")
+    assert collapsed_row["media_type"] == "show"
+    assert collapsed_row["detail"] == "no VidAngel filters for show"
+
+    out_tv_payload = json.loads((export_dir / "out_tv_plex_titles.json").read_text(encoding="utf-8"))
+    assert out_tv_payload["count"] == 2

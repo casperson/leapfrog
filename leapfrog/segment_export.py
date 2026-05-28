@@ -40,7 +40,7 @@ class CanonicalSegmentRecord:
             media_id=str(normalized.get("media_id") or normalized.get("plex_guid") or ""),
             start_time=float(normalized.get("start_time") or 0.0),
             end_time=float(normalized.get("end_time") or 0.0),
-            category=str(normalized.get("category") or "nudity"),
+            category=str(normalized.get("category") or "sex_nudity_immodesty"),
             source=str(normalized.get("source") or "nudenet"),
             confidence=(
                 float(normalized["confidence"])

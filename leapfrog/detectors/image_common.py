@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+from tempfile import gettempdir
 
 from ..domain import MediaScanTarget, MediaSegment
 from ..paths import get_thumbnails_dir
@@ -48,7 +50,14 @@ def cluster_frame_hits(
                     labels.append(label)
         filename = f"{target.media_id.replace('/', '_')}_{category}_{cluster_hits[0].offset_ms}.jpg"
         full_path = thumbnails_dir / filename
-        full_path.write_bytes(best_hit.jpeg_bytes)
+        thumbnail_path: str | None
+        try:
+            full_path.write_bytes(best_hit.jpeg_bytes)
+            thumbnail_path = str(full_path)
+        except OSError:
+            fallback = Path(gettempdir()) / filename
+            fallback.write_bytes(best_hit.jpeg_bytes)
+            thumbnail_path = str(fallback)
         end_ms = cluster_hits[-1].offset_ms + gap_ms
         if max_duration_ms and max_duration_ms > 0:
             end_ms = min(end_ms, cluster_hits[0].offset_ms + max_duration_ms)
@@ -61,7 +70,7 @@ def cluster_frame_hits(
                 category=category,
                 source=source,
                 confidence=best_hit.confidence,
-                thumbnail_path=str(full_path),
+                thumbnail_path=thumbnail_path,
                 labels=",".join(labels),
             )
         )

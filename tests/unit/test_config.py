@@ -31,8 +31,9 @@ async def test_config_load_returns_defaults():
     assert config.sexual_content_detection_threshold == pytest.approx(0.70)
     assert config.violence_detection_threshold == pytest.approx(0.65)
     assert config.drugs_detection_threshold == pytest.approx(0.70)
-    assert "heavy_making_out" not in config.semantic_detection_labels["sexual_content"]
-    assert "romantic_kiss" in config.semantic_detection_labels["sexual_content"]
+    assert "shown_w_nudity" in config.default_skip_labels["sex_any"]
+    assert "kissing_normal" in config.default_skip_labels["kissing"]
+    assert "graphic" in config.semantic_detection_labels["violence_blood_gore"]
     assert config.log_level == "INFO"
 
 

@@ -65,6 +65,7 @@ async def test_scan_video_persists_detector_results(tmp_path, caplog):
                     category="nudity",
                     source="nudenet",
                     confidence=0.9,
+                    labels="FEMALE_BREAST_EXPOSED",
                 )
             ],
         )
@@ -86,6 +87,7 @@ async def test_scan_video_persists_detector_results(tmp_path, caplog):
                     source="subtitles",
                     confidence=0.75,
                     text_excerpt="bad word",
+                    labels="fuck",
                 )
             ],
         )
@@ -147,17 +149,14 @@ async def test_scan_video_persists_detector_results(tmp_path, caplog):
         await scanner.scan_video("guid-scan", _config())
 
     segments = await db.get_segments_for_guid("guid-scan")
-    assert {segment["category"] for segment in segments} == {"nudity", "profanity"}
+    assert {segment["category"] for segment in segments} == {"sex_nudity_immodesty", "language_profanity_captions"}
 
     statuses = await db.get_media_scan_statuses_for_media("guid-scan")
     status_by_category = {row["category"]: row for row in statuses}
-    assert status_by_category["nudity"]["status"] == "done"
-    assert status_by_category["profanity"]["status"] == "done"
-    assert status_by_category["sexual_content"]["status"] == "done"
-    assert status_by_category["violence"]["status"] == "done"
-    assert status_by_category["drugs"]["status"] == "done"
+    assert status_by_category["sex_nudity_immodesty"]["status"] == "done"
+    assert status_by_category["language_profanity_captions"]["status"] == "done"
     assert any(
-        row["category"] == "profanity" and row["source"] == "subtitles"
+        row["category"] == "language_profanity_captions" and row["source"] == "subtitles"
         for row in statuses
     )
     stage_rows = await db.get_media_scan_stage_statuses_for_media("guid-scan")

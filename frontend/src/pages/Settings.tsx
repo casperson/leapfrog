@@ -435,16 +435,16 @@ export default function SettingsPage() {
           <Field label="Nudity Detection Threshold" hint="Frames scoring above this value (0–1) are flagged as nudity. Lower = more sensitive.">
             <input type="number" min="0.1" max="1" step="0.05" value={form.confidence_threshold} onChange={set('confidence_threshold')} className={inputCls} />
           </Field>
-          <Field label="Sexual Content Threshold" hint="Local semantic scores above this value are flagged as sexual content. Lower catches more suggestive scenes, but may add false positives.">
+          <Field label="Sex & Suggestive Threshold" hint="Local semantic scores above this value are mapped into VidAngel sex and suggestive-content labels. Lower catches more suggestive scenes, but may add false positives.">
             <input type="number" min="0" max="1" step="0.02" value={form.sexual_content_detection_threshold} onChange={set('sexual_content_detection_threshold')} className={inputCls} />
           </Field>
-          <Field label="Violence Threshold" hint="Local semantic scores above this value are flagged as violence, blood, or weapon scenes.">
+          <Field label="Violence Threshold" hint="Local semantic scores above this value are mapped into VidAngel violence and gore labels.">
             <input type="number" min="0" max="1" step="0.02" value={form.violence_detection_threshold} onChange={set('violence_detection_threshold')} className={inputCls} />
           </Field>
-          <Field label="Drugs Threshold" hint="Local semantic scores above this value are flagged as drug use or paraphernalia.">
+          <Field label="Drugs & Alcohol Threshold" hint="Local semantic scores above this value are mapped into VidAngel drug and alcohol labels.">
             <input type="number" min="0" max="1" step="0.02" value={form.drugs_detection_threshold} onChange={set('drugs_detection_threshold')} className={inputCls} />
           </Field>
-          <Field label="Default Profanity Threshold" hint="Profiles inherit this threshold unless a user-specific profanity threshold overrides it.">
+          <Field label="Default Language Threshold" hint="Profiles inherit this threshold for VidAngel language categories unless a user-specific threshold overrides it.">
             <input type="number" min="0" max="1" step="0.05" value={form.default_profanity_threshold} onChange={set('default_profanity_threshold')} className={inputCls} />
           </Field>
           <Field label="Scan Frame Interval (ms)" hint="How often frames are sampled during scanning. Lower catches more scenes but takes longer.">
@@ -478,7 +478,7 @@ export default function SettingsPage() {
               )}
             </div>
           </Field>
-          <Field label="Prepare Semantic Model" hint="Optional: pre-download the local ONNX CLIP model used for sexual content, violence, and drugs detection. It will otherwise auto-download on first semantic scan.">
+          <Field label="Prepare Semantic Model" hint="Optional: pre-download the local ONNX CLIP model used to map local detections into VidAngel sex, violence, and drugs labels. It will otherwise auto-download on first semantic scan.">
             <div className="mt-2 flex items-center gap-3">
               <button
                 type="button"
@@ -502,13 +502,13 @@ export default function SettingsPage() {
               <div>
                 <h3 className="text-sm font-semibold text-gray-200">Granular Label Defaults</h3>
                 <p className="mt-1 text-xs text-gray-500">
-                  Detection controls what scanners save. Skip defaults control which saved labels new profiles skip when the category is enabled.
+                  Scan defaults control which local detector matches Leapfrog saves into VidAngel labels. Skip defaults control which saved VidAngel labels new profiles skip when the category is enabled.
                 </p>
               </div>
               {categories.map(category => {
                 const labels = category.labels ?? []
                 if (labels.length === 0) return null
-                const supportsDetectionToggle = ['sexual_content', 'violence', 'drugs'].includes(category.key)
+                const supportsDetectionToggle = labels.some(label => label.default_detect)
                 const detection = labelMap('semantic_detection_labels')
                 const skipDefaults = labelMap('default_skip_labels')
                 return (
@@ -532,7 +532,7 @@ export default function SettingsPage() {
                                   onChange={() => toggleLabelSetting('semantic_detection_labels', category.key, label.key)}
                                   className="h-4 w-4 accent-plex-orange"
                                 />
-                                Detect
+                                Scan default
                               </label>
                             )}
                             <label className="inline-flex items-center gap-2 text-xs text-gray-400">
@@ -565,7 +565,7 @@ export default function SettingsPage() {
           <Field label="Maximum Image Segment (ms)" hint="Caps image-detector segments so sparse hits cannot become multi-minute skips.">
             <input type="number" min="1000" max="120000" step="1000" value={form.image_segment_max_ms} onChange={set('image_segment_max_ms')} className={inputCls} />
           </Field>
-          <Field label="Profanity Terms" hint="JSON list of words or phrases to match in subtitles or transcripts.">
+          <Field label="Language Terms" hint="JSON list of words or phrases to match in subtitles or transcripts before mapping them into VidAngel language labels.">
             <textarea
               value={form.profanity_terms}
               onChange={event => setForm(current => ({ ...current, profanity_terms: event.target.value }))}
@@ -573,7 +573,7 @@ export default function SettingsPage() {
               className={inputCls}
             />
           </Field>
-          <Field label="Whisper Audio Fallback" hint="Used only when no usable subtitles can be found for profanity scanning.">
+          <Field label="Whisper Audio Fallback" hint="Used only when no usable subtitles can be found for language scanning.">
             <select value={form.whisper_enabled} onChange={set('whisper_enabled')} className={inputCls}>
               <option value="1">Enabled</option>
               <option value="0">Disabled</option>

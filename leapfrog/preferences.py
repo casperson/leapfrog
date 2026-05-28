@@ -15,7 +15,6 @@ from .domain import (
     PREFERENCE_CATEGORIES,
     Segment,
 )
-from .vidangel_export import load_vidangel_tag_definition_records
 
 
 def resolve_user_category_preferences(
@@ -35,14 +34,12 @@ def resolve_user_category_preferences(
             }
         )
     categories = set(PREFERENCE_CATEGORIES) | set(stored_preferences)
-    has_stored_preferences = bool(stored_preferences)
     resolved: dict[str, dict[str, float | bool]] = {}
     for category in sorted(categories):
         raw = stored_preferences.get(category, {})
         threshold = raw.get("threshold")
-        default_enabled = category == "nudity" and not has_stored_preferences
         resolved[category] = {
-            "enabled": bool(overall_enabled and raw.get("enabled", default_enabled)),
+            "enabled": bool(overall_enabled and raw.get("enabled", False)),
             "threshold": (
                 float(threshold)
                 if threshold is not None
@@ -164,18 +161,27 @@ async def get_preference_threshold_settings() -> dict[str, float]:
     nudity_threshold = float(
         await db.get_setting(
             "confidence_threshold",
-            str(DEFAULT_CATEGORY_THRESHOLDS["nudity"]),
+            str(DEFAULT_CATEGORY_THRESHOLDS["sex_nudity_immodesty"]),
         )
     )
     profanity_threshold = float(
         await db.get_setting(
             "default_profanity_threshold",
-            str(DEFAULT_CATEGORY_THRESHOLDS["profanity"]),
+            str(DEFAULT_CATEGORY_THRESHOLDS["language_profanity"]),
         )
     )
     defaults = dict(DEFAULT_CATEGORY_THRESHOLDS)
-    defaults["nudity"] = nudity_threshold
-    defaults["profanity"] = profanity_threshold
+    defaults["sex_nudity_immodesty"] = nudity_threshold
+    for category in (
+        "language_blasphemy",
+        "language_language_childish",
+        "language_language_racial",
+        "language_language_sexual",
+        "language_profanity",
+        "language_profanity_captions",
+    ):
+        if category in defaults:
+            defaults[category] = profanity_threshold
     return defaults
 
 
@@ -203,9 +209,9 @@ async def get_default_skip_label_settings() -> dict[str, list[str]]:
 
 
 async def get_category_metadata() -> list[dict[str, Any]]:
-    """Return canonical category metadata merged with dynamic VidAngel label definitions."""
+    """Return canonical VidAngel-first category metadata for backend/frontend consumers."""
     default_skip_labels = DEFAULT_SKIP_LABELS
-    category_rows = [
+    return [
         {
             "key": definition.key,
             "label": definition.label,
@@ -224,41 +230,6 @@ async def get_category_metadata() -> list[dict[str, Any]]:
         }
         for definition in CATEGORY_DEFINITIONS
     ]
-    categories_by_key = {str(row["key"]): row for row in category_rows}
-    for record in load_vidangel_tag_definition_records():
-        category_key = str(record.get("mapped_category") or "").strip()
-        if category_key not in categories_by_key:
-            continue
-        vidangel_key = f"vidangel:{str(record.get('key') or '').strip()}"
-        if vidangel_key == "vidangel:":
-            continue
-        labels = categories_by_key[category_key].setdefault("labels", [])
-        if any(str(label.get("key")) == vidangel_key for label in labels):
-            continue
-        path_titles = record.get("path_titles") or []
-        if isinstance(path_titles, list):
-            path_text = " > ".join(str(part) for part in path_titles if str(part).strip())
-        else:
-            path_text = str(path_titles or "")
-        example = str(record.get("example_description") or "").strip()
-        description = path_text
-        if example:
-            description = f"{path_text}. Example: {example}" if path_text else example
-        labels.append(
-            {
-                "key": vidangel_key,
-                "label": str(record.get("display_title") or record.get("key") or vidangel_key),
-                "description": description or "VidAngel filter event.",
-                "default_skip": False,
-                "default_detect": False,
-            }
-        )
-    for row in category_rows:
-        row["labels"] = sorted(
-            row.get("labels", []),
-            key=lambda label: (0 if not str(label.get("key", "")).startswith("vidangel:") else 1, str(label.get("label") or "").lower()),
-        )
-    return category_rows
 
 
 async def get_resolved_preferences_for_users(

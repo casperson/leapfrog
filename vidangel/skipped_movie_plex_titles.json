@@ -1,0 +1,29 @@
+{
+  "count": 2,
+  "titles": [
+    {
+      "detail": "media directory does not exist",
+      "event_count": 0,
+      "file_path": "F:\\MediaStack\\data\\media\\movies\\Jackass - The Movie (2002)\\Jackass The Movie (2002) [WEBDL-480p] {imdb-tt0322802}.mkv",
+      "matched_media_id": null,
+      "matched_slug": null,
+      "media_type": "movie",
+      "plex_guid": "imdb://tt0322802",
+      "sidecar_path": null,
+      "status": "skipped",
+      "title": "Jackass: The Movie"
+    },
+    {
+      "detail": "media directory does not exist",
+      "event_count": 0,
+      "file_path": "F:\\MediaStack\\data\\media\\movies\\The 40 Year Old Virgin (2005)\\The 40 Year Old Virgin (2005) [Bluray-1080p Proper] {imdb-tt0405422}.mkv",
+      "matched_media_id": null,
+      "matched_slug": null,
+      "media_type": "movie",
+      "plex_guid": "imdb://tt0405422",
+      "sidecar_path": null,
+      "status": "skipped",
+      "title": "The 40-Year-Old Virgin"
+    }
+  ]
+}

@@ -7,13 +7,12 @@ This repository is derived from [Cleanplex](https://github.com/nazmolla/Cleanple
 ## Current capabilities
 
 - Local-first offline scanning on the Plex server machine with no cloud inference in the playback path
-- Canonical category taxonomy across backend, frontend, export, and tests:
-  `nudity`, `sexual_content`, `profanity`, `violence`, `drugs`
+- Canonical VidAngel-first category taxonomy across backend, frontend, export, and sidecars
 - Background nudity detection with `ffmpeg` frame extraction plus local NudeNet
-- ONNX-backed local CLIP zero-shot classification for `sexual_content`, `violence`, and `drugs` on the shared sampled-frame pipeline
-- Subtitle-first profanity detection with deterministic word and phrase matching
+- ONNX-backed local CLIP zero-shot classification that maps local sex, violence, and drugs detections into VidAngel labels on the shared sampled-frame pipeline
+- Subtitle-first language detection with deterministic word and phrase matching mapped into VidAngel language labels
 - Optional Whisper audio fallback when subtitles are unavailable and the local Whisper dependency is installed
-- Per-user profile controls for all five categories, including toggles, thresholds, and granular label skip choices
+- Per-user profile controls for VidAngel categories and exact VidAngel leaf filters, including toggles, thresholds, and granular skip choices
 - Server-side playback enforcement through Plex session polling and seek commands
 - Adjacent sidecar skip files for using existing segment data without rescanning the video
 - Headless VidAngel export into exact raw event files, tag definitions, and Leapfrog sidecar JSON
@@ -29,18 +28,18 @@ Leapfrog watches Plex libraries for new items and stores them as `scan_jobs`. It
 
 ### 2. Detector pipeline
 
-Each queued media file runs through detector-specific scanners:
+Each queued media file runs through detector-specific scanners. Leapfrog still runs detector stages named `nudity`, `sexual_content`, `profanity`, `violence`, and `drugs`, but their saved segment categories are remapped into VidAngel taxonomy groups and exact VidAngel leaf labels before persistence.
 
 - `nudity`
-  Extracts frames with `ffmpeg`, scores them with NudeNet, clusters hits into segments, and stores thumbnails plus NudeNet labels for review.
+  Extracts frames with `ffmpeg`, scores them with NudeNet, clusters hits into segments, and maps them into VidAngel nudity and immodesty labels.
 - `sexual_content`
-  Reuses the same sampled frames and applies local ONNX CLIP scoring for intimate or sexual scenes that do not depend on nudity hits.
+  Reuses the same sampled frames and applies local ONNX CLIP scoring for intimate or sexual scenes, then maps those hits into VidAngel sex and kissing labels.
 - `profanity`
-  Loads external subtitles first, falls back to embedded subtitles, and only then attempts Whisper transcription if enabled and available.
+  Loads external subtitles first, falls back to embedded subtitles, and only then attempts Whisper transcription if enabled and available, mapping detected language into VidAngel language labels.
 - `violence`
-  Reuses the same sampled frames and applies local ONNX CLIP scoring for fights, blood, and weapons.
+  Reuses the same sampled frames and applies local ONNX CLIP scoring for fights, blood, and weapons, then maps those hits into VidAngel violence or human-functions labels.
 - `drugs`
-  Reuses the same sampled frames and applies local ONNX CLIP scoring for drug use and paraphernalia.
+  Reuses the same sampled frames and applies local ONNX CLIP scoring for drug use and paraphernalia, then maps those hits into VidAngel alcohol-or-drug-use labels.
 
 All detectors emit the same segment shape:
 
@@ -66,13 +65,13 @@ When Plex sessions are active, Leapfrog:
 
 Playback-time filtering is still a database lookup plus a server-side seek. No ML inference runs in the playback hot path.
 
-Leapfrog also checks for adjacent sidecar skip files before falling back to SQLite segments. A sidecar is a small file stored next to the media file that describes skip ranges for that title. Supported names are `Movie.leapfrog.json`, `Movie.segments.json`, `Movie.edl`, and `Movie.csv`. JSON sidecars preserve Leapfrog categories and labels; CSV rows may include `start_time`, `end_time`, `category`, `labels`, and `confidence`; EDL rows use start/end times and may optionally include a supported category and label after the timing fields.
+Leapfrog also checks for adjacent sidecar skip files before falling back to SQLite segments. A sidecar is a small file stored next to the media file that describes skip ranges for that title. Supported names are `Movie.leapfrog.json`, `Movie.segments.json`, `Movie.edl`, and `Movie.csv`. JSON sidecars preserve VidAngel taxonomy group categories and exact leaf labels; CSV rows may include `start_time`, `end_time`, `category`, `labels`, and `confidence`; EDL rows use start/end times and may optionally include a supported category and label after the timing fields.
 
 If the dashboard shows `Skipping...` logs followed by proxy and direct seek failures, Leapfrog has matched a segment but Plex client control is failing. Check `/api/status` or `/api/sessions/{session_key}/seek-diagnostics` for the last seek attempt list, including the client identifier, advertised address/port, HTTP status, and failure detail.
 
 ### 4. Scan status, queue, and logs
 
-- Scan status is persisted per title and per category, plus an ordered stage timeline (`prepare`, the five categories, `finalize`).
+- Scan status is persisted per title and per saved VidAngel category, plus an ordered stage timeline (`prepare`, detector stages, `finalize`).
 - The scan queue is durable and mutable: titles can be moved to the top or bottom, reordered, canceled individually, canceled in batches, or canceled while active.
 - The dashboard can queue all currently unscanned movies, either for the normal scan window or immediately.
 - The web UI includes a live logging console backed by a bounded in-memory replay buffer plus SSE updates.
@@ -85,17 +84,16 @@ Important settings:
 
 - Plex URL and Plex token
 - Poll interval
-- NudeNet confidence threshold
+- NudeNet confidence threshold for VidAngel nudity/immodesty mapping
 - NudeNet model selection; the default is `640m` with a `250ms` frame interval and `0.4` threshold for higher sensitivity
-- Semantic ONNX CLIP model preparation and conservative per-category semantic thresholds
-- Semantic frame filtering suppresses text-only title/credits cards for sexual-content and drug detections
-- Semantic detection defaults keep broad sexual-content labels opt-in to reduce repeated false positives
-- Granular label defaults for detection and skip behavior
-- Category default thresholds exposed through canonical category metadata
+- Semantic ONNX CLIP model preparation and conservative local-to-VidAngel mapping thresholds
+- Semantic frame filtering suppresses text-only title/credits cards for sex-content and drug detections
+- Granular VidAngel label defaults for local scanning and skip behavior
+- Category default thresholds exposed through VidAngel category metadata
 - Segment clustering defaults tuned for review: 2s merge gap, 2-hit minimum, and a 15s image-segment cap
-- Profanity term list
-- Profanity allowlist for known false positives
-- Default profanity threshold
+- Language term list
+- Language allowlist for known false positives
+- Default language threshold
 - Whisper fallback on/off and model name
 - Log buffer capacity for the live console
 - Scan frame interval and worker count
@@ -106,18 +104,29 @@ Important settings:
 Each linked Plex profile has:
 
 - a master server-side filtering toggle,
-- a toggle and threshold for each canonical category,
-- per-label skip toggles for granular control within a category,
+- a toggle and threshold for each VidAngel category group,
+- per-label skip toggles for exact VidAngel filters within that category,
 - effective skip evaluation based on stored segments rather than runtime inference.
 
 If a user disables a category, those segments stay stored in the database but are ignored during playback enforcement for that user.
 
-Labels provide detail without expanding the top-level category list. Examples include:
+Common category groups include:
 
-- `sexual_content`: `explicit_sex`, `simulated_sex`, `oral_sex`, `masturbation`, `sexual_touching`, `intimate_touch`, `bed_intimacy`, `heavy_making_out`, `romantic_kiss`, `brief_kiss`, `lingerie`, `striptease`
-- `violence`: `graphic_violence`, `blood`, `fight`, `weapon_threat`, `gunfire`, `stabbing`, `explosion`, `dead_body`, `disturbing_image`, `medical_injury`
-- `drugs`: `hard_drug_use`, `needle`, `powder_drugs`, `pill_abuse`, `drug_paraphernalia`, `smoking_drugs`, `marijuana`, `alcohol_abuse`, `tobacco`
-- `nudity`: NudeNet body-part labels such as `FEMALE_BREAST_EXPOSED`, `FEMALE_GENITALIA_EXPOSED`, `MALE_GENITALIA_EXPOSED`, `ANUS_EXPOSED`, and `BUTTOCKS_EXPOSED`
+- `sex_nudity_immodesty`
+- `sex_any`
+- `kissing`
+- `violence_blood_gore`
+- `human_functions`
+- `alcohol_or_drug_use`
+- `language_blasphemy`
+- `language_language_childish`
+- `language_language_racial`
+- `language_language_sexual`
+- `language_profanity`
+- `language_profanity_captions`
+- `credits`
+
+Exact selectable labels are the unprefixed VidAngel leaf keys inside those categories, such as `immodesty_female`, `shown_w_nudity`, `kissing_passion`, `graphic`, `drugs_illegal`, `fuck`, or `christ`.
 
 ## Running locally
 
@@ -281,20 +290,42 @@ The generator matches:
 - movies by normalized title and year
 - episodes by show title, season number, and episode number resolved from Plex
 
-Generated sidecars preserve exact VidAngel leaf labels using keys like `vidangel:fuck` or `vidangel:graphic`. Those labels are exposed in the Profiles UI when `tag_definitions.json` exists in the VidAngel export directory, so each user can enable or disable specific VidAngel filters independently. At playback time Leapfrog loads the sidecar, checks the current user's category and label preferences, and skips only the timestamp windows whose labels are enabled for that user.
+Generated sidecars preserve exact VidAngel leaf labels using unprefixed keys like `fuck` or `graphic`. Those labels are exposed in the Profiles UI when `tag_definitions.json` exists in the VidAngel export directory, so each user can enable or disable specific VidAngel filters independently. At playback time Leapfrog loads the sidecar, checks the current user's category and label preferences, and skips only the timestamp windows whose labels are enabled for that user.
 
 Each sidecar-generation run also writes coverage reports into the VidAngel export directory:
 
 - `matched_plex_titles.json`
 - `matched_plex_titles.csv`
+- `matched_movie_plex_titles.json`
+- `matched_movie_plex_titles.csv`
+- `matched_tv_plex_titles.json`
+- `matched_tv_plex_titles.csv`
 - `unmatched_plex_titles.json`
 - `unmatched_plex_titles.csv`
+- `unmatched_movie_plex_titles.json`
+- `unmatched_movie_plex_titles.csv`
+- `unmatched_tv_plex_titles.json`
+- `unmatched_tv_plex_titles.csv`
 - `ambiguous_plex_titles.json`
 - `ambiguous_plex_titles.csv`
+- `ambiguous_movie_plex_titles.json`
+- `ambiguous_movie_plex_titles.csv`
+- `ambiguous_tv_plex_titles.json`
+- `ambiguous_tv_plex_titles.csv`
 - `skipped_plex_titles.json`
 - `skipped_plex_titles.csv`
+- `skipped_movie_plex_titles.json`
+- `skipped_movie_plex_titles.csv`
+- `skipped_tv_plex_titles.json`
+- `skipped_tv_plex_titles.csv`
+- `out_plex_titles.json`
+- `out_plex_titles.csv`
+- `out_movie_plex_titles.json`
+- `out_movie_plex_titles.csv`
+- `out_tv_plex_titles.json`
+- `out_tv_plex_titles.csv`
 
-Use `unmatched_plex_titles.*` to see which Plex titles do not have a usable VidAngel match, and `ambiguous_plex_titles.*` to see titles that need manual cleanup or better matching rules.
+Use `unmatched_plex_titles.*` to see which Plex titles do not have a usable VidAngel match, `ambiguous_plex_titles.*` to see titles that need manual cleanup or better matching rules, and `out_plex_titles.*` to see the combined set that did not land in `matched_plex_titles.*`. TV report files collapse fully uncovered series to a single show-level row; episode rows remain only when a show has partial VidAngel coverage.
 
 #### VidAngel environment variables
 

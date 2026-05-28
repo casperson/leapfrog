@@ -147,7 +147,7 @@ def normalize_sidecar_segments(
                     ("end_time", "end", "end_seconds", "endTime"),
                     ("end_ms", "endMs"),
                 ),
-                category=str(segment.get("category") or "nudity"),
+                category=str(segment.get("category") or (SUPPORTED_CATEGORIES[0] if SUPPORTED_CATEGORIES else "")),
                 source=str(segment.get("source") or "sidecar"),
                 confidence=(
                     float(segment["confidence"])
@@ -181,7 +181,7 @@ def normalize_edl_segments(raw_text: str, *, default_media_id: str) -> list[Cano
             continue
         if end_time <= start_time:
             continue
-        category = next((part for part in parts[2:] if part in SUPPORTED_CATEGORIES), "nudity")
+        category = next((part for part in parts[2:] if part in SUPPORTED_CATEGORIES), SUPPORTED_CATEGORIES[0] if SUPPORTED_CATEGORIES else "")
         labels = next((part for part in parts[2:] if part not in SUPPORTED_CATEGORIES and not part.isdigit()), "")
         segments.append(
             CanonicalSegmentRecord(
@@ -242,7 +242,7 @@ def normalize_csv_segments(raw_text: str, *, default_media_id: str) -> list[Cano
                 media_id=str(record.get("media_id") or default_media_id),
                 start_time=start_time,
                 end_time=end_time,
-                category=str(record.get("category") or "nudity"),
+                category=str(record.get("category") or (SUPPORTED_CATEGORIES[0] if SUPPORTED_CATEGORIES else "")),
                 source=str(record.get("source") or "csv"),
                 confidence=float(confidence_raw) if confidence_raw not in (None, "") else None,
                 text_excerpt=record.get("text_excerpt") or record.get("text") or None,

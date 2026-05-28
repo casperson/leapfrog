@@ -1,8 +1,6 @@
-"""Unit tests for dynamic VidAngel-backed category metadata."""
+"""Unit tests for VidAngel-first category metadata."""
 
 from __future__ import annotations
-
-import json
 
 import pytest
 
@@ -10,29 +8,17 @@ from leapfrog.preferences import get_category_metadata
 
 
 @pytest.mark.asyncio
-async def test_get_category_metadata_includes_vidangel_labels(monkeypatch, tmp_path):
-    export_dir = tmp_path / "vidangel_exports"
-    export_dir.mkdir()
-    (export_dir / "tag_definitions.json").write_text(
-        json.dumps(
-            {
-                "definitions": [
-                    {
-                        "key": "fuck",
-                        "display_title": "f-word",
-                        "mapped_category": "profanity",
-                        "path_titles": ["Language", "Profanity", "f-word"],
-                        "example_description": "f-word",
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("LEAPFROG_VIDANGEL_EXPORT_DIR", str(export_dir))
-
+async def test_get_category_metadata_uses_vidangel_taxonomy():
     categories = await get_category_metadata()
-    profanity = next(category for category in categories if category["key"] == "profanity")
+    category_keys = {category["key"] for category in categories}
+
+    assert "language_profanity" in category_keys
+    assert "sex_nudity_immodesty" in category_keys
+
+    profanity = next(category for category in categories if category["key"] == "language_profanity")
     label_keys = {label["key"] for label in profanity["labels"]}
 
-    assert "vidangel:fuck" in label_keys
+    assert "fuck" in label_keys
+    assert "shit" in label_keys
+    assert next(label for label in profanity["labels"] if label["key"] == "fuck")["label"] == "Fu**"
+    assert next(label for label in profanity["labels"] if label["key"] == "shit")["label"] == "Sh**"

@@ -159,8 +159,8 @@ def test_flatten_tag_tree_collects_exact_events_and_leaf_definitions():
 
     assert len(events) == 2
     assert events[0].start_ms == 12_000
-    assert events[0].mapped_category == "profanity"
-    assert events[1].mapped_category == "nudity"
+    assert events[0].mapped_category == "language_profanity"
+    assert events[1].mapped_category == "sex_nudity_immodesty"
     assert definitions["fuck"].path_keys == ("language", "profanity", "fuck")
     assert definitions["immodesty_female"].example_description == "A woman is seen in a bra and panties."
 
@@ -270,9 +270,9 @@ def test_build_sidecar_payload_merges_close_events_and_expands_zero_length_tags(
     assert payload["format"] == "leapfrog.segment.sidecar/v1"
     assert len(payload["segments"]) == 1
     segment = payload["segments"][0]
-    assert segment["category"] == "profanity"
+    assert segment["category"] == "language_profanity"
     assert segment["end_time"] - segment["start_time"] >= DEFAULT_MIN_SEGMENT_MS / 1000
-    assert "vidangel:fuck" in segment["labels"]
+    assert "fuck" in segment["labels"]
 
 
 def test_title_artifact_summary_record_is_compact():

@@ -367,7 +367,7 @@ async def get_segments_for_title(
     result = []
     for seg in segments:
         labels = seg.get("labels", "") or ""
-        if enabled_labels and labels and str(seg.get("category") or "nudity") == "nudity":
+        if enabled_labels and labels and str(seg.get("category") or "sex_nudity_immodesty") == "sex_nudity_immodesty":
             filtered = [l.strip() for l in labels.split(",") if l.strip() in enabled_labels]
             labels = ",".join(filtered)
         result.append({

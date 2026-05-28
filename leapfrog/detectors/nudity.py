@@ -28,6 +28,19 @@ NUDENET_640_DOWNLOAD_URLS = [
 _thread_local = threading.local()
 _model_download_lock = asyncio.Lock()
 
+_NUDENET_TO_VIDANGEL = {
+    "FEMALE_GENITALIA_EXPOSED": "nudity_female",
+    "FEMALE_BREAST_EXPOSED": "nudity_female",
+    "MALE_GENITALIA_EXPOSED": "nudity_male",
+    "MALE_BREAST_EXPOSED": "nudity_male",
+    "ANUS_EXPOSED": "nudity_both",
+    "BUTTOCKS_EXPOSED": "nudity_both",
+    "FEMALE_GENITALIA_COVERED": "immodesty_female",
+    "FEMALE_BREAST_COVERED": "immodesty_female",
+    "MALE_BREAST_COVERED": "immodesty_male",
+    "BUTTOCKS_COVERED": "immodesty_both",
+}
+
 
 def _get_detector(model_name: str = "320n", model_path: str = ""):
     model_name_normalized = (model_name or "320n").strip().lower()
@@ -211,7 +224,12 @@ class NudityDetector:
             int(getattr(config, "nudity_segment_max_ms", getattr(config, "image_segment_max_ms", 15000))),
         )
         threshold = float(getattr(config, "confidence_threshold", 0.4))
-        enabled_labels = set(getattr(config, "scan_labels", []))
+        configured_labels = {str(label).strip() for label in getattr(config, "scan_labels", []) if str(label).strip()}
+        enabled_labels = {
+            raw_label
+            for raw_label, vidangel_label in _NUDENET_TO_VIDANGEL.items()
+            if not configured_labels or raw_label in configured_labels or vidangel_label in configured_labels
+        }
         nudenet_model = str(getattr(config, "nudenet_model", "320n"))
         nudenet_model_path = str(getattr(config, "nudenet_model_path", ""))
 

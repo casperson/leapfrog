@@ -86,6 +86,73 @@ SEMANTIC_LABEL_THRESHOLDS: dict[str, float] = {
     "drugs": 0.70,
 }
 
+_SEMANTIC_TO_VIDANGEL = {
+    "sexual_content": {
+        "brief_kiss": "kissing_normal",
+        "romantic_kiss": "kissing_normal",
+        "heavy_making_out": "kissing_passion",
+        "intimate_touch": "sexually_suggestive",
+        "bed_intimacy": "implied_not_shown",
+        "lingerie": "sexually_suggestive",
+        "striptease": "sexually_suggestive",
+        "simulated_sex": "shown_w_o_nudity",
+        "explicit_sex": "shown_w_nudity",
+        "oral_sex": "shown_w_nudity",
+        "masturbation": "shown_w_nudity",
+        "sexual_touching": "shown_w_o_nudity",
+    },
+    "violence": {
+        "graphic_violence": "graphic",
+        "fight": "non_graphic",
+        "blood": "gore",
+        "weapon_threat": "non_graphic",
+        "gunfire": "non_graphic",
+        "stabbing": "graphic",
+        "explosion": "non_graphic",
+        "dead_body": "objectionable",
+        "disturbing_image": "objectionable",
+        "medical_injury": "medical_graphic",
+    },
+    "drugs": {
+        "hard_drug_use": "drugs_illegal",
+        "needle": "drugs_illegal",
+        "powder_drugs": "drugs_illegal",
+        "pill_abuse": "drugs_illegal",
+        "drug_paraphernalia": "drugs_implied",
+        "smoking_drugs": "drugs_illegal",
+        "marijuana": "drugs_illegal",
+        "alcohol_abuse": "drugs_legal",
+        "tobacco": "drugs_legal",
+    },
+}
+
+
+def _enabled_prompt_labels(config, category: str, prompt_bank: dict[str, tuple[str, ...]]) -> set[str]:
+    configured = getattr(config, "semantic_detection_labels", {}) or {}
+    enabled: set[str] = set()
+    for prompt_label, vidangel_label in _SEMANTIC_TO_VIDANGEL.get(category, {}).items():
+        if prompt_label in configured.get(category, []):
+            enabled.add(prompt_label)
+            continue
+        for vidangel_category, labels in configured.items():
+            if vidangel_label in {str(value).strip() for value in labels if str(value).strip()}:
+                enabled.add(prompt_label)
+                break
+    if enabled:
+        return enabled
+    default_vidangel_labels = {
+        str(value).strip()
+        for values in DEFAULT_DETECT_LABELS.values()
+        for value in values
+        if str(value).strip()
+    }
+    defaults = {
+        prompt_label
+        for prompt_label, vidangel_label in _SEMANTIC_TO_VIDANGEL.get(category, {}).items()
+        if vidangel_label in default_vidangel_labels
+    }
+    return defaults or set(prompt_bank)
+
 
 class SemanticPromptBackend(Protocol):
     """Backend interface for local prompt-based image scoring."""
@@ -265,12 +332,7 @@ class SemanticCategoryDetector:
         progress_callback: ProgressCallback | None = None,
     ) -> DetectorResult:
         prompt_bank = SEMANTIC_PROMPT_BANK[self.category]
-        enabled_detection_labels = set(
-            getattr(config, "semantic_detection_labels", {}).get(
-                self.category,
-                DEFAULT_DETECT_LABELS.get(self.category, list(prompt_bank)),
-            )
-        )
+        enabled_detection_labels = _enabled_prompt_labels(config, self.category, prompt_bank)
         prompt_bank = {
             label: prompts
             for label, prompts in prompt_bank.items()

@@ -18,38 +18,33 @@ from leapfrog.preferences import (
 
 def test_canonical_category_sets_match():
     assert SUPPORTED_CATEGORIES == PREFERENCE_CATEGORIES
-    assert SUPPORTED_CATEGORIES == (
-        "nudity",
-        "sexual_content",
-        "profanity",
-        "violence",
-        "drugs",
-    )
+    assert "sex_nudity_immodesty" in SUPPORTED_CATEGORIES
+    assert "language_profanity" in SUPPORTED_CATEGORIES
+    assert "violence_blood_gore" in SUPPORTED_CATEGORIES
 
 
-def test_resolve_user_category_preferences_defaults_to_nudity_only_without_saved_preferences():
+def test_resolve_user_category_preferences_defaults_to_all_disabled_without_saved_preferences():
     resolved = resolve_user_category_preferences(
         overall_enabled=True,
         stored_preferences={},
         threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
-    assert resolved["nudity"]["enabled"] is True
-    assert resolved["nudity"]["threshold"] == 0.4
-    assert resolved["sexual_content"]["enabled"] is False
-    assert resolved["profanity"]["enabled"] is False
-    assert resolved["profanity"]["threshold"] == 0.5
+    assert resolved["sex_nudity_immodesty"]["enabled"] is False
+    assert resolved["sex_nudity_immodesty"]["threshold"] == 0.4
+    assert resolved["language_profanity"]["enabled"] is False
+    assert resolved["language_profanity"]["threshold"] == 0.5
 
 
 def test_resolve_user_category_preferences_disables_unspecified_categories_once_user_has_saved_preferences():
     resolved = resolve_user_category_preferences(
         overall_enabled=True,
-        stored_preferences={"profanity": {"enabled": True, "threshold": 0.7}},
+        stored_preferences={"language_profanity": {"enabled": True, "threshold": 0.7}},
         threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
-    assert resolved["nudity"]["enabled"] is False
-    assert resolved["sexual_content"]["enabled"] is False
-    assert resolved["profanity"]["enabled"] is True
-    assert resolved["profanity"]["threshold"] == 0.7
+    assert resolved["sex_nudity_immodesty"]["enabled"] is False
+    assert resolved["sex_any"]["enabled"] is False
+    assert resolved["language_profanity"]["enabled"] is True
+    assert resolved["language_profanity"]["threshold"] == 0.7
 
 
 def test_get_effective_skip_segments_respects_category_and_threshold():
@@ -59,7 +54,7 @@ def test_get_effective_skip_segments_respects_category_and_threshold():
                 media_id="g1",
                 start_time=1.0,
                 end_time=2.0,
-                category="nudity",
+                category="sex_nudity_immodesty",
                 source="nudenet",
                 confidence=0.7,
             ),
@@ -67,7 +62,7 @@ def test_get_effective_skip_segments_respects_category_and_threshold():
                 media_id="g1",
                 start_time=3.0,
                 end_time=4.0,
-                category="profanity",
+                category="language_profanity",
                 source="subtitles",
                 confidence=0.4,
             ),
@@ -75,30 +70,30 @@ def test_get_effective_skip_segments_respects_category_and_threshold():
                 media_id="g1",
                 start_time=5.0,
                 end_time=6.0,
-                category="profanity",
+                category="language_profanity",
                 source="subtitles",
                 confidence=0.8,
             ),
         ],
         {
-            "nudity": {"enabled": False, "threshold": 0.5},
-            "profanity": {"enabled": True, "threshold": 0.5},
+            "sex_nudity_immodesty": {"enabled": False, "threshold": 0.5},
+            "language_profanity": {"enabled": True, "threshold": 0.5},
         },
     )
     assert len(selected) == 1
-    assert selected[0]["category"] == "profanity"
+    assert selected[0]["category"] == "language_profanity"
     assert selected[0]["confidence"] == 0.8
 
 
 def test_category_helpers_report_enabled_and_threshold():
     preferences = {
-        "nudity": {"enabled": True, "threshold": 0.6},
-        "profanity": {"enabled": False, "threshold": 0.5},
+        "sex_nudity_immodesty": {"enabled": True, "threshold": 0.6},
+        "language_profanity": {"enabled": False, "threshold": 0.5},
     }
-    assert is_category_enabled(preferences, "nudity") is True
-    assert is_category_enabled(preferences, "profanity") is False
-    assert get_threshold_for_category(preferences, "nudity") == 0.6
-    assert get_threshold_for_category(preferences, "violence") is None
+    assert is_category_enabled(preferences, "sex_nudity_immodesty") is True
+    assert is_category_enabled(preferences, "language_profanity") is False
+    assert get_threshold_for_category(preferences, "sex_nudity_immodesty") == 0.6
+    assert get_threshold_for_category(preferences, "violence_blood_gore") is None
 
 
 def test_build_user_preference_maps_group_rows_by_user_and_category():
@@ -110,15 +105,15 @@ def test_build_user_preference_maps_group_rows_by_user_and_category():
     )
     stored = build_user_category_preferences_map(
         [
-            {"user_id": "alice", "category": "nudity", "enabled": 1, "threshold": 0.6},
-            {"user_id": "alice", "category": "profanity", "enabled": 0, "threshold": 0.5},
-            {"user_id": "bob", "category": "profanity", "enabled": 1, "threshold": 0.7},
+            {"user_id": "alice", "category": "sex_nudity_immodesty", "enabled": 1, "threshold": 0.6},
+            {"user_id": "alice", "category": "language_profanity", "enabled": 0, "threshold": 0.5},
+            {"user_id": "bob", "category": "language_profanity", "enabled": 1, "threshold": 0.7},
         ]
     )
 
     assert filters == {"alice": True, "bob": False}
-    assert stored["alice"]["nudity"]["threshold"] == 0.6
-    assert stored["bob"]["profanity"]["enabled"] == 1
+    assert stored["alice"]["sex_nudity_immodesty"]["threshold"] == 0.6
+    assert stored["bob"]["language_profanity"]["enabled"] == 1
 
 
 def test_resolve_preferences_for_users_reuses_shared_filter_inputs():
@@ -126,14 +121,14 @@ def test_resolve_preferences_for_users_reuses_shared_filter_inputs():
         ["alice", "bob"],
         overall_filters={"alice": True, "bob": False},
         stored_preferences_by_user={
-            "alice": {"profanity": {"enabled": True, "threshold": 0.8}},
+            "alice": {"language_profanity": {"enabled": True, "threshold": 0.8}},
         },
         threshold_defaults=DEFAULT_CATEGORY_THRESHOLDS,
     )
 
-    assert resolved["alice"]["profanity"]["enabled"] is True
-    assert resolved["alice"]["nudity"]["enabled"] is False
-    assert resolved["bob"]["nudity"]["enabled"] is False
+    assert resolved["alice"]["language_profanity"]["enabled"] is True
+    assert resolved["alice"]["sex_nudity_immodesty"]["enabled"] is False
+    assert resolved["bob"]["sex_nudity_immodesty"]["enabled"] is False
 
 
 def test_resolve_user_label_preferences_uses_granular_defaults_and_stored_overrides():
@@ -141,15 +136,15 @@ def test_resolve_user_label_preferences_uses_granular_defaults_and_stored_overri
         [
             {
                 "user_id": "alice",
-                "category": "sexual_content",
-                "label": "explicit_sex",
+                "category": "sex_any",
+                "label": "shown_w_nudity",
                 "enabled": 0,
                 "threshold": None,
             },
             {
                 "user_id": "alice",
-                "category": "sexual_content",
-                "label": "brief_kiss",
+                "category": "kissing",
+                "label": "kissing_normal",
                 "enabled": 1,
                 "threshold": None,
             },
@@ -158,12 +153,12 @@ def test_resolve_user_label_preferences_uses_granular_defaults_and_stored_overri
 
     resolved = resolve_user_label_preferences(
         stored_label_preferences=stored["alice"],
-        default_skip_labels={"sexual_content": ["explicit_sex"]},
+        default_skip_labels={"sex_any": ["shown_w_nudity"], "kissing": ["kissing_normal"]},
     )
 
-    assert resolved["sexual_content"]["explicit_sex"]["enabled"] is False
-    assert resolved["sexual_content"]["brief_kiss"]["enabled"] is True
-    assert resolved["sexual_content"]["romantic_kiss"]["enabled"] is False
+    assert resolved["sex_any"]["shown_w_nudity"]["enabled"] is False
+    assert resolved["kissing"]["kissing_normal"]["enabled"] is True
+    assert resolved["kissing"]["kissing_passion"]["enabled"] is False
 
 
 def test_effective_skip_segments_respects_granular_labels_when_present():
@@ -173,35 +168,42 @@ def test_effective_skip_segments_respects_granular_labels_when_present():
                 media_id="g1",
                 start_time=1.0,
                 end_time=2.0,
-                category="sexual_content",
+                category="kissing",
                 source="semantic_clip",
                 confidence=0.9,
-                labels="brief_kiss",
+                labels="kissing_normal",
             ),
             Segment(
                 media_id="g1",
                 start_time=3.0,
                 end_time=4.0,
-                category="sexual_content",
+                category="sex_any",
                 source="semantic_clip",
                 confidence=0.9,
-                labels="explicit_sex",
+                labels="shown_w_nudity",
             ),
         ],
         {
-            "sexual_content": {
+            "kissing": {
                 "enabled": True,
                 "threshold": 0.5,
                 "labels": {
-                    "brief_kiss": {"enabled": False, "threshold": None},
-                    "explicit_sex": {"enabled": True, "threshold": None},
+                    "kissing_normal": {"enabled": False, "threshold": None},
+                    "kissing_passion": {"enabled": True, "threshold": None},
+                },
+            },
+            "sex_any": {
+                "enabled": True,
+                "threshold": 0.5,
+                "labels": {
+                    "shown_w_nudity": {"enabled": True, "threshold": None},
                 },
             },
         },
     )
 
     assert len(selected) == 1
-    assert selected[0]["labels"] == "explicit_sex"
+    assert selected[0]["labels"] == "shown_w_nudity"
 
 
 def test_effective_skip_segments_keeps_unknown_legacy_labels_category_gated():
@@ -211,14 +213,14 @@ def test_effective_skip_segments_keeps_unknown_legacy_labels_category_gated():
                 media_id="g1",
                 start_time=1.0,
                 end_time=2.0,
-                category="violence",
+                category="violence_blood_gore",
                 source="semantic_clip",
                 confidence=0.9,
                 labels="weapon",
             ),
         ],
         {
-            "violence": {
+            "violence_blood_gore": {
                 "enabled": True,
                 "threshold": 0.5,
                 "labels": {

@@ -71,8 +71,13 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
                 (session.user for session in sessions),
                 threshold_defaults={
                     **DEFAULT_CATEGORY_THRESHOLDS,
-                    "nudity": config.confidence_threshold,
-                    "profanity": config.default_profanity_threshold,
+                    "sex_nudity_immodesty": config.confidence_threshold,
+                    "language_blasphemy": config.default_profanity_threshold,
+                    "language_language_childish": config.default_profanity_threshold,
+                    "language_language_racial": config.default_profanity_threshold,
+                    "language_language_sexual": config.default_profanity_threshold,
+                    "language_profanity": config.default_profanity_threshold,
+                    "language_profanity_captions": config.default_profanity_threshold,
                 },
             )
 
