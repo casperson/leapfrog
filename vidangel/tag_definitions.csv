@@ -1,0 +1,129 @@
+category_id,key,display_title,path_keys,path_titles,default_type,mapped_category,example_description
+78,allah,All*h,language/blasphemy/allah,Language > Blasphemy > All*h,audio,profanity,
+106,anus,an*s,language/language_sexual/anus,Language > Sexual Reference > an*s,audio,sexual_content,
+52,arse,*rse,language/profanity/arse,Language > Profanity > *rse,audio,profanity,*rs*h*l*
+65,arse_caption,*rse,language/profanity_captions/arse_caption,Language > Captions with Profanity > *rse,audiovisual,profanity,
+53,ass,*ss,language/profanity/ass,Language > Profanity > *ss,audio,profanity,*ssh*l*
+66,ass_caption,*ss,language/profanity_captions/ass_caption,Language > Captions with Profanity > *ss,audiovisual,profanity,
+107,balls,b*lls,language/language_sexual/balls,Language > Sexual Reference > b*lls,audio,sexual_content,
+54,bastard,b*st*rd,language/profanity/bastard,Language > Profanity > b*st*rd,audio,profanity,
+67,bastard_caption,b*st*rd,language/profanity_captions/bastard_caption,Language > Captions with Profanity > b*st*rd,audiovisual,profanity,
+55,bitch,b*tch,language/profanity/bitch,Language > Profanity > b*tch,audio,profanity,
+68,bitch_caption,b*tch,language/profanity_captions/bitch_caption,Language > Captions with Profanity > b*tch,audiovisual,profanity,
+56,bloody,bl**dy,language/profanity/bloody,Language > Profanity > bl**dy,audio,profanity,
+69,bloody_caption,bl**dy,language/profanity_captions/bloody_caption,Language > Captions with Profanity > bl**dy,audiovisual,profanity,
+108,blowjob,bl*wj*b,language/language_sexual/blowjob,Language > Sexual Reference > bl*wj*b,audio,sexual_content,
+30,bodily_functions,Bodily Functions/Jokes,human_functions/bodily_functions,Medical & Body Process > Bodily Functions/Jokes,audiovisual,,A woman vomits on the floor.
+57,bollocks,b*ll*cks,language/profanity/bollocks,Language > Profanity > b*ll*cks,audio,profanity,
+70,bollocks_caption,b*ll*cks,language/profanity_captions/bollocks_caption,Language > Captions with Profanity > b*ll*cks,audiovisual,profanity,
+58,bugger,bug**r,language/profanity/bugger,Language > Profanity > bug**r,audio,profanity,b*gg*r
+71,bugger_caption,bug**r,language/profanity_captions/bugger_caption,Language > Captions with Profanity > bug**r,audiovisual,profanity,
+84,bum,b*m,language/language_childish/bum,Language > Childish Language > b*m,audio,profanity,
+85,butt,b*tt,language/language_childish/butt,Language > Childish Language > b*tt,audio,profanity,
+90,chink,ch*nk,language/language_racial/chink,Language > Racial & Bigoted Slurs > ch*nk,audio,profanity,
+79,christ,Chr*st,language/blasphemy/christ,Language > Blasphemy > Chr*st,audio,profanity,
+109,clit,cl*t,language/language_sexual/clit,Language > Sexual Reference > cl*t,audio,sexual_content,
+34,closing_credits,Closing Credits,credits/closing_credits,Credits & Extras > Closing Credits,audiovisual,,
+110,cock,c*ck,language/language_sexual/cock,Language > Sexual Reference > c*ck,audio,sexual_content,
+111,condom,c*nd*m,language/language_sexual/condom,Language > Sexual Reference > c*nd*m,audio,sexual_content,A woman mentions female condoms.
+91,cracker,cr*ck*r,language/language_racial/cracker,Language > Racial & Bigoted Slurs > cr*ck*r,audio,profanity,
+59,crap,cr*p,language/profanity/crap,Language > Profanity > cr*p,audio,profanity,
+112,cum,c*m,language/language_sexual/cum,Language > Sexual Reference > c*m,audio,sexual_content,
+114,cunillingus,c*n*ll*ng*s,language/language_sexual/cunillingus,Language > Sexual Reference > c*n*ll*ng*s,audio,sexual_content,
+113,cunt,c*nt,language/profanity/cunt,Language > Profanity > c*nt,audio,profanity,
+60,damn,d*mn,language/profanity/damn,Language > Profanity > d*mn,audio,profanity,g*dd*mn
+73,damn_caption,d*mn,language/profanity_captions/damn_caption,Language > Captions with Profanity > d*mn,audiovisual,profanity,
+115,dick,d*ck,language/language_sexual/dick,Language > Sexual Reference > d*ck,audio,sexual_content,
+116,dildo,d*ld*,language/language_sexual/dildo,Language > Sexual Reference > d*ld*,audio,sexual_content,
+117,dink,d*nk,language/language_sexual/dink,Language > Sexual Reference > d*nk,audio,sexual_content,
+118,douche,do*che,language/language_sexual/douche,Language > Sexual Reference > do*che,audio,sexual_content,
+12,drugs_illegal,Illegal Usage,alcohol_or_drug_use/drugs_illegal,Drugs & Alcohol > Illegal Usage,audiovisual,drugs,A woman drinks an illegally high dose of laudanum.
+10,drugs_implied,Implied Usage,alcohol_or_drug_use/drugs_implied,Drugs & Alcohol > Implied Usage,audiovisual,drugs,A man puts an unlit cigar in his mouth.
+11,drugs_legal,Legal Usage,alcohol_or_drug_use/drugs_legal,Drugs & Alcohol > Legal Usage,audiovisual,drugs,A man drinks alcohol.
+86,dumb,d*mb,language/language_childish/dumb,Language > Childish Language > d*mb,audio,profanity,
+121,fag,f*g,language/language_sexual/fag,Language > Sexual Reference > f*g,audio,sexual_content,
+87,fart,f*rt,language/language_childish/fart,Language > Childish Language > f*rt,audio,profanity,
+122,felatio,f*ll*t**,language/language_sexual/felatio,Language > Sexual Reference > f*ll*t**,audio,sexual_content,f*l*t**
+61,fuck,f-word,language/profanity/fuck,Language > Profanity > f-word,audio,profanity,f*ck
+74,fuck_caption,f-word,language/profanity_captions/fuck_caption,Language > Captions with Profanity > f-word,audiovisual,profanity,
+123,gangbang,g*ngb*ng,language/language_sexual/gangbang,Language > Sexual Reference > g*ngb*ng,audio,sexual_content,
+81,god,G*d,language/blasphemy/god,Language > Blasphemy > G*d,audio,profanity,g*dd*mn
+16,gore,Gore,violence_blood_gore/gore,Violence > Gore,audiovisual,violence,A teenage boy cuts off a man's hand and part of his arm with a sword.
+15,graphic,Graphic Violence,violence_blood_gore/graphic,Violence > Graphic Violence,audiovisual,violence,A painting depicts a man and a woman holding bloody swords above a dead woman on the ground with her eyes open.
+124,hard_on,h*rd *n,language/language_sexual/hard_on,Language > Sexual Reference > h*rd *n,audio,sexual_content,A woman makes a reference to male sexual arousal.
+92,heeb,h**b,language/language_racial/heeb,Language > Racial & Bigoted Slurs > h**b,audio,profanity,
+62,hell,h*ll,language/profanity/hell,Language > Profanity > h*ll,audio,profanity,th* h*ll
+75,hell_caption,h*ll,language/profanity_captions/hell_caption,Language > Captions with Profanity > h*ll,audiovisual,profanity,
+125,horny,h*rn**st,language/language_sexual/horny,Language > Sexual Reference > h*rn**st,audio,sexual_content,h*rny
+126,hump,h*mp,language/language_sexual/hump,Language > Sexual Reference > h*mp,audio,sexual_content,A woman makes a sexual comment.
+47,immodesty_both,Male & Female Immodesty,sex_nudity_immodesty/immodesty_both,Nudity & Immodesty > Male & Female Immodesty,audiovisual,nudity,A man is seen in form-fitting pants that show a defined genital outline. A woman's cleavage is visible.
+46,immodesty_female,Female Immodesty,sex_nudity_immodesty/immodesty_female,Nudity & Immodesty > Female Immodesty,audiovisual,nudity,A woman's genitals are outlined in athletic pants.
+45,immodesty_male,Male Immodesty,sex_nudity_immodesty/immodesty_male,Nudity & Immodesty > Male Immodesty,audiovisual,nudity,A man's genital outline is visible in form-fitting pants.
+13,implied,Implied Violence,violence_blood_gore/implied,Violence > Implied Violence,audio,violence,A woman mentions how a man stuck a grenade in a teenage boy's mouth.
+37,implied_not_shown,Implied Sex,sex_any/implied_not_shown,Sex > Implied Sex,audiovisual,sexual_content,A man and a woman lie in bed and talk after sex.
+41,implied_nudity,Implied Nudity,sex_nudity_immodesty/implied_nudity,Nudity & Immodesty > Implied Nudity,audiovisual,nudity,A man sits in a bath.
+94,jap,j*p,language/language_racial/jap,Language > Racial & Bigoted Slurs > j*p,audio,profanity,
+127,jerk,je*k,language/language_sexual/jerk,Language > Sexual Reference > je*k,audio,sexual_content,
+80,jesus,J*sus,language/blasphemy/jesus,Language > Blasphemy > J*sus,audio,profanity,
+95,jiz,j*z,language/language_racial/jiz,Language > Racial & Bigoted Slurs > j*z,audio,profanity,
+93,kike,k*ke,language/language_racial/kike,Language > Racial & Bigoted Slurs > k*ke,audio,profanity,
+50,kissing_homo_normal,Homosexual Normal,kissing/kissing_homo_normal,Kissing > Homosexual Normal,audiovisual,,A woman kisses another woman.
+51,kissing_homo_passion,Homosexual Passionate,kissing/kissing_homo_passion,Kissing > Homosexual Passionate,audiovisual,,Two men kiss.
+48,kissing_normal,Heterosexual Normal,kissing/kissing_normal,Kissing > Heterosexual Normal,audiovisual,,A woman kisses a man.
+49,kissing_passion,Heterosexual Passionate,kissing/kissing_passion,Kissing > Heterosexual Passionate,audiovisual,,A man and a woman kiss.
+128,kooch,k**ch,language/language_sexual/kooch,Language > Sexual Reference > k**ch,audio,sexual_content,
+96,kraut,kr*ut,language/language_racial/kraut,Language > Racial & Bigoted Slurs > kr*ut,audio,profanity,
+29,life_events,Life Events,human_functions/life_events,Medical & Body Process > Life Events,audiovisual,,A dead teenage boy in a casket is visible.
+82,lord,L*rd,language/blasphemy/lord,Language > Blasphemy > L*rd,audio,profanity,
+129,masturbate,m*sturb*te,language/language_sexual/masturbate,Language > Sexual Reference > m*sturb*te,audio,sexual_content,A woman makes a sexual remark to a woman.
+31,medical_graphic,Medical Graphic,human_functions/medical_graphic,Medical & Body Process > Medical Graphic,audiovisual,,A woman applies pressure to a man's bleeding side.
+32,medical_procedures,Medical Procedures,human_functions/medical_procedures,Medical & Body Process > Medical Procedures,audiovisual,,A man performs an autopsy on a dead man.
+97,nigger,n*gg*r,language/language_racial/nigger,Language > Racial & Bigoted Slurs > n*gg*r,audio,profanity,
+14,non_graphic,Non-graphic Violence,violence_blood_gore/non_graphic,Violence > Non-graphic Violence,audiovisual,violence,A man punches another man in the face.
+44,nudity_both,Both Male and Female,sex_nudity_immodesty/nudity_both,Nudity & Immodesty > Both Male and Female,audiovisual,nudity,Two topless women are shown with blurred breasts. A woman holds a pipe in the shape of male genitals.
+42,nudity_female,Female,sex_nudity_immodesty/nudity_female,Nudity & Immodesty > Female,audiovisual,nudity,A woman's bare back is visible.
+43,nudity_male,Male,sex_nudity_immodesty/nudity_male,Nudity & Immodesty > Male,audiovisual,nudity,A man's buttocks are visible.
+151,nudity_statues_and_paintings,Nude Statues & Paintings,sex_nudity_immodesty/nudity_statues_and_paintings,Nudity & Immodesty > Nude Statues & Paintings,audiovisual,nudity,A painting shows a woman's breasts.
+130,nuts,n*ts,language/language_sexual/nuts,Language > Sexual Reference > n*ts,audio,sexual_content,
+26,objectionable,"Objectionable, Disturbing, or Scary",violence_blood_gore/objectionable,"Violence > Objectionable, Disturbing, or Scary",audiovisual,violence,Two women discuss an animal's feces.
+33,opening_credits,Opening Credits,credits/opening_credits,Credits & Extras > Opening Credits,audiovisual,,
+131,orgasm,*rg*sm,language/language_sexual/orgasm,Language > Sexual Reference > *rg*sm,audio,sexual_content,
+83,other_blasphemy,other,language/blasphemy/other_blasphemy,Language > Blasphemy > other,audio,profanity,h*ll
+77,other_caption,other,language/profanity_captions/other_caption,Language > Captions with Profanity > other,audiovisual,profanity,d*ck
+89,other_childish,other,language/language_childish/other_childish,Language > Childish Language > other,audio,profanity,A man talks about another man's foreskin.
+64,other_profanity,other,language/profanity/other_profanity,Language > Profanity > other,audio,profanity,scr*w w*th
+101,other_racial,other,language/language_racial/other_racial,Language > Racial & Bigoted Slurs > other,audio,profanity,l*m*y
+150,other_sexual,other,language/language_sexual/other_sexual,Language > Sexual Reference > other,audio,sexual_content,A man makes a reference to sex.
+35,outtakes,Episode Recap/Outtakes,credits/outtakes,Credits & Extras > Episode Recap/Outtakes,audiovisual,,Previous Episode
+132,pecker,p*cker,language/language_sexual/pecker,Language > Sexual Reference > p*cker,audio,sexual_content,
+133,penis,p*n*s,language/language_sexual/penis,Language > Sexual Reference > p*n*s,audio,sexual_content,
+98,pollock,p*ll*ck,language/language_racial/pollock,Language > Racial & Bigoted Slurs > p*ll*ck,audio,profanity,
+134,porn,p*rn,language/language_sexual/porn,Language > Sexual Reference > p*rn,audio,sexual_content,
+135,prick,pr*ck,language/language_sexual/prick,Language > Sexual Reference > pr*ck,audio,sexual_content,
+136,puss,p*ss,language/language_sexual/puss,Language > Sexual Reference > p*ss,audio,sexual_content,A teenage girl says if she reaches a certain number she will show her p*ss.
+137,pussy,p*ssy,language/language_sexual/pussy,Language > Sexual Reference > p*ssy,audio,sexual_content,
+138,queer,qu**r,language/language_sexual/queer,Language > Sexual Reference > qu**r,audio,sexual_content,
+140,scrotum,scr*t*m,language/language_sexual/scrotum,Language > Sexual Reference > scr*t*m,audio,sexual_content,
+142,sex,s*x,language/language_sexual/sex,Language > Sexual Reference > s*x,audio,sexual_content,A woman calls a book sex positive.
+40,sexual_assault,Sexual Assault,sex_any/sexual_assault,Sex > Sexual Assault,audiovisual,sexual_content,A man uses a reference to sexual assault.
+104,sexual_remark_m2m,A man makes a sexual remark to a man.,language/language_sexual/sexual_remark_m2m,Language > Sexual Reference > A man makes a sexual remark to a man.,audio,sexual_content,
+105,sexual_remark_m2w,A man makes a sexual remark to a woman.,language/language_sexual/sexual_remark_m2w,Language > Sexual Reference > A man makes a sexual remark to a woman.,audio,sexual_content,
+103,sexual_remark_w2m,A woman makes a sexual remark to a man.,language/language_sexual/sexual_remark_w2m,Language > Sexual Reference > A woman makes a sexual remark to a man.,audio,sexual_content,
+102,sexual_remark_w2w,A woman makes a sexual remark to a woman.,language/language_sexual/sexual_remark_w2w,Language > Sexual Reference > A woman makes a sexual remark to a woman.,audio,sexual_content,
+36,sexually_suggestive,Sexually Suggestive,sex_any/sexually_suggestive,Sex > Sexually Suggestive,audiovisual,sexual_content,A man caresses a woman's arm.
+63,shit,sh*t,language/profanity/shit,Language > Profanity > sh*t,audio,profanity,Sh*t
+76,shit_caption,sh*t,language/profanity_captions/shit_caption,Language > Captions with Profanity > sh*t,audiovisual,profanity,
+39,shown_w_nudity,Sex with Nudity,sex_any/shown_w_nudity,Sex > Sex with Nudity,audiovisual,nudity,The side of a teeange girl's breast can be seen as she has sex with a teenage boy.
+38,shown_w_o_nudity,Sex without Nudity,sex_any/shown_w_o_nudity,Sex > Sex without Nudity,audiovisual,nudity,A teenage boy and a teenage girl are shown as they have sex.
+143,slut,sl*t,language/language_sexual/slut,Language > Sexual Reference > sl*t,audio,sexual_content,A woman uses a derogatory sexual term.
+88,stupid,st*pid,language/language_childish/stupid,Language > Childish Language > st*pid,audio,profanity,
+145,testicle,t*st*cl*,language/language_sexual/testicle,Language > Sexual Reference > t*st*cl*,audio,sexual_content,
+144,tit,t*t,language/language_sexual/tit,Language > Sexual Reference > t*t,audio,sexual_content,
+146,twat,tw*t,language/language_sexual/twat,Language > Sexual Reference > tw*t,audio,sexual_content,
+147,vagina,v*gin*,language/language_sexual/vagina,Language > Sexual Reference > v*gin*,audio,sexual_content,
+17,violence_images,Disturbing Images,violence_blood_gore/violence_images,Violence > Disturbing Images,audiovisual,violence,A dagger is seen protruding from a woman's shoulder.
+25,vulgar_gestures,Vulgar Gestures,violence_blood_gore/vulgar_gestures,Violence > Vulgar Gestures,audiovisual,violence,A woman makes a vulgar gesture with both hands.
+148,wank,w*nk,language/language_sexual/wank,Language > Sexual Reference > w*nk,audio,sexual_content,w*nkst**n
+99,wetback,w*tback,language/language_racial/wetback,Language > Racial & Bigoted Slurs > w*tback,audio,profanity,
+149,whore,wh*re,language/language_sexual/whore,Language > Sexual Reference > wh*re,audio,sexual_content,A woman says that a man sleeps with a prostitute.
+100,wop,w*p,language/language_racial/wop,Language > Racial & Bigoted Slurs > w*p,audio,profanity,

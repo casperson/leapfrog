@@ -1,0 +1,2242 @@
+{
+  "definition_count": 128,
+  "definitions": [
+    {
+      "category_id": 78,
+      "default_type": "audio",
+      "display_title": "All*h",
+      "example_description": null,
+      "key": "allah",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "blasphemy",
+        "allah"
+      ],
+      "path_titles": [
+        "Language",
+        "Blasphemy",
+        "All*h"
+      ]
+    },
+    {
+      "category_id": 106,
+      "default_type": "audio",
+      "display_title": "an*s",
+      "example_description": null,
+      "key": "anus",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "anus"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "an*s"
+      ]
+    },
+    {
+      "category_id": 52,
+      "default_type": "audio",
+      "display_title": "*rse",
+      "example_description": "*rs*h*l*",
+      "key": "arse",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "arse"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "*rse"
+      ]
+    },
+    {
+      "category_id": 65,
+      "default_type": "audiovisual",
+      "display_title": "*rse",
+      "example_description": null,
+      "key": "arse_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "arse_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "*rse"
+      ]
+    },
+    {
+      "category_id": 53,
+      "default_type": "audio",
+      "display_title": "*ss",
+      "example_description": "*ssh*l*",
+      "key": "ass",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "ass"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "*ss"
+      ]
+    },
+    {
+      "category_id": 66,
+      "default_type": "audiovisual",
+      "display_title": "*ss",
+      "example_description": null,
+      "key": "ass_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "ass_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "*ss"
+      ]
+    },
+    {
+      "category_id": 107,
+      "default_type": "audio",
+      "display_title": "b*lls",
+      "example_description": null,
+      "key": "balls",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "balls"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "b*lls"
+      ]
+    },
+    {
+      "category_id": 54,
+      "default_type": "audio",
+      "display_title": "b*st*rd",
+      "example_description": null,
+      "key": "bastard",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "bastard"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "b*st*rd"
+      ]
+    },
+    {
+      "category_id": 67,
+      "default_type": "audiovisual",
+      "display_title": "b*st*rd",
+      "example_description": null,
+      "key": "bastard_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "bastard_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "b*st*rd"
+      ]
+    },
+    {
+      "category_id": 55,
+      "default_type": "audio",
+      "display_title": "b*tch",
+      "example_description": null,
+      "key": "bitch",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "bitch"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "b*tch"
+      ]
+    },
+    {
+      "category_id": 68,
+      "default_type": "audiovisual",
+      "display_title": "b*tch",
+      "example_description": null,
+      "key": "bitch_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "bitch_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "b*tch"
+      ]
+    },
+    {
+      "category_id": 56,
+      "default_type": "audio",
+      "display_title": "bl**dy",
+      "example_description": null,
+      "key": "bloody",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "bloody"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "bl**dy"
+      ]
+    },
+    {
+      "category_id": 69,
+      "default_type": "audiovisual",
+      "display_title": "bl**dy",
+      "example_description": null,
+      "key": "bloody_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "bloody_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "bl**dy"
+      ]
+    },
+    {
+      "category_id": 108,
+      "default_type": "audio",
+      "display_title": "bl*wj*b",
+      "example_description": null,
+      "key": "blowjob",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "blowjob"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "bl*wj*b"
+      ]
+    },
+    {
+      "category_id": 30,
+      "default_type": "audiovisual",
+      "display_title": "Bodily Functions/Jokes",
+      "example_description": "A woman vomits on the floor.",
+      "key": "bodily_functions",
+      "mapped_category": null,
+      "path_keys": [
+        "human_functions",
+        "bodily_functions"
+      ],
+      "path_titles": [
+        "Medical & Body Process",
+        "Bodily Functions/Jokes"
+      ]
+    },
+    {
+      "category_id": 57,
+      "default_type": "audio",
+      "display_title": "b*ll*cks",
+      "example_description": null,
+      "key": "bollocks",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "bollocks"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "b*ll*cks"
+      ]
+    },
+    {
+      "category_id": 70,
+      "default_type": "audiovisual",
+      "display_title": "b*ll*cks",
+      "example_description": null,
+      "key": "bollocks_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "bollocks_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "b*ll*cks"
+      ]
+    },
+    {
+      "category_id": 58,
+      "default_type": "audio",
+      "display_title": "bug**r",
+      "example_description": "b*gg*r",
+      "key": "bugger",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "bugger"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "bug**r"
+      ]
+    },
+    {
+      "category_id": 71,
+      "default_type": "audiovisual",
+      "display_title": "bug**r",
+      "example_description": null,
+      "key": "bugger_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "bugger_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "bug**r"
+      ]
+    },
+    {
+      "category_id": 84,
+      "default_type": "audio",
+      "display_title": "b*m",
+      "example_description": null,
+      "key": "bum",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_childish",
+        "bum"
+      ],
+      "path_titles": [
+        "Language",
+        "Childish Language",
+        "b*m"
+      ]
+    },
+    {
+      "category_id": 85,
+      "default_type": "audio",
+      "display_title": "b*tt",
+      "example_description": null,
+      "key": "butt",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_childish",
+        "butt"
+      ],
+      "path_titles": [
+        "Language",
+        "Childish Language",
+        "b*tt"
+      ]
+    },
+    {
+      "category_id": 90,
+      "default_type": "audio",
+      "display_title": "ch*nk",
+      "example_description": null,
+      "key": "chink",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "chink"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "ch*nk"
+      ]
+    },
+    {
+      "category_id": 79,
+      "default_type": "audio",
+      "display_title": "Chr*st",
+      "example_description": null,
+      "key": "christ",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "blasphemy",
+        "christ"
+      ],
+      "path_titles": [
+        "Language",
+        "Blasphemy",
+        "Chr*st"
+      ]
+    },
+    {
+      "category_id": 109,
+      "default_type": "audio",
+      "display_title": "cl*t",
+      "example_description": null,
+      "key": "clit",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "clit"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "cl*t"
+      ]
+    },
+    {
+      "category_id": 34,
+      "default_type": "audiovisual",
+      "display_title": "Closing Credits",
+      "example_description": null,
+      "key": "closing_credits",
+      "mapped_category": null,
+      "path_keys": [
+        "credits",
+        "closing_credits"
+      ],
+      "path_titles": [
+        "Credits & Extras",
+        "Closing Credits"
+      ]
+    },
+    {
+      "category_id": 110,
+      "default_type": "audio",
+      "display_title": "c*ck",
+      "example_description": null,
+      "key": "cock",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "cock"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "c*ck"
+      ]
+    },
+    {
+      "category_id": 111,
+      "default_type": "audio",
+      "display_title": "c*nd*m",
+      "example_description": "A woman mentions female condoms.",
+      "key": "condom",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "condom"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "c*nd*m"
+      ]
+    },
+    {
+      "category_id": 91,
+      "default_type": "audio",
+      "display_title": "cr*ck*r",
+      "example_description": null,
+      "key": "cracker",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "cracker"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "cr*ck*r"
+      ]
+    },
+    {
+      "category_id": 59,
+      "default_type": "audio",
+      "display_title": "cr*p",
+      "example_description": null,
+      "key": "crap",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "crap"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "cr*p"
+      ]
+    },
+    {
+      "category_id": 112,
+      "default_type": "audio",
+      "display_title": "c*m",
+      "example_description": null,
+      "key": "cum",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "cum"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "c*m"
+      ]
+    },
+    {
+      "category_id": 114,
+      "default_type": "audio",
+      "display_title": "c*n*ll*ng*s",
+      "example_description": null,
+      "key": "cunillingus",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "cunillingus"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "c*n*ll*ng*s"
+      ]
+    },
+    {
+      "category_id": 113,
+      "default_type": "audio",
+      "display_title": "c*nt",
+      "example_description": null,
+      "key": "cunt",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "cunt"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "c*nt"
+      ]
+    },
+    {
+      "category_id": 60,
+      "default_type": "audio",
+      "display_title": "d*mn",
+      "example_description": "g*dd*mn",
+      "key": "damn",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "damn"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "d*mn"
+      ]
+    },
+    {
+      "category_id": 73,
+      "default_type": "audiovisual",
+      "display_title": "d*mn",
+      "example_description": null,
+      "key": "damn_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "damn_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "d*mn"
+      ]
+    },
+    {
+      "category_id": 115,
+      "default_type": "audio",
+      "display_title": "d*ck",
+      "example_description": null,
+      "key": "dick",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "dick"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "d*ck"
+      ]
+    },
+    {
+      "category_id": 116,
+      "default_type": "audio",
+      "display_title": "d*ld*",
+      "example_description": null,
+      "key": "dildo",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "dildo"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "d*ld*"
+      ]
+    },
+    {
+      "category_id": 117,
+      "default_type": "audio",
+      "display_title": "d*nk",
+      "example_description": null,
+      "key": "dink",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "dink"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "d*nk"
+      ]
+    },
+    {
+      "category_id": 118,
+      "default_type": "audio",
+      "display_title": "do*che",
+      "example_description": null,
+      "key": "douche",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "douche"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "do*che"
+      ]
+    },
+    {
+      "category_id": 12,
+      "default_type": "audiovisual",
+      "display_title": "Illegal Usage",
+      "example_description": "A woman drinks an illegally high dose of laudanum.",
+      "key": "drugs_illegal",
+      "mapped_category": "drugs",
+      "path_keys": [
+        "alcohol_or_drug_use",
+        "drugs_illegal"
+      ],
+      "path_titles": [
+        "Drugs & Alcohol",
+        "Illegal Usage"
+      ]
+    },
+    {
+      "category_id": 10,
+      "default_type": "audiovisual",
+      "display_title": "Implied Usage",
+      "example_description": "A man puts an unlit cigar in his mouth.",
+      "key": "drugs_implied",
+      "mapped_category": "drugs",
+      "path_keys": [
+        "alcohol_or_drug_use",
+        "drugs_implied"
+      ],
+      "path_titles": [
+        "Drugs & Alcohol",
+        "Implied Usage"
+      ]
+    },
+    {
+      "category_id": 11,
+      "default_type": "audiovisual",
+      "display_title": "Legal Usage",
+      "example_description": "A man drinks alcohol.",
+      "key": "drugs_legal",
+      "mapped_category": "drugs",
+      "path_keys": [
+        "alcohol_or_drug_use",
+        "drugs_legal"
+      ],
+      "path_titles": [
+        "Drugs & Alcohol",
+        "Legal Usage"
+      ]
+    },
+    {
+      "category_id": 86,
+      "default_type": "audio",
+      "display_title": "d*mb",
+      "example_description": null,
+      "key": "dumb",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_childish",
+        "dumb"
+      ],
+      "path_titles": [
+        "Language",
+        "Childish Language",
+        "d*mb"
+      ]
+    },
+    {
+      "category_id": 121,
+      "default_type": "audio",
+      "display_title": "f*g",
+      "example_description": null,
+      "key": "fag",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "fag"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "f*g"
+      ]
+    },
+    {
+      "category_id": 87,
+      "default_type": "audio",
+      "display_title": "f*rt",
+      "example_description": null,
+      "key": "fart",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_childish",
+        "fart"
+      ],
+      "path_titles": [
+        "Language",
+        "Childish Language",
+        "f*rt"
+      ]
+    },
+    {
+      "category_id": 122,
+      "default_type": "audio",
+      "display_title": "f*ll*t**",
+      "example_description": "f*l*t**",
+      "key": "felatio",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "felatio"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "f*ll*t**"
+      ]
+    },
+    {
+      "category_id": 61,
+      "default_type": "audio",
+      "display_title": "f-word",
+      "example_description": "f*ck",
+      "key": "fuck",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "fuck"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "f-word"
+      ]
+    },
+    {
+      "category_id": 74,
+      "default_type": "audiovisual",
+      "display_title": "f-word",
+      "example_description": null,
+      "key": "fuck_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "fuck_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "f-word"
+      ]
+    },
+    {
+      "category_id": 123,
+      "default_type": "audio",
+      "display_title": "g*ngb*ng",
+      "example_description": null,
+      "key": "gangbang",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "gangbang"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "g*ngb*ng"
+      ]
+    },
+    {
+      "category_id": 81,
+      "default_type": "audio",
+      "display_title": "G*d",
+      "example_description": "g*dd*mn",
+      "key": "god",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "blasphemy",
+        "god"
+      ],
+      "path_titles": [
+        "Language",
+        "Blasphemy",
+        "G*d"
+      ]
+    },
+    {
+      "category_id": 16,
+      "default_type": "audiovisual",
+      "display_title": "Gore",
+      "example_description": "A teenage boy cuts off a man's hand and part of his arm with a sword.",
+      "key": "gore",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "gore"
+      ],
+      "path_titles": [
+        "Violence",
+        "Gore"
+      ]
+    },
+    {
+      "category_id": 15,
+      "default_type": "audiovisual",
+      "display_title": "Graphic Violence",
+      "example_description": "A painting depicts a man and a woman holding bloody swords above a dead woman on the ground with her eyes open.",
+      "key": "graphic",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "graphic"
+      ],
+      "path_titles": [
+        "Violence",
+        "Graphic Violence"
+      ]
+    },
+    {
+      "category_id": 124,
+      "default_type": "audio",
+      "display_title": "h*rd *n",
+      "example_description": "A woman makes a reference to male sexual arousal.",
+      "key": "hard_on",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "hard_on"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "h*rd *n"
+      ]
+    },
+    {
+      "category_id": 92,
+      "default_type": "audio",
+      "display_title": "h**b",
+      "example_description": null,
+      "key": "heeb",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "heeb"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "h**b"
+      ]
+    },
+    {
+      "category_id": 62,
+      "default_type": "audio",
+      "display_title": "h*ll",
+      "example_description": "th* h*ll",
+      "key": "hell",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "hell"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "h*ll"
+      ]
+    },
+    {
+      "category_id": 75,
+      "default_type": "audiovisual",
+      "display_title": "h*ll",
+      "example_description": null,
+      "key": "hell_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "hell_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "h*ll"
+      ]
+    },
+    {
+      "category_id": 125,
+      "default_type": "audio",
+      "display_title": "h*rn**st",
+      "example_description": "h*rny",
+      "key": "horny",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "horny"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "h*rn**st"
+      ]
+    },
+    {
+      "category_id": 126,
+      "default_type": "audio",
+      "display_title": "h*mp",
+      "example_description": "A woman makes a sexual comment.",
+      "key": "hump",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "hump"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "h*mp"
+      ]
+    },
+    {
+      "category_id": 47,
+      "default_type": "audiovisual",
+      "display_title": "Male & Female Immodesty",
+      "example_description": "A man is seen in form-fitting pants that show a defined genital outline. A woman's cleavage is visible.",
+      "key": "immodesty_both",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "immodesty_both"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Male & Female Immodesty"
+      ]
+    },
+    {
+      "category_id": 46,
+      "default_type": "audiovisual",
+      "display_title": "Female Immodesty",
+      "example_description": "A woman's genitals are outlined in athletic pants.",
+      "key": "immodesty_female",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "immodesty_female"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Female Immodesty"
+      ]
+    },
+    {
+      "category_id": 45,
+      "default_type": "audiovisual",
+      "display_title": "Male Immodesty",
+      "example_description": "A man's genital outline is visible in form-fitting pants.",
+      "key": "immodesty_male",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "immodesty_male"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Male Immodesty"
+      ]
+    },
+    {
+      "category_id": 13,
+      "default_type": "audio",
+      "display_title": "Implied Violence",
+      "example_description": "A woman mentions how a man stuck a grenade in a teenage boy's mouth.",
+      "key": "implied",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "implied"
+      ],
+      "path_titles": [
+        "Violence",
+        "Implied Violence"
+      ]
+    },
+    {
+      "category_id": 37,
+      "default_type": "audiovisual",
+      "display_title": "Implied Sex",
+      "example_description": "A man and a woman lie in bed and talk after sex.",
+      "key": "implied_not_shown",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "sex_any",
+        "implied_not_shown"
+      ],
+      "path_titles": [
+        "Sex",
+        "Implied Sex"
+      ]
+    },
+    {
+      "category_id": 41,
+      "default_type": "audiovisual",
+      "display_title": "Implied Nudity",
+      "example_description": "A man sits in a bath.",
+      "key": "implied_nudity",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "implied_nudity"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Implied Nudity"
+      ]
+    },
+    {
+      "category_id": 94,
+      "default_type": "audio",
+      "display_title": "j*p",
+      "example_description": null,
+      "key": "jap",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "jap"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "j*p"
+      ]
+    },
+    {
+      "category_id": 127,
+      "default_type": "audio",
+      "display_title": "je*k",
+      "example_description": null,
+      "key": "jerk",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "jerk"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "je*k"
+      ]
+    },
+    {
+      "category_id": 80,
+      "default_type": "audio",
+      "display_title": "J*sus",
+      "example_description": null,
+      "key": "jesus",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "blasphemy",
+        "jesus"
+      ],
+      "path_titles": [
+        "Language",
+        "Blasphemy",
+        "J*sus"
+      ]
+    },
+    {
+      "category_id": 95,
+      "default_type": "audio",
+      "display_title": "j*z",
+      "example_description": null,
+      "key": "jiz",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "jiz"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "j*z"
+      ]
+    },
+    {
+      "category_id": 93,
+      "default_type": "audio",
+      "display_title": "k*ke",
+      "example_description": null,
+      "key": "kike",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "kike"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "k*ke"
+      ]
+    },
+    {
+      "category_id": 50,
+      "default_type": "audiovisual",
+      "display_title": "Homosexual Normal",
+      "example_description": "A woman kisses another woman.",
+      "key": "kissing_homo_normal",
+      "mapped_category": null,
+      "path_keys": [
+        "kissing",
+        "kissing_homo_normal"
+      ],
+      "path_titles": [
+        "Kissing",
+        "Homosexual Normal"
+      ]
+    },
+    {
+      "category_id": 51,
+      "default_type": "audiovisual",
+      "display_title": "Homosexual Passionate",
+      "example_description": "Two men kiss.",
+      "key": "kissing_homo_passion",
+      "mapped_category": null,
+      "path_keys": [
+        "kissing",
+        "kissing_homo_passion"
+      ],
+      "path_titles": [
+        "Kissing",
+        "Homosexual Passionate"
+      ]
+    },
+    {
+      "category_id": 48,
+      "default_type": "audiovisual",
+      "display_title": "Heterosexual Normal",
+      "example_description": "A woman kisses a man.",
+      "key": "kissing_normal",
+      "mapped_category": null,
+      "path_keys": [
+        "kissing",
+        "kissing_normal"
+      ],
+      "path_titles": [
+        "Kissing",
+        "Heterosexual Normal"
+      ]
+    },
+    {
+      "category_id": 49,
+      "default_type": "audiovisual",
+      "display_title": "Heterosexual Passionate",
+      "example_description": "A man and a woman kiss.",
+      "key": "kissing_passion",
+      "mapped_category": null,
+      "path_keys": [
+        "kissing",
+        "kissing_passion"
+      ],
+      "path_titles": [
+        "Kissing",
+        "Heterosexual Passionate"
+      ]
+    },
+    {
+      "category_id": 128,
+      "default_type": "audio",
+      "display_title": "k**ch",
+      "example_description": null,
+      "key": "kooch",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "kooch"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "k**ch"
+      ]
+    },
+    {
+      "category_id": 96,
+      "default_type": "audio",
+      "display_title": "kr*ut",
+      "example_description": null,
+      "key": "kraut",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "kraut"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "kr*ut"
+      ]
+    },
+    {
+      "category_id": 29,
+      "default_type": "audiovisual",
+      "display_title": "Life Events",
+      "example_description": "A dead teenage boy in a casket is visible.",
+      "key": "life_events",
+      "mapped_category": null,
+      "path_keys": [
+        "human_functions",
+        "life_events"
+      ],
+      "path_titles": [
+        "Medical & Body Process",
+        "Life Events"
+      ]
+    },
+    {
+      "category_id": 82,
+      "default_type": "audio",
+      "display_title": "L*rd",
+      "example_description": null,
+      "key": "lord",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "blasphemy",
+        "lord"
+      ],
+      "path_titles": [
+        "Language",
+        "Blasphemy",
+        "L*rd"
+      ]
+    },
+    {
+      "category_id": 129,
+      "default_type": "audio",
+      "display_title": "m*sturb*te",
+      "example_description": "A woman makes a sexual remark to a woman.",
+      "key": "masturbate",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "masturbate"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "m*sturb*te"
+      ]
+    },
+    {
+      "category_id": 31,
+      "default_type": "audiovisual",
+      "display_title": "Medical Graphic",
+      "example_description": "A woman applies pressure to a man's bleeding side.",
+      "key": "medical_graphic",
+      "mapped_category": null,
+      "path_keys": [
+        "human_functions",
+        "medical_graphic"
+      ],
+      "path_titles": [
+        "Medical & Body Process",
+        "Medical Graphic"
+      ]
+    },
+    {
+      "category_id": 32,
+      "default_type": "audiovisual",
+      "display_title": "Medical Procedures",
+      "example_description": "A man performs an autopsy on a dead man.",
+      "key": "medical_procedures",
+      "mapped_category": null,
+      "path_keys": [
+        "human_functions",
+        "medical_procedures"
+      ],
+      "path_titles": [
+        "Medical & Body Process",
+        "Medical Procedures"
+      ]
+    },
+    {
+      "category_id": 97,
+      "default_type": "audio",
+      "display_title": "n*gg*r",
+      "example_description": null,
+      "key": "nigger",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "nigger"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "n*gg*r"
+      ]
+    },
+    {
+      "category_id": 14,
+      "default_type": "audiovisual",
+      "display_title": "Non-graphic Violence",
+      "example_description": "A man punches another man in the face.",
+      "key": "non_graphic",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "non_graphic"
+      ],
+      "path_titles": [
+        "Violence",
+        "Non-graphic Violence"
+      ]
+    },
+    {
+      "category_id": 44,
+      "default_type": "audiovisual",
+      "display_title": "Both Male and Female",
+      "example_description": "Two topless women are shown with blurred breasts. A woman holds a pipe in the shape of male genitals.",
+      "key": "nudity_both",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "nudity_both"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Both Male and Female"
+      ]
+    },
+    {
+      "category_id": 42,
+      "default_type": "audiovisual",
+      "display_title": "Female",
+      "example_description": "A woman's bare back is visible.",
+      "key": "nudity_female",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "nudity_female"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Female"
+      ]
+    },
+    {
+      "category_id": 43,
+      "default_type": "audiovisual",
+      "display_title": "Male",
+      "example_description": "A man's buttocks are visible.",
+      "key": "nudity_male",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "nudity_male"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Male"
+      ]
+    },
+    {
+      "category_id": 151,
+      "default_type": "audiovisual",
+      "display_title": "Nude Statues & Paintings",
+      "example_description": "A painting shows a woman's breasts.",
+      "key": "nudity_statues_and_paintings",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_nudity_immodesty",
+        "nudity_statues_and_paintings"
+      ],
+      "path_titles": [
+        "Nudity & Immodesty",
+        "Nude Statues & Paintings"
+      ]
+    },
+    {
+      "category_id": 130,
+      "default_type": "audio",
+      "display_title": "n*ts",
+      "example_description": null,
+      "key": "nuts",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "nuts"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "n*ts"
+      ]
+    },
+    {
+      "category_id": 26,
+      "default_type": "audiovisual",
+      "display_title": "Objectionable, Disturbing, or Scary",
+      "example_description": "Two women discuss an animal's feces.",
+      "key": "objectionable",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "objectionable"
+      ],
+      "path_titles": [
+        "Violence",
+        "Objectionable, Disturbing, or Scary"
+      ]
+    },
+    {
+      "category_id": 33,
+      "default_type": "audiovisual",
+      "display_title": "Opening Credits",
+      "example_description": null,
+      "key": "opening_credits",
+      "mapped_category": null,
+      "path_keys": [
+        "credits",
+        "opening_credits"
+      ],
+      "path_titles": [
+        "Credits & Extras",
+        "Opening Credits"
+      ]
+    },
+    {
+      "category_id": 131,
+      "default_type": "audio",
+      "display_title": "*rg*sm",
+      "example_description": null,
+      "key": "orgasm",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "orgasm"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "*rg*sm"
+      ]
+    },
+    {
+      "category_id": 83,
+      "default_type": "audio",
+      "display_title": "other",
+      "example_description": "h*ll",
+      "key": "other_blasphemy",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "blasphemy",
+        "other_blasphemy"
+      ],
+      "path_titles": [
+        "Language",
+        "Blasphemy",
+        "other"
+      ]
+    },
+    {
+      "category_id": 77,
+      "default_type": "audiovisual",
+      "display_title": "other",
+      "example_description": "d*ck",
+      "key": "other_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "other_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "other"
+      ]
+    },
+    {
+      "category_id": 89,
+      "default_type": "audio",
+      "display_title": "other",
+      "example_description": "A man talks about another man's foreskin.",
+      "key": "other_childish",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_childish",
+        "other_childish"
+      ],
+      "path_titles": [
+        "Language",
+        "Childish Language",
+        "other"
+      ]
+    },
+    {
+      "category_id": 64,
+      "default_type": "audio",
+      "display_title": "other",
+      "example_description": "scr*w w*th",
+      "key": "other_profanity",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "other_profanity"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "other"
+      ]
+    },
+    {
+      "category_id": 101,
+      "default_type": "audio",
+      "display_title": "other",
+      "example_description": "l*m*y",
+      "key": "other_racial",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "other_racial"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "other"
+      ]
+    },
+    {
+      "category_id": 150,
+      "default_type": "audio",
+      "display_title": "other",
+      "example_description": "A man makes a reference to sex.",
+      "key": "other_sexual",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "other_sexual"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "other"
+      ]
+    },
+    {
+      "category_id": 35,
+      "default_type": "audiovisual",
+      "display_title": "Episode Recap/Outtakes",
+      "example_description": "Previous Episode",
+      "key": "outtakes",
+      "mapped_category": null,
+      "path_keys": [
+        "credits",
+        "outtakes"
+      ],
+      "path_titles": [
+        "Credits & Extras",
+        "Episode Recap/Outtakes"
+      ]
+    },
+    {
+      "category_id": 132,
+      "default_type": "audio",
+      "display_title": "p*cker",
+      "example_description": null,
+      "key": "pecker",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "pecker"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "p*cker"
+      ]
+    },
+    {
+      "category_id": 133,
+      "default_type": "audio",
+      "display_title": "p*n*s",
+      "example_description": null,
+      "key": "penis",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "penis"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "p*n*s"
+      ]
+    },
+    {
+      "category_id": 98,
+      "default_type": "audio",
+      "display_title": "p*ll*ck",
+      "example_description": null,
+      "key": "pollock",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "pollock"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "p*ll*ck"
+      ]
+    },
+    {
+      "category_id": 134,
+      "default_type": "audio",
+      "display_title": "p*rn",
+      "example_description": null,
+      "key": "porn",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "porn"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "p*rn"
+      ]
+    },
+    {
+      "category_id": 135,
+      "default_type": "audio",
+      "display_title": "pr*ck",
+      "example_description": null,
+      "key": "prick",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "prick"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "pr*ck"
+      ]
+    },
+    {
+      "category_id": 136,
+      "default_type": "audio",
+      "display_title": "p*ss",
+      "example_description": "A teenage girl says if she reaches a certain number she will show her p*ss.",
+      "key": "puss",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "puss"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "p*ss"
+      ]
+    },
+    {
+      "category_id": 137,
+      "default_type": "audio",
+      "display_title": "p*ssy",
+      "example_description": null,
+      "key": "pussy",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "pussy"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "p*ssy"
+      ]
+    },
+    {
+      "category_id": 138,
+      "default_type": "audio",
+      "display_title": "qu**r",
+      "example_description": null,
+      "key": "queer",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "queer"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "qu**r"
+      ]
+    },
+    {
+      "category_id": 140,
+      "default_type": "audio",
+      "display_title": "scr*t*m",
+      "example_description": null,
+      "key": "scrotum",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "scrotum"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "scr*t*m"
+      ]
+    },
+    {
+      "category_id": 142,
+      "default_type": "audio",
+      "display_title": "s*x",
+      "example_description": "A woman calls a book sex positive.",
+      "key": "sex",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "sex"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "s*x"
+      ]
+    },
+    {
+      "category_id": 40,
+      "default_type": "audiovisual",
+      "display_title": "Sexual Assault",
+      "example_description": "A man uses a reference to sexual assault.",
+      "key": "sexual_assault",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "sex_any",
+        "sexual_assault"
+      ],
+      "path_titles": [
+        "Sex",
+        "Sexual Assault"
+      ]
+    },
+    {
+      "category_id": 104,
+      "default_type": "audio",
+      "display_title": "A man makes a sexual remark to a man.",
+      "example_description": null,
+      "key": "sexual_remark_m2m",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "sexual_remark_m2m"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "A man makes a sexual remark to a man."
+      ]
+    },
+    {
+      "category_id": 105,
+      "default_type": "audio",
+      "display_title": "A man makes a sexual remark to a woman.",
+      "example_description": null,
+      "key": "sexual_remark_m2w",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "sexual_remark_m2w"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "A man makes a sexual remark to a woman."
+      ]
+    },
+    {
+      "category_id": 103,
+      "default_type": "audio",
+      "display_title": "A woman makes a sexual remark to a man.",
+      "example_description": null,
+      "key": "sexual_remark_w2m",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "sexual_remark_w2m"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "A woman makes a sexual remark to a man."
+      ]
+    },
+    {
+      "category_id": 102,
+      "default_type": "audio",
+      "display_title": "A woman makes a sexual remark to a woman.",
+      "example_description": null,
+      "key": "sexual_remark_w2w",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "sexual_remark_w2w"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "A woman makes a sexual remark to a woman."
+      ]
+    },
+    {
+      "category_id": 36,
+      "default_type": "audiovisual",
+      "display_title": "Sexually Suggestive",
+      "example_description": "A man caresses a woman's arm.",
+      "key": "sexually_suggestive",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "sex_any",
+        "sexually_suggestive"
+      ],
+      "path_titles": [
+        "Sex",
+        "Sexually Suggestive"
+      ]
+    },
+    {
+      "category_id": 63,
+      "default_type": "audio",
+      "display_title": "sh*t",
+      "example_description": "Sh*t",
+      "key": "shit",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity",
+        "shit"
+      ],
+      "path_titles": [
+        "Language",
+        "Profanity",
+        "sh*t"
+      ]
+    },
+    {
+      "category_id": 76,
+      "default_type": "audiovisual",
+      "display_title": "sh*t",
+      "example_description": null,
+      "key": "shit_caption",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "profanity_captions",
+        "shit_caption"
+      ],
+      "path_titles": [
+        "Language",
+        "Captions with Profanity",
+        "sh*t"
+      ]
+    },
+    {
+      "category_id": 39,
+      "default_type": "audiovisual",
+      "display_title": "Sex with Nudity",
+      "example_description": "The side of a teeange girl's breast can be seen as she has sex with a teenage boy.",
+      "key": "shown_w_nudity",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_any",
+        "shown_w_nudity"
+      ],
+      "path_titles": [
+        "Sex",
+        "Sex with Nudity"
+      ]
+    },
+    {
+      "category_id": 38,
+      "default_type": "audiovisual",
+      "display_title": "Sex without Nudity",
+      "example_description": "A teenage boy and a teenage girl are shown as they have sex.",
+      "key": "shown_w_o_nudity",
+      "mapped_category": "nudity",
+      "path_keys": [
+        "sex_any",
+        "shown_w_o_nudity"
+      ],
+      "path_titles": [
+        "Sex",
+        "Sex without Nudity"
+      ]
+    },
+    {
+      "category_id": 143,
+      "default_type": "audio",
+      "display_title": "sl*t",
+      "example_description": "A woman uses a derogatory sexual term.",
+      "key": "slut",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "slut"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "sl*t"
+      ]
+    },
+    {
+      "category_id": 88,
+      "default_type": "audio",
+      "display_title": "st*pid",
+      "example_description": null,
+      "key": "stupid",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_childish",
+        "stupid"
+      ],
+      "path_titles": [
+        "Language",
+        "Childish Language",
+        "st*pid"
+      ]
+    },
+    {
+      "category_id": 145,
+      "default_type": "audio",
+      "display_title": "t*st*cl*",
+      "example_description": null,
+      "key": "testicle",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "testicle"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "t*st*cl*"
+      ]
+    },
+    {
+      "category_id": 144,
+      "default_type": "audio",
+      "display_title": "t*t",
+      "example_description": null,
+      "key": "tit",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "tit"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "t*t"
+      ]
+    },
+    {
+      "category_id": 146,
+      "default_type": "audio",
+      "display_title": "tw*t",
+      "example_description": null,
+      "key": "twat",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "twat"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "tw*t"
+      ]
+    },
+    {
+      "category_id": 147,
+      "default_type": "audio",
+      "display_title": "v*gin*",
+      "example_description": null,
+      "key": "vagina",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "vagina"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "v*gin*"
+      ]
+    },
+    {
+      "category_id": 17,
+      "default_type": "audiovisual",
+      "display_title": "Disturbing Images",
+      "example_description": "A dagger is seen protruding from a woman's shoulder.",
+      "key": "violence_images",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "violence_images"
+      ],
+      "path_titles": [
+        "Violence",
+        "Disturbing Images"
+      ]
+    },
+    {
+      "category_id": 25,
+      "default_type": "audiovisual",
+      "display_title": "Vulgar Gestures",
+      "example_description": "A woman makes a vulgar gesture with both hands.",
+      "key": "vulgar_gestures",
+      "mapped_category": "violence",
+      "path_keys": [
+        "violence_blood_gore",
+        "vulgar_gestures"
+      ],
+      "path_titles": [
+        "Violence",
+        "Vulgar Gestures"
+      ]
+    },
+    {
+      "category_id": 148,
+      "default_type": "audio",
+      "display_title": "w*nk",
+      "example_description": "w*nkst**n",
+      "key": "wank",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "wank"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "w*nk"
+      ]
+    },
+    {
+      "category_id": 99,
+      "default_type": "audio",
+      "display_title": "w*tback",
+      "example_description": null,
+      "key": "wetback",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "wetback"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "w*tback"
+      ]
+    },
+    {
+      "category_id": 149,
+      "default_type": "audio",
+      "display_title": "wh*re",
+      "example_description": "A woman says that a man sleeps with a prostitute.",
+      "key": "whore",
+      "mapped_category": "sexual_content",
+      "path_keys": [
+        "language",
+        "language_sexual",
+        "whore"
+      ],
+      "path_titles": [
+        "Language",
+        "Sexual Reference",
+        "wh*re"
+      ]
+    },
+    {
+      "category_id": 100,
+      "default_type": "audio",
+      "display_title": "w*p",
+      "example_description": null,
+      "key": "wop",
+      "mapped_category": "profanity",
+      "path_keys": [
+        "language",
+        "language_racial",
+        "wop"
+      ],
+      "path_titles": [
+        "Language",
+        "Racial & Bigoted Slurs",
+        "w*p"
+      ]
+    }
+  ],
+  "format": "leapfrog.vidangel.tag-definitions/v1"
+}
