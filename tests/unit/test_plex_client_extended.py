@@ -106,6 +106,23 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure():
     assert result is True
 
 
+async def test_seek_falls_back_to_direct_http_on_proxy_failure_for_ipv6_client():
+    seen_hosts: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_hosts.append(req.url.host)
+        return httpx.Response(200, content=b"ok")
+
+    transport = httpx.MockTransport(handler)
+    c = _make_client(seek_transport=transport)
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+        result = await c.seek("client-id", 30000, client_address="2600:1702:8190:4db0::1b", client_port=32500)
+
+    assert result is True
+    assert seen_hosts == ["2600:1702:8190:4db0::1b"]
+
+
 async def test_seek_records_full_diagnostics_and_redacts_token():
     transport = httpx.MockTransport(lambda req: httpx.Response(401, content=b"unauthorized"))
     c = _make_client(seek_transport=transport)
@@ -152,6 +169,22 @@ async def test_seek_returns_false_when_no_client_address_and_proxy_fails():
     with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
         result = await c.seek("client-id", 30000, client_address="")
     assert result is False
+
+
+async def test_seek_returns_false_without_direct_attempt_for_loopback_client_address():
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=b"ok"))
+    c = _make_client(seek_transport=transport)
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+        result = await c.seek("client-id", 30000, client_address="127.0.0.1", client_port=32500)
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is False
+    assert diagnostics is not None
+    assert len(diagnostics["attempts"]) == 2
+    assert diagnostics["attempts"][0]["method"] == "proxy"
+    assert diagnostics["attempts"][1]["method"] == "direct"
+    assert "loopback address" in diagnostics["attempts"][1]["detail"]
 
 
 async def test_seek_returns_false_when_all_variants_fail():

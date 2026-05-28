@@ -96,6 +96,18 @@ class PlexClient:
     def _record_seek_success(self) -> None:
         self._last_seek_success_at = datetime.now().isoformat(timespec="seconds")
 
+    @staticmethod
+    def _is_loopback_client_address(client_address: str) -> bool:
+        normalized = (client_address or "").strip().lower().strip("[]")
+        return normalized == "localhost" or normalized == "::1" or normalized.startswith("127.")
+
+    @staticmethod
+    def _format_client_address_for_url(client_address: str) -> str:
+        normalized = (client_address or "").strip()
+        if ":" in normalized and not normalized.startswith("["):
+            return f"[{normalized}]"
+        return normalized
+
     def _start_seek_diagnostics(self, *, client_identifier: str, offset_ms: int) -> dict[str, Any]:
         self._last_seek_diagnostics = {
             "started_at": datetime.now().isoformat(timespec="seconds"),
@@ -315,14 +327,34 @@ class PlexClient:
             )
             return False
 
+        if self._is_loopback_client_address(client_address):
+            detail = f"Client reported loopback address {client_address!r}; direct seek fallback is impossible from the server host"
+            logger.warning("%s (client=%s)", detail, client_identifier)
+            self._record_seek_attempt(
+                method="direct",
+                ok=False,
+                detail=detail,
+                client_address=client_address,
+                client_port=client_port,
+            )
+            self._record_seek_failure(
+                method="direct",
+                client_identifier=client_identifier,
+                detail=detail,
+                client_address=client_address,
+                client_port=client_port,
+            )
+            return False
+
         ports = [client_port, 32500, 3005]
         seen: set[int] = set()
         for port in ports:
             if port in seen:
                 continue
             seen.add(port)
+            url_host = self._format_client_address_for_url(client_address)
             base = (
-                f"http://{client_address}:{port}/player/playback/seekTo"
+                f"http://{url_host}:{port}/player/playback/seekTo"
                 f"?offset={offset_ms}"
                 f"&type=video"
                 f"&commandID={command_id}"
