@@ -108,6 +108,11 @@ class PlexClient:
             return f"[{normalized}]"
         return normalized
 
+    @staticmethod
+    def _is_browser_client_title(client_title: str) -> bool:
+        normalized = (client_title or "").strip().lower()
+        return normalized in {"chrome", "firefox", "safari", "edge", "opera", "brave", "plex web"}
+
     def _start_seek_diagnostics(self, *, client_identifier: str, offset_ms: int) -> dict[str, Any]:
         self._last_seek_diagnostics = {
             "started_at": datetime.now().isoformat(timespec="seconds"),
@@ -280,7 +285,14 @@ class PlexClient:
 
     # ── Seek ──────────────────────────────────────────────────────────────────
 
-    async def seek(self, client_identifier: str, offset_ms: int, client_address: str = "", client_port: int = 32500) -> bool:
+    async def seek(
+        self,
+        client_identifier: str,
+        offset_ms: int,
+        client_address: str = "",
+        client_port: int = 32500,
+        client_title: str = "",
+    ) -> bool:
         """Seek via server proxy first, then try direct client control as fallback."""
         command_id = self._next_command_id()
         self._start_seek_diagnostics(client_identifier=client_identifier, offset_ms=offset_ms)
@@ -313,6 +325,61 @@ class PlexClient:
                 detail=str(exc),
             )
 
+        legacy_proxy_url = (
+            f"{self.url}/player/playback/seekTo"
+            f"?offset={offset_ms}"
+            f"&clientIdentifier={client_identifier}"
+            f"&type=video"
+            f"&commandID={command_id}"
+            f"&X-Plex-Token={self.token}"
+        )
+        try:
+            legacy_resp = await self._http.get(legacy_proxy_url)
+            if legacy_resp.status_code < 300:
+                logger.info("Seeked client %s to %dms via legacy PMS proxy", client_identifier, offset_ms)
+                self._record_seek_attempt(
+                    method="proxy_legacy",
+                    ok=True,
+                    target=legacy_proxy_url,
+                    detail="Legacy PMS proxy seek accepted",
+                    status_code=legacy_resp.status_code,
+                )
+                self._record_seek_success()
+                return True
+            detail = legacy_resp.text[:500] or f"HTTP {legacy_resp.status_code}"
+            logger.warning(
+                "Legacy proxy seek HTTP %d for %s: %s",
+                legacy_resp.status_code,
+                client_identifier,
+                detail,
+            )
+            self._record_seek_attempt(
+                method="proxy_legacy",
+                ok=False,
+                target=legacy_proxy_url,
+                detail=detail,
+                status_code=legacy_resp.status_code,
+            )
+            self._record_seek_failure(
+                method="proxy_legacy",
+                client_identifier=client_identifier,
+                detail=detail,
+                status_code=legacy_resp.status_code,
+            )
+        except Exception as exc:
+            logger.warning("Legacy proxy seek failed for %s: %s", client_identifier, exc)
+            self._record_seek_attempt(
+                method="proxy_legacy",
+                ok=False,
+                target=legacy_proxy_url,
+                detail=str(exc),
+            )
+            self._record_seek_failure(
+                method="proxy_legacy",
+                client_identifier=client_identifier,
+                detail=str(exc),
+            )
+
         if not client_address:
             logger.warning("No client_address available for direct seek fallback (client=%s)", client_identifier)
             self._record_seek_attempt(
@@ -324,6 +391,25 @@ class PlexClient:
                 method="direct",
                 client_identifier=client_identifier,
                 detail="No client_address available for direct seek fallback",
+            )
+            return False
+
+        if self._is_browser_client_title(client_title):
+            detail = f"Client {client_title!r} is a web-browser session and does not expose a direct playback-control endpoint"
+            logger.warning("%s (client=%s)", detail, client_identifier)
+            self._record_seek_attempt(
+                method="direct",
+                ok=False,
+                detail=detail,
+                client_address=client_address,
+                client_port=client_port,
+            )
+            self._record_seek_failure(
+                method="direct",
+                client_identifier=client_identifier,
+                detail=detail,
+                client_address=client_address,
+                client_port=client_port,
             )
             return False
 
@@ -447,6 +533,7 @@ class PlexClient:
                         variant=idx,
                     )
                 except Exception as exc:
+                    is_connection_failure = isinstance(exc, httpx.ConnectError) or "All connection attempts failed" in str(exc)
                     logger.warning(
                         "Direct seek failed for client %s at %s:%d (variant=%d): %s",
                         client_identifier,
@@ -472,6 +559,9 @@ class PlexClient:
                         client_port=port,
                         variant=idx,
                     )
+                    if is_connection_failure:
+                        # Header/token variants cannot recover a dead TCP endpoint on the same port.
+                        break
 
         return False
 

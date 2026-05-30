@@ -106,11 +106,34 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure():
     assert result is True
 
 
+async def test_seek_succeeds_via_legacy_proxy_when_primary_proxy_fails():
+    seen_urls: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(req.url))
+        return httpx.Response(200, content=b"ok")
+
+    transport = httpx.MockTransport(handler)
+    c = _make_client(seek_transport=transport)
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+        result = await c.seek("client-id", 30000)
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is True
+    assert diagnostics is not None
+    assert diagnostics["attempts"][0]["method"] == "proxy"
+    assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
+    assert any("clientIdentifier=client-id" in url for url in seen_urls)
+
+
 async def test_seek_falls_back_to_direct_http_on_proxy_failure_for_ipv6_client():
     seen_hosts: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen_hosts.append(req.url.host)
+        if req.url.host == "plex":
+            return httpx.Response(404, content=b"not found")
         return httpx.Response(200, content=b"ok")
 
     transport = httpx.MockTransport(handler)
@@ -120,7 +143,7 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure_for_ipv6_client()
         result = await c.seek("client-id", 30000, client_address="2600:1702:8190:4db0::1b", client_port=32500)
 
     assert result is True
-    assert seen_hosts == ["2600:1702:8190:4db0::1b"]
+    assert seen_hosts == ["plex", "2600:1702:8190:4db0::1b"]
 
 
 async def test_seek_records_full_diagnostics_and_redacts_token():
@@ -172,7 +195,7 @@ async def test_seek_returns_false_when_no_client_address_and_proxy_fails():
 
 
 async def test_seek_returns_false_without_direct_attempt_for_loopback_client_address():
-    transport = httpx.MockTransport(lambda req: httpx.Response(200, content=b"ok"))
+    transport = httpx.MockTransport(lambda req: httpx.Response(404, content=b"not found"))
     c = _make_client(seek_transport=transport)
 
     with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
@@ -181,10 +204,33 @@ async def test_seek_returns_false_without_direct_attempt_for_loopback_client_add
     diagnostics = c.get_last_seek_diagnostics()
     assert result is False
     assert diagnostics is not None
-    assert len(diagnostics["attempts"]) == 2
+    assert len(diagnostics["attempts"]) == 3
     assert diagnostics["attempts"][0]["method"] == "proxy"
-    assert diagnostics["attempts"][1]["method"] == "direct"
-    assert "loopback address" in diagnostics["attempts"][1]["detail"]
+    assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
+    assert diagnostics["attempts"][2]["method"] == "direct"
+    assert "loopback address" in diagnostics["attempts"][2]["detail"]
+
+
+async def test_seek_returns_false_without_direct_attempt_for_browser_client():
+    transport = httpx.MockTransport(lambda req: httpx.Response(404, content=b"not found"))
+    c = _make_client(seek_transport=transport)
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+        result = await c.seek(
+            "client-id",
+            30000,
+            client_address="2600:1702:8190:4db0::1b",
+            client_port=32500,
+            client_title="Chrome",
+        )
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is False
+    assert diagnostics is not None
+    assert len(diagnostics["attempts"]) == 3
+    assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
+    assert diagnostics["attempts"][2]["method"] == "direct"
+    assert "web-browser session" in diagnostics["attempts"][2]["detail"]
 
 
 async def test_seek_returns_false_when_all_variants_fail():
@@ -193,6 +239,19 @@ async def test_seek_returns_false_when_all_variants_fail():
     with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10")
     assert result is False
+
+
+async def test_seek_stops_retrying_variants_after_connection_failure_on_same_port():
+    c = _make_client()
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+        result = await c.seek("client-id", 30000, client_address="192.168.1.10", client_port=32500)
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is False
+    assert diagnostics is not None
+    direct_attempts = [attempt for attempt in diagnostics["attempts"] if attempt["method"] == "direct"]
+    assert len(direct_attempts) == 2
+    assert [attempt["client_port"] for attempt in direct_attempts] == [32500, 3005]
 
 
 # ── get_library_sections ──────────────────────────────────────────────────────

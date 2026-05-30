@@ -147,6 +147,7 @@ async def process(
                 seek_target,
                 session.client_address,
                 session.client_port,
+                session.client_title,
             )
             await _record_skip_event(
                 session,
