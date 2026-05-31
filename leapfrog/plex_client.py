@@ -325,12 +325,12 @@ class PlexClient:
                 detail=str(exc),
             )
 
+        legacy_command_id = int(time.time())
         legacy_proxy_url = (
             f"{self.url}/player/playback/seekTo"
             f"?offset={offset_ms}"
             f"&clientIdentifier={client_identifier}"
-            f"&type=video"
-            f"&commandID={command_id}"
+            f"&commandID={legacy_command_id}"
             f"&X-Plex-Token={self.token}"
         )
         try:

@@ -125,6 +125,7 @@ async def test_seek_succeeds_via_legacy_proxy_when_primary_proxy_fails():
     assert diagnostics["attempts"][0]["method"] == "proxy"
     assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
     assert any("clientIdentifier=client-id" in url for url in seen_urls)
+    assert all("type=video" not in url for url in seen_urls if "clientIdentifier=client-id" in url)
 
 
 async def test_seek_falls_back_to_direct_http_on_proxy_failure_for_ipv6_client():

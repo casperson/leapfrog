@@ -257,6 +257,112 @@ That means the current workflow is:
 
 Once the sidecar is adjacent to the local media file, Leapfrog will use it during playback and apply the current user's category and label preferences before deciding whether to skip.
 
+### Convert external timestamp files
+
+Leapfrog can convert external timestamp files into portable `.leapfrog.json` sidecars and export existing sidecars back into `.skp` text.
+
+#### Supported import inputs
+
+- `.skp` timestamp files
+- plain text timestamp lists
+- HTML pages that contain visible timestamp blocks
+
+#### Convert `.skp` into a Leapfrog sidecar
+
+```bash
+.venv/bin/python -m leapfrog.skip_file_converter \
+  to-sidecar \
+  --input /path/to/Fight_Club_1999_local_faselhdwatch-local.skp \
+  --input-format skp \
+  --output /path/to/Fight_Club.leapfrog.json \
+  --title "Fight Club" \
+  --media-id "fight-club" \
+  --category sex_nudity_immodesty \
+  --source skp_import
+```
+
+#### Convert plain text or HTML timestamps into a Leapfrog sidecar
+
+```bash
+.venv/bin/python -m leapfrog.skip_file_converter \
+  to-sidecar \
+  --input /path/to/timestamps.txt \
+  --input-format text \
+  --output /path/to/Book_of_Eli.leapfrog.json \
+  --title "The Book of Eli" \
+  --category sex_nudity_immodesty \
+  --source timestamp_text
+```
+
+```bash
+.venv/bin/python -m leapfrog.skip_file_converter \
+  to-sidecar \
+  --input /path/to/page.html \
+  --input-format html \
+  --output /path/to/Book_of_Eli.leapfrog.json \
+  --title "The Book of Eli" \
+  --category sex_nudity_immodesty \
+  --source timestamp_html
+```
+
+#### Fetch a URL directly and try to parse it as timestamp text or HTML
+
+```bash
+.venv/bin/python -m leapfrog.skip_file_converter \
+  to-sidecar \
+  --url "https://buymeacoffee.com/thetimestampdudes/timestamps-skip-the-book-eli-2010" \
+  --input-format html \
+  --output /path/to/Book_of_Eli.leapfrog.json \
+  --title "The Book of Eli" \
+  --category sex_nudity_immodesty \
+  --source timestamp_url
+```
+
+Note: some pages, including BuyMeACoffee posts, may not expose the useful timestamp content in fetchable HTML. In those cases, save the page or copied timestamps locally and use `--input` instead of `--url`.
+
+#### Convert an existing Leapfrog sidecar back into `.skp`
+
+```bash
+.venv/bin/python -m leapfrog.skip_file_converter \
+  to-skp \
+  --input /path/to/Fight_Club.leapfrog.json \
+  --output /path/to/Fight_Club.skp \
+  --alignment-json '{"local":0,"faselhdwatch":0}'
+```
+
+The `.skp` export preserves the time blocks and description text. Optional alignment JSON can be appended when you need to keep source-offset metadata in the exported file.
+
+#### Batch-convert a CSV manifest
+
+You can also batch-convert many external timestamp sources at once from a CSV manifest:
+
+```csv
+Title,Input Type,Input,Output,Media Id,Category,Source
+Fight Club,skp,/Users/bcasperson/Downloads/Fight_Club_1999_local_faselhdwatch-local.skp,/Users/bcasperson/dev/leapfrog/vidangel/Fight_Club.leapfrog.json,fight-club,sex_nudity_immodesty,skp_import
+The Book of Eli,text,/Users/bcasperson/Downloads/book_of_eli_timestamps.txt,/Users/bcasperson/dev/leapfrog/vidangel/Book_of_Eli.leapfrog.json,the-book-of-eli,sex_nudity_immodesty,timestamp_text
+```
+
+Supported `Input Type` values are:
+
+- `skp`
+- `text`
+- `html`
+- `url`
+
+Run the batch import like this:
+
+```bash
+.venv/bin/python -m leapfrog.skip_file_converter \
+  batch-to-sidecar \
+  --manifest /path/to/manifest.csv
+```
+
+A starter template with one example row is checked in at:
+
+- [docs/skip_manifest.example.csv](/Users/bcasperson/dev/leapfrog/docs/skip_manifest.example.csv)
+
+Each row writes one `.leapfrog.json` sidecar to the `Output` path. The command prints one `OK` or `ERROR` line per row and exits non-zero if any row fails.
+
 #### `vidangel_sidecars` command reference
 
 To generate sidecars only for titles in your local Plex library, run:
