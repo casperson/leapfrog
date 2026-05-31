@@ -248,6 +248,30 @@ class PlexClient:
             })
         return result
 
+    async def compare_session_to_companion(self, session: ActiveSession) -> dict[str, Any]:
+        """Return one session alongside the discovered Companion client that matches it."""
+        clients = await self.list_companion_clients()
+        matched = next(
+            (client for client in clients if client.get("machine_identifier") == session.client_identifier),
+            None,
+        )
+        return {
+            "session": {
+                "session_key": session.session_key,
+                "title": session.full_title,
+                "user": session.user,
+                "client": session.client_title,
+                "client_identifier": session.client_identifier,
+                "client_address": session.client_address,
+                "client_port": session.client_port,
+                "is_controllable": session.is_controllable,
+                "position_ms": session.position_ms,
+                "rating_key": session.rating_key,
+            },
+            "matched_companion_client": matched,
+            "companion_clients": clients,
+        }
+
     def _get_server(self) -> PlexServer:
         if self._server is None:
             self._server = PlexServer(self.url, self.token)

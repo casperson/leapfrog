@@ -197,6 +197,24 @@ async def test_get_companion_clients_returns_discovered_client_list(http_client)
     mock_client.list_companion_clients.assert_awaited_once()
 
 
+async def test_get_session_companion_compare_returns_session_and_match(http_client):
+    sessions = [_active_session(session_key="s1")]
+    mock_client = make_mock_plex_client(sessions=sessions)
+    mock_client.compare_session_to_companion = AsyncMock(return_value={
+        "session": {"session_key": "s1", "client_identifier": "client-1"},
+        "matched_companion_client": {"machine_identifier": "client-1", "baseurl": "http://192.168.1.100:32500"},
+        "companion_clients": [{"machine_identifier": "client-1"}],
+    })
+
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+        resp = await http_client.get("/api/sessions/s1/companion-compare")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["matched_companion_client"]["machine_identifier"] == "client-1"
+    mock_client.compare_session_to_companion.assert_awaited_once()
+
+
 async def test_probe_session_seek_returns_probe_payload(http_client):
     sessions = [_active_session(session_key="s1", position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions)

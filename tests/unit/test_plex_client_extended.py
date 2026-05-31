@@ -116,6 +116,46 @@ async def test_list_companion_clients_returns_discovered_clients():
     }]
 
 
+async def test_compare_session_to_companion_returns_matching_client_and_full_list():
+    c = _make_client()
+    session = ActiveSession(
+        session_key="s1",
+        user="alice",
+        title="Movie",
+        full_title="Movie",
+        plex_guid="guid://1",
+        rating_key="10",
+        media_type="movie",
+        position_ms=5000,
+        duration_ms=10000,
+        client_identifier="client-1",
+        client_title="Apple TV",
+        is_controllable=True,
+        client_address="192.168.1.100",
+        client_port=32500,
+    )
+
+    with patch.object(c, "list_companion_clients", new=AsyncMock(return_value=[
+        {
+            "title": "Apple TV",
+            "machine_identifier": "client-1",
+            "product": "Plex for Apple TV",
+            "baseurl": "http://192.168.1.100:32500",
+        },
+        {
+            "title": "iPhone",
+            "machine_identifier": "client-2",
+            "product": "Plex for iOS",
+            "baseurl": "http://192.168.1.104:32500",
+        },
+    ])):
+        result = await c.compare_session_to_companion(session)
+
+    assert result["session"]["session_key"] == "s1"
+    assert result["matched_companion_client"]["machine_identifier"] == "client-1"
+    assert len(result["companion_clients"]) == 2
+
+
 # ── seek ──────────────────────────────────────────────────────────────────────
 
 async def test_seek_success_via_server_proxy():

@@ -201,6 +201,22 @@ async def get_companion_clients():
     }
 
 
+@router.get("/{session_key}/companion-compare")
+async def get_session_companion_compare(session_key: str):
+    """Return one active session next to its matched Companion client advertisement."""
+    try:
+        client = plex_mod.get_client()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Plex not configured")
+
+    sessions = await client.get_active_sessions()
+    session = next((s for s in sessions if s.session_key == session_key), None)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Active session not found")
+
+    return await client.compare_session_to_companion(session)
+
+
 @router.post("/{session_key}/probe-seek")
 async def probe_session_seek(session_key: str, payload: SeekProbeRequest):
     """Run a manual seek probe against one active session and return diagnostics."""
