@@ -172,6 +172,43 @@ class PlexClient:
             "detail": detail,
         }
 
+    async def _resolve_companion_client(self, client_identifier: str) -> tuple[Any | None, str]:
+        """Return a discovered plexapi client and a short diagnostics summary."""
+        try:
+            srv = await asyncio.to_thread(self._get_server)
+            clients = await asyncio.to_thread(srv.clients)
+        except Exception as exc:
+            return None, f"Companion discovery failed: {exc}"
+
+        for client in clients:
+            if getattr(client, "machineIdentifier", "") != client_identifier:
+                continue
+            capabilities = ",".join(getattr(client, "protocolCapabilities", []) or [])
+            baseurl = getattr(client, "_baseurl", "") or getattr(client, "address", "") or ""
+            product = getattr(client, "product", "") or getattr(client, "title", "") or "unknown"
+            detail = f"baseurl={baseurl or '<unknown>'}; product={product}; capabilities={capabilities or '<none>'}"
+            return client, detail
+        return None, "Companion client not found in /clients discovery list"
+
+    async def _seek_via_companion_client_proxy(self, client: Any, offset_ms: int) -> tuple[bool, str]:
+        """Try PMS-proxied seek using a discovered plexapi client."""
+        try:
+            await asyncio.to_thread(client.proxyThroughServer, True)
+            await asyncio.to_thread(client.seekTo, offset_ms)
+            return True, "Discovered Companion client proxy seek accepted"
+        except Exception as exc:
+            return False, str(exc)
+
+    async def _seek_via_companion_client_direct(self, client: Any, offset_ms: int) -> tuple[bool, str]:
+        """Try direct seek using a discovered plexapi client base URL."""
+        try:
+            await asyncio.to_thread(client.proxyThroughServer, False)
+            await asyncio.to_thread(client.connect)
+            await asyncio.to_thread(client.seekTo, offset_ms)
+            return True, "Discovered Companion client direct seek accepted"
+        except Exception as exc:
+            return False, str(exc)
+
     def get_last_seek_success_at(self) -> str | None:
         return self._last_seek_success_at
 
@@ -330,6 +367,67 @@ class PlexClient:
                 method="proxy",
                 client_identifier=client_identifier,
                 detail=str(exc),
+            )
+
+        discovered_client, discovery_detail = await self._resolve_companion_client(client_identifier)
+        if discovered_client is not None:
+            ok, detail = await self._seek_via_companion_client_proxy(discovered_client, offset_ms)
+            if ok:
+                logger.info("Seeked client %s to %dms via discovered Companion proxy (%s)", client_identifier, offset_ms, discovery_detail)
+                self._record_seek_attempt(
+                    method="companion_proxy",
+                    ok=True,
+                    detail=f"{detail}; {discovery_detail}",
+                )
+                self._record_seek_success()
+                return True
+            logger.warning("Discovered Companion proxy seek failed for %s: %s (%s)", client_identifier, detail, discovery_detail)
+            self._record_seek_attempt(
+                method="companion_proxy",
+                ok=False,
+                detail=f"{detail}; {discovery_detail}",
+            )
+            self._record_seek_failure(
+                method="companion_proxy",
+                client_identifier=client_identifier,
+                detail=f"{detail}; {discovery_detail}",
+            )
+
+            ok, detail = await self._seek_via_companion_client_direct(discovered_client, offset_ms)
+            discovered_baseurl = getattr(discovered_client, "_baseurl", "") or ""
+            if ok:
+                logger.info("Seeked client %s to %dms via discovered Companion direct transport (%s)", client_identifier, offset_ms, discovered_baseurl or discovery_detail)
+                self._record_seek_attempt(
+                    method="companion_direct",
+                    ok=True,
+                    target=discovered_baseurl,
+                    detail=f"{detail}; {discovery_detail}",
+                )
+                self._record_seek_success()
+                return True
+            logger.warning("Discovered Companion direct seek failed for %s: %s (%s)", client_identifier, detail, discovery_detail)
+            self._record_seek_attempt(
+                method="companion_direct",
+                ok=False,
+                target=discovered_baseurl,
+                detail=f"{detail}; {discovery_detail}",
+            )
+            self._record_seek_failure(
+                method="companion_direct",
+                client_identifier=client_identifier,
+                detail=f"{detail}; {discovery_detail}",
+            )
+        else:
+            logger.warning("Companion discovery did not resolve client %s: %s", client_identifier, discovery_detail)
+            self._record_seek_attempt(
+                method="companion_discovery",
+                ok=False,
+                detail=discovery_detail,
+            )
+            self._record_seek_failure(
+                method="companion_discovery",
+                client_identifier=client_identifier,
+                detail=discovery_detail,
             )
 
         legacy_command_id = int(time.time())

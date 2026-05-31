@@ -96,11 +96,53 @@ async def test_seek_success_via_server_proxy():
     assert result is True
 
 
+async def test_seek_succeeds_via_discovered_companion_proxy_after_primary_proxy_failure():
+    c = _make_client()
+
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(MagicMock(), "baseurl=http://client:32500; product=Plex for iOS; capabilities=playback,timeline"))),
+        patch.object(c, "_seek_via_companion_client_proxy", new=AsyncMock(return_value=(True, "Discovered Companion client proxy seek accepted"))),
+    ):
+        result = await c.seek("client-id", 30000)
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is True
+    assert diagnostics is not None
+    assert diagnostics["attempts"][0]["method"] == "proxy"
+    assert diagnostics["attempts"][1]["method"] == "companion_proxy"
+    assert diagnostics["attempts"][1]["ok"] is True
+
+
+async def test_seek_succeeds_via_discovered_companion_direct_after_proxy_failures():
+    c = _make_client()
+    discovered_client = MagicMock()
+    discovered_client._baseurl = "http://client:32500"
+
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(discovered_client, "baseurl=http://client:32500; product=Plex for iOS; capabilities=playback,timeline"))),
+        patch.object(c, "_seek_via_companion_client_proxy", new=AsyncMock(return_value=(False, "proxy companion failed"))),
+        patch.object(c, "_seek_via_companion_client_direct", new=AsyncMock(return_value=(True, "Discovered Companion client direct seek accepted"))),
+    ):
+        result = await c.seek("client-id", 30000)
+
+    diagnostics = c.get_last_seek_diagnostics()
+    assert result is True
+    assert diagnostics is not None
+    assert diagnostics["attempts"][1]["method"] == "companion_proxy"
+    assert diagnostics["attempts"][2]["method"] == "companion_direct"
+    assert diagnostics["attempts"][2]["ok"] is True
+
+
 async def test_seek_falls_back_to_direct_http_on_proxy_failure():
     transport = httpx.MockTransport(lambda req: httpx.Response(200, content=b"ok"))
     c = _make_client(seek_transport=transport)
 
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10", client_port=32500)
 
     assert result is True
@@ -116,14 +158,18 @@ async def test_seek_succeeds_via_legacy_proxy_when_primary_proxy_fails():
     transport = httpx.MockTransport(handler)
     c = _make_client(seek_transport=transport)
 
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000)
 
     diagnostics = c.get_last_seek_diagnostics()
     assert result is True
     assert diagnostics is not None
     assert diagnostics["attempts"][0]["method"] == "proxy"
-    assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
+    assert diagnostics["attempts"][1]["method"] == "companion_discovery"
+    assert diagnostics["attempts"][2]["method"] == "proxy_legacy"
     assert any("clientIdentifier=client-id" in url for url in seen_urls)
     assert all("type=video" not in url for url in seen_urls if "clientIdentifier=client-id" in url)
 
@@ -140,7 +186,10 @@ async def test_seek_falls_back_to_direct_http_on_proxy_failure_for_ipv6_client()
     transport = httpx.MockTransport(handler)
     c = _make_client(seek_transport=transport)
 
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="2600:1702:8190:4db0::1b", client_port=32500)
 
     assert result is True
@@ -151,7 +200,10 @@ async def test_seek_records_full_diagnostics_and_redacts_token():
     transport = httpx.MockTransport(lambda req: httpx.Response(401, content=b"unauthorized"))
     c = _make_client(seek_transport=transport)
 
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10", client_port=32500)
 
     diagnostics = c.get_last_seek_diagnostics()
@@ -159,7 +211,7 @@ async def test_seek_records_full_diagnostics_and_redacts_token():
     assert diagnostics is not None
     assert diagnostics["success"] is False
     assert diagnostics["offset_ms"] == 30000
-    assert len(diagnostics["attempts"]) >= 2
+    assert len(diagnostics["attempts"]) >= 3
     assert diagnostics["attempts"][0]["method"] == "proxy"
     assert diagnostics["attempts"][-1]["status_code"] == 401
     targets = [attempt["target"] for attempt in diagnostics["attempts"]]
@@ -190,7 +242,10 @@ async def test_seek_uses_unique_command_ids():
 
 async def test_seek_returns_false_when_no_client_address_and_proxy_fails():
     c = _make_client()
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="")
     assert result is False
 
@@ -199,24 +254,31 @@ async def test_seek_returns_false_without_direct_attempt_for_loopback_client_add
     transport = httpx.MockTransport(lambda req: httpx.Response(404, content=b"not found"))
     c = _make_client(seek_transport=transport)
 
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="127.0.0.1", client_port=32500)
 
     diagnostics = c.get_last_seek_diagnostics()
     assert result is False
     assert diagnostics is not None
-    assert len(diagnostics["attempts"]) == 3
+    assert len(diagnostics["attempts"]) == 4
     assert diagnostics["attempts"][0]["method"] == "proxy"
-    assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
-    assert diagnostics["attempts"][2]["method"] == "direct"
-    assert "loopback address" in diagnostics["attempts"][2]["detail"]
+    assert diagnostics["attempts"][1]["method"] == "companion_discovery"
+    assert diagnostics["attempts"][2]["method"] == "proxy_legacy"
+    assert diagnostics["attempts"][3]["method"] == "direct"
+    assert "loopback address" in diagnostics["attempts"][3]["detail"]
 
 
 async def test_seek_returns_false_without_direct_attempt_for_browser_client():
     transport = httpx.MockTransport(lambda req: httpx.Response(404, content=b"not found"))
     c = _make_client(seek_transport=transport)
 
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek(
             "client-id",
             30000,
@@ -228,16 +290,20 @@ async def test_seek_returns_false_without_direct_attempt_for_browser_client():
     diagnostics = c.get_last_seek_diagnostics()
     assert result is False
     assert diagnostics is not None
-    assert len(diagnostics["attempts"]) == 3
-    assert diagnostics["attempts"][1]["method"] == "proxy_legacy"
-    assert diagnostics["attempts"][2]["method"] == "direct"
-    assert "web-browser session" in diagnostics["attempts"][2]["detail"]
+    assert len(diagnostics["attempts"]) == 4
+    assert diagnostics["attempts"][1]["method"] == "companion_discovery"
+    assert diagnostics["attempts"][2]["method"] == "proxy_legacy"
+    assert diagnostics["attempts"][3]["method"] == "direct"
+    assert "web-browser session" in diagnostics["attempts"][3]["detail"]
 
 
 async def test_seek_returns_false_when_all_variants_fail():
     transport = httpx.MockTransport(lambda req: httpx.Response(400, content=b"bad"))
     c = _make_client(seek_transport=transport)
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10")
     assert result is False
 
@@ -254,7 +320,10 @@ def test_resolve_probe_offset_uses_positive_delta():
 
 async def test_seek_stops_retrying_variants_after_connection_failure_on_same_port():
     c = _make_client()
-    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):
+    with (
+        patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")),
+        patch.object(c, "_resolve_companion_client", new=AsyncMock(return_value=(None, "Companion client not found in /clients discovery list"))),
+    ):
         result = await c.seek("client-id", 30000, client_address="192.168.1.10", client_port=32500)
 
     diagnostics = c.get_last_seek_diagnostics()
