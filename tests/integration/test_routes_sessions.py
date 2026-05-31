@@ -67,14 +67,14 @@ async def test_get_sessions_returns_session_list(http_client):
 
 
 async def test_get_sessions_filtering_enabled_default_when_no_filter(http_client):
-    """Filtering is ON by default for users with no explicit filter record."""
+    """Category toggles default off until a user explicitly enables them."""
     sessions = [_active_session(user="bob")]
     mock_client = make_mock_plex_client(sessions=sessions)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions")
     result = resp.json()["sessions"]
-    assert result[0]["filtering_enabled"] is True
-    assert result[0]["enabled_categories"] == ["nudity"]
+    assert result[0]["filtering_enabled"] is False
+    assert result[0]["enabled_categories"] == []
 
 
 async def test_get_sessions_filtering_disabled_when_filter_set(http_client):
@@ -121,7 +121,15 @@ async def test_get_skip_events_returns_events(http_client):
 
 
 async def test_get_session_adapter_status_returns_status(http_client):
-    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9)
+    await db.insert_segment(
+        "g1",
+        "Movie",
+        start_ms=30000,
+        end_ms=60000,
+        confidence=0.9,
+        category="sex_nudity_immodesty",
+    )
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=True, threshold=0.5)
     sessions = [_active_session()]
     mock_client = make_mock_plex_client(sessions=sessions)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
@@ -164,6 +172,35 @@ async def test_get_session_seek_diagnostics_returns_404_for_missing_session(http
     mock_client = make_mock_plex_client(sessions=[])
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions/missing/seek-diagnostics")
+
+    assert resp.status_code == 404
+
+
+async def test_probe_session_seek_returns_probe_payload(http_client):
+    sessions = [_active_session(session_key="s1", position_ms=5000)]
+    mock_client = make_mock_plex_client(sessions=sessions)
+    mock_client.probe_seek = AsyncMock(
+        return_value={
+            "session": {"session_key": "s1"},
+            "probe_success": False,
+            "requested_offset_ms": 6500,
+            "last_seek_diagnostics": {"attempts": [{"method": "proxy"}]},
+        }
+    )
+
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+        resp = await http_client.post("/api/sessions/s1/probe-seek", json={"delta_ms": 1500})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["requested_offset_ms"] == 6500
+    mock_client.probe_seek.assert_awaited_once()
+
+
+async def test_probe_session_seek_returns_404_for_missing_session(http_client):
+    mock_client = make_mock_plex_client(sessions=[])
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+        resp = await http_client.post("/api/sessions/missing/probe-seek", json={"delta_ms": 1000})
 
     assert resp.status_code == 404
 
@@ -314,7 +351,15 @@ async def test_skip_session_returns_404_when_no_segments(http_client):
 
 
 async def test_skip_session_seeks_to_next_segment(http_client):
-    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9)
+    await db.insert_segment(
+        "g1",
+        "Movie",
+        start_ms=30000,
+        end_ms=60000,
+        confidence=0.9,
+        category="sex_nudity_immodesty",
+    )
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=True, threshold=0.5)
     sessions = [_active_session(position_ms=10000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
@@ -327,10 +372,10 @@ async def test_skip_session_seeks_to_next_segment(http_client):
 
 
 async def test_skip_session_with_nudity_enabled_only_ignores_other_categories(http_client):
-    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="nudity")
-    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="profanity")
-    await db.set_user_preference("alice", "nudity", enabled=True, threshold=0.5)
-    await db.set_user_preference("alice", "profanity", enabled=False, threshold=0.5)
+    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="sex_nudity_immodesty")
+    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="language_profanity")
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=True, threshold=0.5)
+    await db.set_user_preference("alice", "language_profanity", enabled=False, threshold=0.5)
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
@@ -340,10 +385,10 @@ async def test_skip_session_with_nudity_enabled_only_ignores_other_categories(ht
 
 
 async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_client):
-    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="nudity")
-    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="profanity")
-    await db.set_user_preference("alice", "nudity", enabled=False, threshold=0.5)
-    await db.set_user_preference("alice", "profanity", enabled=True, threshold=0.5)
+    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="sex_nudity_immodesty")
+    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="language_profanity")
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=False, threshold=0.5)
+    await db.set_user_preference("alice", "language_profanity", enabled=True, threshold=0.5)
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
@@ -353,10 +398,10 @@ async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_clie
 
 
 async def test_skip_session_returns_404_when_all_categories_disabled(http_client):
-    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="nudity")
-    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="profanity")
-    await db.set_user_preference("alice", "nudity", enabled=False, threshold=0.5)
-    await db.set_user_preference("alice", "profanity", enabled=False, threshold=0.5)
+    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="sex_nudity_immodesty")
+    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="language_profanity")
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=False, threshold=0.5)
+    await db.set_user_preference("alice", "language_profanity", enabled=False, threshold=0.5)
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
@@ -364,15 +409,14 @@ async def test_skip_session_returns_404_when_all_categories_disabled(http_client
     assert resp.status_code == 404
 
 
-async def test_skip_session_with_missing_preferences_defaults_to_nudity_only(http_client):
-    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="nudity")
-    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="profanity")
+async def test_skip_session_with_missing_preferences_defaults_to_all_disabled(http_client):
+    await db.insert_segment("g1", "Movie", start_ms=30000, end_ms=60000, confidence=0.9, category="sex_nudity_immodesty")
+    await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="language_profanity")
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
     with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
-    assert resp.status_code == 200
-    assert resp.json()["seek_to_ms"] == 61000
+    assert resp.status_code == 404
 
 
 async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
@@ -389,7 +433,7 @@ async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
                     {
                         "start_time": 30.0,
                         "end_time": 60.0,
-                        "category": "nudity",
+                        "category": "sex_nudity_immodesty",
                         "source": "subtitles",
                         "confidence": 0.9,
                     }
@@ -398,6 +442,7 @@ async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
         ),
         encoding="utf-8",
     )
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=True, threshold=0.5)
     sessions = [_active_session(position_ms=10000)]
     sessions[0].file_path = str(media_path)
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)

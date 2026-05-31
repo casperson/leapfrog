@@ -57,6 +57,7 @@ def make_mock_plex_client(
     mock.fetch_image = AsyncMock(return_value=(b"imgdata", "image/jpeg"))
     mock.update_leapfrog_summary = AsyncMock(return_value=True)
     mock.test_connection = AsyncMock(return_value=(connection_ok, "My Plex"))
+    mock.probe_seek = AsyncMock(return_value={"probe_success": seek_result})
     mock.get_last_seek_failure = MagicMock(return_value=None)
     mock.get_last_seek_success_at = MagicMock(return_value=None)
     mock.get_last_seek_diagnostics = MagicMock(return_value=None)

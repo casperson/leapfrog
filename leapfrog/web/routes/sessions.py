@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from ...adapters.plex_runtime import resolve_plex_playback_context
 from ...logger import get_logger
@@ -13,6 +14,11 @@ from ...scanner import get_queue_size, get_current_scan, get_current_scans, get_
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+class SeekProbeRequest(BaseModel):
+    offset_ms: int | None = None
+    delta_ms: int = 1000
 
 
 async def _build_skipper_status() -> dict:
@@ -180,6 +186,26 @@ async def get_session_seek_diagnostics(session_key: str):
         "last_seek_failure": client.get_last_seek_failure(),
         "last_seek_diagnostics": client.get_last_seek_diagnostics(),
     }
+
+
+@router.post("/{session_key}/probe-seek")
+async def probe_session_seek(session_key: str, payload: SeekProbeRequest):
+    """Run a manual seek probe against one active session and return diagnostics."""
+    try:
+        client = plex_mod.get_client()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Plex not configured")
+
+    sessions = await client.get_active_sessions()
+    session = next((s for s in sessions if s.session_key == session_key), None)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Active session not found")
+
+    return await client.probe_seek(
+        session,
+        offset_ms=payload.offset_ms,
+        delta_ms=payload.delta_ms,
+    )
 
 
 @router.get("/scanner-status")

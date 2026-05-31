@@ -242,6 +242,16 @@ async def test_seek_returns_false_when_all_variants_fail():
     assert result is False
 
 
+def test_resolve_probe_offset_prefers_explicit_offset():
+    c = _make_client()
+    assert c.resolve_probe_offset(5000, offset_ms=9000, delta_ms=1000) == 9000
+
+
+def test_resolve_probe_offset_uses_positive_delta():
+    c = _make_client()
+    assert c.resolve_probe_offset(5000, delta_ms=1500) == 6500
+
+
 async def test_seek_stops_retrying_variants_after_connection_failure_on_same_port():
     c = _make_client()
     with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=Exception("proxy failed")):

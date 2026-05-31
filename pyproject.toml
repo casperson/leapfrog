@@ -42,6 +42,7 @@ Issues = "https://github.com/casperson/leapfrog/issues"
 
 [project.scripts]
 leapfrog = "leapfrog.main:main"
+leapfrog-seek-probe = "leapfrog.seek_probe:main"
 leapfrog-vidangel-export = "leapfrog.vidangel_export:main"
 leapfrog-vidangel-sidecars = "leapfrog.vidangel_sidecars:main"
 leapfrog-skip-convert = "leapfrog.skip_file_converter:main"

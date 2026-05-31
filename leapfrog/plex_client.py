@@ -194,6 +194,13 @@ class PlexClient:
     def invalidate(self) -> None:
         self._server = None
 
+    @staticmethod
+    def resolve_probe_offset(current_position_ms: int, *, offset_ms: int | None = None, delta_ms: int = 1000) -> int:
+        """Return an explicit probe target offset for an active playback session."""
+        if offset_ms is not None:
+            return max(0, int(offset_ms))
+        return max(0, int(current_position_ms) + max(0, int(delta_ms)))
+
     # ── Connectivity ──────────────────────────────────────────────────────────
 
     async def test_connection(self) -> tuple[bool, str]:
@@ -564,6 +571,46 @@ class PlexClient:
                         break
 
         return False
+
+    async def probe_seek(
+        self,
+        session: ActiveSession,
+        *,
+        offset_ms: int | None = None,
+        delta_ms: int = 1000,
+    ) -> dict[str, Any]:
+        """Run a seek probe against one active session and return diagnostics."""
+        target_offset = self.resolve_probe_offset(
+            session.position_ms,
+            offset_ms=offset_ms,
+            delta_ms=delta_ms,
+        )
+        success = await self.seek(
+            session.client_identifier,
+            target_offset,
+            session.client_address,
+            session.client_port,
+            session.client_title,
+        )
+        return {
+            "session": {
+                "session_key": session.session_key,
+                "title": session.full_title,
+                "user": session.user,
+                "client": session.client_title,
+                "client_identifier": session.client_identifier,
+                "client_address": session.client_address,
+                "client_port": session.client_port,
+                "is_controllable": session.is_controllable,
+                "position_ms": session.position_ms,
+                "rating_key": session.rating_key,
+            },
+            "probe_success": success,
+            "requested_offset_ms": target_offset,
+            "last_seek_success_at": self.get_last_seek_success_at(),
+            "last_seek_failure": self.get_last_seek_failure(),
+            "last_seek_diagnostics": self.get_last_seek_diagnostics(),
+        }
 
     # ── Library ───────────────────────────────────────────────────────────────
 

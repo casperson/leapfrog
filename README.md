@@ -69,6 +69,31 @@ Leapfrog also checks for adjacent sidecar skip files before falling back to SQLi
 
 If the dashboard shows `Skipping...` logs followed by proxy and direct seek failures, Leapfrog has matched a segment but Plex client control is failing. Check `/api/status` or `/api/sessions/{session_key}/seek-diagnostics` for the last seek attempt list, including the client identifier, advertised address/port, HTTP status, and failure detail.
 
+For on-demand troubleshooting, you can also run a manual seek probe against an active session:
+
+```bash
+.venv/bin/python -m leapfrog.seek_probe --list-sessions
+```
+
+```bash
+.venv/bin/python -m leapfrog.seek_probe --session-key 2 --delta-ms 1000
+```
+
+Or through the running API:
+
+```http
+POST /api/sessions/{session_key}/probe-seek
+Content-Type: application/json
+
+{"delta_ms": 1000}
+```
+
+You can also pass an explicit target offset:
+
+```http
+{"offset_ms": 1200500}
+```
+
 ### 4. Scan status, queue, and logs
 
 - Scan status is persisted per title and per saved VidAngel category, plus an ordered stage timeline (`prepare`, detector stages, `finalize`).
