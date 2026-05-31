@@ -116,6 +116,32 @@ async def test_list_companion_clients_returns_discovered_clients():
     }]
 
 
+async def test_resolve_companion_client_flags_invalid_zero_port_in_detail():
+    c = _make_client()
+    srv = _mock_server()
+    discovered = MagicMock()
+    discovered.machineIdentifier = "client-1"
+    discovered.protocolCapabilities = ["playback", "timeline"]
+    discovered._baseurl = "http://192.168.1.100:32500"
+    discovered.product = "Plex for Apple TV"
+    discovered.port = 0
+    srv.clients = MagicMock(return_value=[discovered])
+
+    call_no = 0
+
+    async def fake_to_thread(func, *args, **kwargs):
+        nonlocal call_no
+        call_no += 1
+        if call_no == 1:
+            return srv
+        return srv.clients()
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+        _, detail = await c._resolve_companion_client("client-1")
+
+    assert "port=0 (invalid Companion advertisement; direct control likely unavailable)" in detail
+
+
 async def test_compare_session_to_companion_returns_matching_client_and_full_list():
     c = _make_client()
     session = ActiveSession(

@@ -186,7 +186,17 @@ class PlexClient:
             capabilities = ",".join(getattr(client, "protocolCapabilities", []) or [])
             baseurl = getattr(client, "_baseurl", "") or getattr(client, "address", "") or ""
             product = getattr(client, "product", "") or getattr(client, "title", "") or "unknown"
-            detail = f"baseurl={baseurl or '<unknown>'}; product={product}; capabilities={capabilities or '<none>'}"
+            raw_port = int(getattr(client, "port", 0) or 0)
+            if raw_port <= 0:
+                port_detail = "port=0 (invalid Companion advertisement; direct control likely unavailable)"
+            else:
+                port_detail = f"port={raw_port}"
+            detail = (
+                f"baseurl={baseurl or '<unknown>'}; "
+                f"{port_detail}; "
+                f"product={product}; "
+                f"capabilities={capabilities or '<none>'}"
+            )
             return client, detail
         return None, "Companion client not found in /clients discovery list"
 
