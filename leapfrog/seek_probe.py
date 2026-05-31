@@ -29,6 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--offset-ms", type=int, help="Explicit offset to seek to.")
     parser.add_argument("--delta-ms", type=int, default=1000, help="Offset delta from current position when --offset-ms is omitted.")
     parser.add_argument("--list-sessions", action="store_true", help="List active sessions and exit.")
+    parser.add_argument("--list-clients", action="store_true", help="List Companion-discovered Plex clients from /clients and exit.")
     return parser
 
 
@@ -60,8 +61,13 @@ async def _amain(argv: list[str] | None = None) -> int:
             )
             return 0
 
+        if args.list_clients:
+            clients = await client.list_companion_clients()
+            print(json.dumps(clients, indent=2))
+            return 0
+
         if not args.session_key:
-            raise RuntimeError("--session-key is required unless --list-sessions is used.")
+            raise RuntimeError("--session-key is required unless --list-sessions or --list-clients is used.")
 
         session = next((item for item in sessions if item.session_key == args.session_key), None)
         if session is None:

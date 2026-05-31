@@ -76,8 +76,14 @@ For on-demand troubleshooting, you can also run a manual seek probe against an a
 ```
 
 ```bash
+.venv/bin/python -m leapfrog.seek_probe --list-clients
+```
+
+```bash
 .venv/bin/python -m leapfrog.seek_probe --session-key 2 --delta-ms 1000
 ```
+
+`--list-clients` dumps the Plex Companion `/clients` discovery list so you can compare active playback sessions against the set of actually controllable Companion clients.
 
 Or through the running API:
 
@@ -92,6 +98,12 @@ You can also pass an explicit target offset:
 
 ```http
 {"offset_ms": 1200500}
+```
+
+There is also a read-only Companion diagnostics endpoint:
+
+```http
+GET /api/sessions/companion-clients
 ```
 
 ### 4. Scan status, queue, and logs

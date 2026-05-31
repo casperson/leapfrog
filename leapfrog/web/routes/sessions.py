@@ -188,6 +188,19 @@ async def get_session_seek_diagnostics(session_key: str):
     }
 
 
+@router.get("/companion-clients")
+async def get_companion_clients():
+    """Return Companion-discovered Plex clients from /clients for diagnostics."""
+    try:
+        client = plex_mod.get_client()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Plex not configured")
+
+    return {
+        "clients": await client.list_companion_clients(),
+    }
+
+
 @router.post("/{session_key}/probe-seek")
 async def probe_session_seek(session_key: str, payload: SeekProbeRequest):
     """Run a manual seek probe against one active session and return diagnostics."""

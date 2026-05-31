@@ -176,6 +176,27 @@ async def test_get_session_seek_diagnostics_returns_404_for_missing_session(http
     assert resp.status_code == 404
 
 
+async def test_get_companion_clients_returns_discovered_client_list(http_client):
+    mock_client = make_mock_plex_client()
+    mock_client.list_companion_clients = AsyncMock(return_value=[
+        {
+            "title": "iPhone",
+            "machine_identifier": "client-1",
+            "product": "Plex for iOS",
+            "protocol_capabilities": ["playback", "timeline"],
+            "baseurl": "http://192.168.1.104:32500",
+        }
+    ])
+
+    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+        resp = await http_client.get("/api/sessions/companion-clients")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["clients"][0]["machine_identifier"] == "client-1"
+    mock_client.list_companion_clients.assert_awaited_once()
+
+
 async def test_probe_session_seek_returns_probe_payload(http_client):
     sessions = [_active_session(session_key="s1", position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions)

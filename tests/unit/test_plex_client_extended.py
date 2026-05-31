@@ -74,6 +74,48 @@ async def test_get_active_sessions_returns_empty_on_exception():
     assert sessions == []
 
 
+async def test_list_companion_clients_returns_discovered_clients():
+    c = _make_client()
+    srv = _mock_server()
+    discovered = MagicMock()
+    discovered.title = "iPhone"
+    discovered.machineIdentifier = "client-1"
+    discovered.product = "Plex for iOS"
+    discovered.protocol = "plex"
+    discovered.protocolVersion = "1"
+    discovered.deviceClass = "phone"
+    discovered.protocolCapabilities = ["playback", "timeline"]
+    discovered.address = "192.168.1.104"
+    discovered.port = 32500
+    discovered._baseurl = "http://192.168.1.104:32500"
+    srv.clients = MagicMock(return_value=[discovered])
+
+    call_no = 0
+
+    async def fake_to_thread(func, *args, **kwargs):
+        nonlocal call_no
+        call_no += 1
+        if call_no == 1:
+            return srv
+        return srv.clients()
+
+    with patch("leapfrog.plex_client.asyncio.to_thread", side_effect=fake_to_thread):
+        clients = await c.list_companion_clients()
+
+    assert clients == [{
+        "title": "iPhone",
+        "machine_identifier": "client-1",
+        "product": "Plex for iOS",
+        "protocol": "plex",
+        "protocol_version": "1",
+        "device_class": "phone",
+        "protocol_capabilities": ["playback", "timeline"],
+        "address": "192.168.1.104",
+        "port": 32500,
+        "baseurl": "http://192.168.1.104:32500",
+    }]
+
+
 # ── seek ──────────────────────────────────────────────────────────────────────
 
 async def test_seek_success_via_server_proxy():

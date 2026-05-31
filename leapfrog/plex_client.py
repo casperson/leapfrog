@@ -223,6 +223,31 @@ class PlexClient:
             "attempts": [dict(attempt) for attempt in self._last_seek_diagnostics.get("attempts", [])],
         }
 
+    async def list_companion_clients(self) -> list[dict[str, Any]]:
+        """Return Companion-discovered Plex clients from /clients with key metadata."""
+        try:
+            srv = await asyncio.to_thread(self._get_server)
+            clients = await asyncio.to_thread(srv.clients)
+        except Exception as exc:
+            logger.warning("Failed to fetch Companion clients: %s", exc)
+            return []
+
+        result: list[dict[str, Any]] = []
+        for client in clients:
+            result.append({
+                "title": getattr(client, "title", "") or "",
+                "machine_identifier": getattr(client, "machineIdentifier", "") or "",
+                "product": getattr(client, "product", "") or "",
+                "protocol": getattr(client, "protocol", "") or "",
+                "protocol_version": getattr(client, "protocolVersion", "") or "",
+                "device_class": getattr(client, "deviceClass", "") or "",
+                "protocol_capabilities": list(getattr(client, "protocolCapabilities", []) or []),
+                "address": getattr(client, "address", "") or "",
+                "port": int(getattr(client, "port", 0) or 0),
+                "baseurl": getattr(client, "_baseurl", "") or "",
+            })
+        return result
+
     def _get_server(self) -> PlexServer:
         if self._server is None:
             self._server = PlexServer(self.url, self.token)
