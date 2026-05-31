@@ -181,6 +181,18 @@ async def test_position_past_segment_does_not_seek():
     client.seek.assert_not_called()
 
 
+async def test_position_past_seek_target_does_not_seek_backward_even_within_trigger_window():
+    session = _session(position_ms=40250)
+    client = _make_client()
+    segments = _segs(30000, 39250)
+    with patch(
+        "leapfrog.filter_engine.resolve_plex_playback_context",
+        AsyncMock(return_value=_playback_context(all_segments=segments, effective_segments=segments)),
+    ):
+        await fe.process(session, client, skip_buffer_ms=1000, lookahead_ms=5000)
+    client.seek.assert_not_called()
+
+
 async def test_recently_skipped_prevents_re_trigger():
     session = _session(position_ms=35000)
     client = _make_client()

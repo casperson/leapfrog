@@ -127,6 +127,12 @@ async def process(
         seek_target = original_end + skip_buffer_ms
         skip_key = _segment_skip_key(session, seg)
 
+        # Once playback has already advanced beyond the buffered resume point,
+        # this segment is stale for seek purposes and must not trigger a
+        # backward jump.
+        if pos >= seek_target:
+            continue
+
         # Trigger when approaching the segment (within lookahead_ms before start) or already inside.
         # This compensates for polling latency so the seek fires before/at the segment start.
         if trigger_start - lookahead_ms <= pos <= trigger_end:
