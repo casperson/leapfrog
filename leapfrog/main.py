@@ -12,7 +12,7 @@ from .logger import setup_logging, get_logger
 from . import database as db
 from .config import Config
 from .paths import get_data_dir
-import leapfrog.plex_client as plex_mod
+from .server_runtime import get_client, init_active_client
 from .watcher import session_watcher_loop, library_watcher_loop
 from .scanner import scanner_loop
 from .web.app import create_app
@@ -37,17 +37,14 @@ async def _amain() -> None:
     logger.info("Leapfrog starting — data dir: %s", DATA_DIR)
 
     if config.is_configured():
-        plex_mod.init_client(config.plex_url, config.plex_token)
-        logger.info("Plex client initialised: %s", config.plex_url)
+        init_active_client(config)
+        logger.info("%s client initialised: %s", config.server_type.capitalize(), config.server_url)
     else:
-        logger.warning("Plex not yet configured — open the web UI to set up.")
+        logger.warning("Media server not yet configured — open the web UI to set up.")
 
     # ── Shared config factory ──────────────────────────────────────────────
     async def get_config():
         return await Config.load()
-
-    def get_client():
-        return plex_mod.get_client()
 
     # ── Web server ─────────────────────────────────────────────────────────
     web_app = create_app()

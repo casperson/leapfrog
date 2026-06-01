@@ -18,12 +18,14 @@ from plexapi.server import PlexServer
 from plexapi.exceptions import PlexApiException
 
 from .logger import get_logger
+from .media_server import ServerSession
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class ActiveSession:
+    adapter: str = field(default="plex", init=False)
     session_key: str
     user: str
     title: str
@@ -41,6 +43,11 @@ class ActiveSession:
     client_port: int = 32500
     library_section_id: str = ""
     file_path: str = ""
+    external_ids: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def media_id(self) -> str:
+        return self.plex_guid
 
 
 @dataclass
@@ -63,6 +70,11 @@ class MediaItem:
     media_type: str       # "movie" or "episode"
     content_rating: str = ""  # e.g. "PG-13", "R", "TV-MA"
     show_guid: str = ""       # grandparentGuid for episodes; empty for movies
+    external_ids: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def media_id(self) -> str:
+        return self.plex_guid
 
 
 @dataclass
@@ -73,6 +85,8 @@ class PlexUser:
 
 
 class PlexClient:
+    adapter = "plex"
+
     def __init__(self, url: str, token: str) -> None:
         self.url = url.rstrip("/")
         self.token = token
@@ -390,13 +404,20 @@ class PlexClient:
 
     async def seek(
         self,
-        client_identifier: str,
+        client_identifier: str | ServerSession,
         offset_ms: int,
         client_address: str = "",
         client_port: int = 32500,
         client_title: str = "",
     ) -> bool:
         """Seek via server proxy first, then try direct client control as fallback."""
+        if not isinstance(client_identifier, str):
+            session = client_identifier
+            client_identifier = session.client_identifier
+            client_address = session.client_address
+            client_port = session.client_port
+            client_title = session.client_title
+
         command_id = self._next_command_id()
         self._start_seek_diagnostics(client_identifier=client_identifier, offset_ms=offset_ms)
         key = (
@@ -883,6 +904,10 @@ class PlexClient:
         if not thumb_path:
             return ""
         return f"{self.url}{thumb_path}?X-Plex-Token={self.token}"
+
+    def build_image_url(self, image_ref: str) -> str:
+        """Return a direct image URL for a Plex image path."""
+        return self.thumb_url(image_ref)
 
     async def get_episode_show_art(self, rating_key: str) -> tuple[str, str, str, str, str]:
         """Return (show_guid, show_title, show_thumb_path, show_rating_key, season_rating_key) for an episode rating key.

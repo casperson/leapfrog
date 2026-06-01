@@ -22,14 +22,14 @@ async def test_get_settings_returns_dict(http_client):
     assert resp.status_code == 200
     data = resp.json()
     # Route returns the settings dict directly (not wrapped in {"settings": ...})
-    assert "plex_url" in data
+    assert "server_url" in data
     assert "confidence_threshold" in data
 
 
 async def test_get_settings_reflects_stored_values(http_client):
-    await db.set_setting("plex_url", "http://testplex:32400")
+    await db.set_setting("server_url", "http://testplex:32400")
     resp = await http_client.get("/api/settings")
-    assert resp.json()["plex_url"] == "http://testplex:32400"
+    assert resp.json()["server_url"] == "http://testplex:32400"
 
 
 # ── PUT /api/settings ─────────────────────────────────────────────────────────
@@ -51,13 +51,23 @@ async def test_update_settings_ignores_none_fields(http_client):
     assert await db.get_setting("poll_interval") == "5"
 
 
-async def test_update_settings_reinitialises_plex_client_on_url_change(http_client):
-    await db.set_setting("plex_token", "token-abc")
-    with patch("leapfrog.web.routes.settings.plex_mod.init_client") as mock_init, \
+async def test_update_settings_reinitialises_active_client_on_url_change(http_client):
+    await db.set_setting("server_token", "token-abc")
+    with patch("leapfrog.web.routes.settings.init_active_client") as mock_init, \
          patch("leapfrog.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
-        resp = await http_client.put("/api/settings", json={"plex_url": "http://newplex:32400"})
+        resp = await http_client.put("/api/settings", json={"server_url": "http://newplex:32400"})
     assert resp.status_code == 200
     mock_init.assert_called_once()
+
+
+async def test_update_settings_clears_active_client_when_server_config_removed(http_client):
+    await db.set_setting("server_url", "http://plex:32400")
+    await db.set_setting("server_token", "tok")
+    with patch("leapfrog.web.routes.settings.clear_client") as mock_clear, \
+         patch("leapfrog.web.routes.settings.scan_mod.request_scanner_restart", new=AsyncMock()):
+        resp = await http_client.put("/api/settings", json={"server_token": ""})
+    assert resp.status_code == 200
+    mock_clear.assert_called_once()
 
 
 async def test_update_settings_triggers_scanner_restart_on_worker_change(http_client):
@@ -79,11 +89,12 @@ async def test_test_connection_requires_url_and_token(http_client):
 
 
 async def test_test_connection_returns_ok_true(http_client):
-    await db.set_setting("plex_url", "http://plex:32400")
-    await db.set_setting("plex_token", "tok")
-    with patch("leapfrog.web.routes.settings.plex_mod.PlexClient") as MockClient:
-        instance = MockClient.return_value
+    await db.set_setting("server_url", "http://plex:32400")
+    await db.set_setting("server_token", "tok")
+    with patch("leapfrog.web.routes.settings.build_client") as build_client:
+        instance = build_client.return_value
         instance.test_connection = AsyncMock(return_value=(True, "My Plex"))
+        instance.close = AsyncMock(return_value=None)
         resp = await http_client.post("/api/settings/test-connection")
     assert resp.json()["ok"] is True
     assert resp.json()["message"] == "My Plex"
@@ -103,14 +114,14 @@ async def test_get_categories_includes_granular_labels(http_client):
     resp = await http_client.get("/api/settings/categories")
     assert resp.status_code == 200
     categories = {category["key"]: category for category in resp.json()["categories"]}
-    sexual_labels = {label["key"]: label for label in categories["sexual_content"]["labels"]}
-    violence_labels = {label["key"] for label in categories["violence"]["labels"]}
-    drug_labels = {label["key"] for label in categories["drugs"]["labels"]}
+    sex_labels = {label["key"]: label for label in categories["sex_any"]["labels"]}
+    violence_labels = {label["key"] for label in categories["violence_blood_gore"]["labels"]}
+    drug_labels = {label["key"] for label in categories["alcohol_or_drug_use"]["labels"]}
 
-    assert sexual_labels["brief_kiss"]["default_skip"] is False
-    assert sexual_labels["explicit_sex"]["default_skip"] is True
-    assert "weapon_threat" in violence_labels
-    assert "pill_abuse" in drug_labels
+    assert sex_labels["shown_w_nudity"]["default_skip"] is True
+    assert sex_labels["sexually_suggestive"]["default_skip"] is True
+    assert "graphic" in violence_labels
+    assert "drugs_illegal" in drug_labels
 
 
 # ── POST /api/settings/validate-model-path ────────────────────────────────────
@@ -139,7 +150,7 @@ async def test_prepare_semantic_model_returns_ok_when_backend_prepares(http_clie
 # ── GET /api/users ─────────────────────────────────────────────────────────────
 
 async def test_get_users_returns_empty_when_no_plex_no_filters(http_client):
-    with patch("leapfrog.web.routes.users.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.users.get_client", side_effect=RuntimeError):
         resp = await http_client.get("/api/users")
     assert resp.status_code == 200
     assert resp.json()["users"] == []
@@ -147,7 +158,7 @@ async def test_get_users_returns_empty_when_no_plex_no_filters(http_client):
 
 async def test_get_users_includes_db_filter_entries(http_client):
     await db.upsert_user_filter("dave", enabled=False)
-    with patch("leapfrog.web.routes.users.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.users.get_client", side_effect=RuntimeError):
         resp = await http_client.get("/api/users")
     users = resp.json()["users"]
     dave = next((u for u in users if u["username"] == "dave"), None)
@@ -163,15 +174,31 @@ async def test_get_users_merges_plex_users_with_filters(http_client):
         PlexUser(username="alice", thumb="/alice.jpg"),
         PlexUser(username="bob", thumb=""),
     ])
-    with patch("leapfrog.web.routes.users.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.users.get_client", return_value=mock_client):
         resp = await http_client.get("/api/users")
     users = {u["username"]: u for u in resp.json()["users"]}
     assert users["alice"]["enabled"] is False
     assert users["bob"]["enabled"] is True  # default when no filter record
-    assert "nudity" in users["alice"]["categories"]
-    assert "profanity" in users["alice"]["categories"]
-    assert "violence" in users["alice"]["categories"]
-    assert "drugs" in users["alice"]["categories"]
+    assert "sex_nudity_immodesty" in users["alice"]["categories"]
+    assert "language_profanity" in users["alice"]["categories"]
+    assert "violence_blood_gore" in users["alice"]["categories"]
+    assert "alcohol_or_drug_use" in users["alice"]["categories"]
+
+
+async def test_get_users_uses_client_image_url_builder(http_client):
+    from leapfrog.media_server import ServerUser
+
+    mock_client = make_mock_plex_client()
+    mock_client.adapter = "jellyfin"
+    mock_client.get_all_users = AsyncMock(return_value=[ServerUser(username="alice", thumb="/Users/1/Images/Primary")])
+    mock_client.build_image_url.side_effect = lambda ref: f"/api/server-image?ref={ref}"
+
+    with patch("leapfrog.web.routes.users.get_client", return_value=mock_client):
+        resp = await http_client.get("/api/users")
+
+    assert resp.status_code == 200
+    users = {u["username"]: u for u in resp.json()["users"]}
+    assert users["alice"]["thumb"] == "/api/server-image?ref=/Users/1/Images/Primary"
 
 
 # ── PUT /api/users/{username} ─────────────────────────────────────────────────
@@ -193,33 +220,33 @@ async def test_update_user_filter_disables(http_client):
 
 async def test_update_user_category_preference_persists_threshold(http_client):
     resp = await http_client.put(
-        "/api/users/frank/categories/profanity",
+        "/api/users/frank/categories/language_profanity",
         json={"enabled": True, "threshold": 0.85},
     )
     assert resp.status_code == 200
     prefs = await db.get_user_category_preferences("frank")
-    assert prefs[0]["category"] == "profanity"
+    assert prefs[0]["category"] == "language_profanity"
     assert prefs[0]["enabled"] == 1
     assert prefs[0]["threshold"] == 0.85
 
 
 async def test_update_user_label_preference_persists_choice(http_client):
     resp = await http_client.put(
-        "/api/users/alice/categories/sexual_content/labels/brief_kiss",
+        "/api/users/alice/categories/kissing/labels/kissing_normal",
         json={"enabled": False, "threshold": None},
     )
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
     prefs = await db.get_user_label_preferences("alice")
-    assert prefs[0]["category"] == "sexual_content"
-    assert prefs[0]["label"] == "brief_kiss"
+    assert prefs[0]["category"] == "kissing"
+    assert prefs[0]["label"] == "kissing_normal"
     assert prefs[0]["enabled"] == 0
 
 
 async def test_update_user_label_preference_rejects_unknown_label(http_client):
     resp = await http_client.put(
-        "/api/users/alice/categories/sexual_content/labels/kissing",
+        "/api/users/alice/categories/kissing/labels/not_a_real_label",
         json={"enabled": True, "threshold": None},
     )
     assert resp.status_code == 200

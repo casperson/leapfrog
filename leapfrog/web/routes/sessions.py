@@ -1,13 +1,14 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ...adapters.plex_runtime import resolve_plex_playback_context
 from ...logger import get_logger
+from ...media_server import ServerSession
 from ...preferences import (
     get_preference_threshold_settings,
     get_resolved_preferences_for_users,
 )
-import leapfrog.plex_client as plex_mod
+from ...runtime_resolver import resolve_playback_context_for_session
+from ...server_runtime import get_client
 from ...watcher import get_skipper_runtime_state, skip_events
 from ... import database as db
 from ...scanner import get_queue_size, get_current_scan, get_current_scans, get_worker_pool_size, is_paused
@@ -25,7 +26,7 @@ async def _build_skipper_status() -> dict:
     runtime = get_skipper_runtime_state()
 
     try:
-        client = plex_mod.get_client()
+        client = get_client()
         last_seek_failure = client.get_last_seek_failure()
         last_seek_success_at = client.get_last_seek_success_at()
         last_seek_diagnostics = client.get_last_seek_diagnostics()
@@ -78,9 +79,9 @@ async def _build_skipper_status() -> dict:
 @router.get("")
 async def get_sessions():
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        return {"sessions": [], "error": "Plex not configured"}
+        return {"sessions": [], "error": "Media server not configured"}
 
     sessions = await client.get_active_sessions()
     threshold_defaults = await get_preference_threshold_settings()
@@ -93,6 +94,7 @@ async def get_sessions():
         preferences = resolved_preferences.get(s.user, {})
         filtering_enabled = any(bool(pref["enabled"]) for pref in preferences.values())
         result.append({
+            "adapter": s.adapter,
             "session_key": s.session_key,
             "user": s.user,
             "title": s.full_title,
@@ -105,7 +107,7 @@ async def get_sessions():
             "enabled_categories": [
                 category for category, pref in preferences.items() if bool(pref["enabled"])
             ],
-            "thumb_url": client.thumb_url(s.thumb) if s.thumb else "",
+            "thumb_url": client.build_image_url(s.thumb) if s.thumb else "",
         })
     return {"sessions": result}
 
@@ -141,28 +143,28 @@ async def get_skip_events():
 
 @router.get("/{session_key}/adapter-status")
 async def get_session_adapter_status(session_key: str):
-    """Return Plex adapter status for one active playback session."""
+    """Return adapter status for one active playback session."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        return {"connected": False, "error": "Plex not configured"}
+        return {"connected": False, "error": "Media server not configured"}
 
     sessions = await client.get_active_sessions()
     session = next((s for s in sessions if s.session_key == session_key), None)
     if session is None:
         raise HTTPException(status_code=404, detail="Active session not found")
 
-    context = await resolve_plex_playback_context(session)
+    context = await resolve_playback_context_for_session(session)
     return context.to_status_record()
 
 
 @router.get("/{session_key}/seek-diagnostics")
 async def get_session_seek_diagnostics(session_key: str):
-    """Return active-session seek diagnostics for troubleshooting Plex control failures."""
+    """Return active-session seek diagnostics for troubleshooting playback control failures."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
 
     sessions = await client.get_active_sessions()
     session = next((s for s in sessions if s.session_key == session_key), None)
@@ -171,6 +173,7 @@ async def get_session_seek_diagnostics(session_key: str):
 
     return {
         "session": {
+            "adapter": session.adapter,
             "session_key": session.session_key,
             "title": session.full_title,
             "user": session.user,
@@ -192,9 +195,11 @@ async def get_session_seek_diagnostics(session_key: str):
 async def get_companion_clients():
     """Return Companion-discovered Plex clients from /clients for diagnostics."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
+    if client.adapter != "plex":
+        raise HTTPException(status_code=501, detail="Companion diagnostics are only supported for Plex")
 
     return {
         "clients": await client.list_companion_clients(),
@@ -205,9 +210,11 @@ async def get_companion_clients():
 async def get_session_companion_compare(session_key: str):
     """Return one active session next to its matched Companion client advertisement."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
+    if client.adapter != "plex":
+        raise HTTPException(status_code=501, detail="Companion diagnostics are only supported for Plex")
 
     sessions = await client.get_active_sessions()
     session = next((s for s in sessions if s.session_key == session_key), None)
@@ -221,9 +228,11 @@ async def get_session_companion_compare(session_key: str):
 async def probe_session_seek(session_key: str, payload: SeekProbeRequest):
     """Run a manual seek probe against one active session and return diagnostics."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
+    if client.adapter != "plex":
+        raise HTTPException(status_code=501, detail="Seek probing is only supported for Plex")
 
     sessions = await client.get_active_sessions()
     session = next((s for s in sessions if s.session_key == session_key), None)
@@ -288,9 +297,9 @@ async def scanner_status():
 async def skip_session_title(session_key: str):
     """Skip active playback to the end of the current (or next) detected segment."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
 
     sessions = await client.get_active_sessions()
     session = next((s for s in sessions if s.session_key == session_key), None)
@@ -300,7 +309,7 @@ async def skip_session_title(session_key: str):
     if not session.is_controllable:
         raise HTTPException(status_code=409, detail="Session is not remotely controllable")
 
-    context = await resolve_plex_playback_context(session)
+    context = await resolve_playback_context_for_session(session)
     segments = [dict(segment) for segment in context.effective_segments]
     if not context.all_segments:
         raise HTTPException(status_code=404, detail="No detected segments found for this title")
@@ -324,17 +333,12 @@ async def skip_session_title(session_key: str):
     skip_buffer_ms = int(await db.get_setting("skip_buffer_ms", "1000"))
     seek_to_ms = int(target_seg["end_ms"]) + skip_buffer_ms
 
-    ok = await client.seek(
-        session.client_identifier,
-        seek_to_ms,
-        session.client_address,
-        session.client_port,
-    )
+    ok = await client.seek(session, seek_to_ms)
     if not ok:
         await db.insert_skip_event(
             session_key=session.session_key,
             user_id=session.user,
-            media_id=str(target_seg.get("media_id") or session.plex_guid),
+            media_id=str(target_seg.get("media_id") or session.media_id),
             title=session.full_title,
             position_ms=pos,
             seek_to_ms=seek_to_ms,
@@ -350,12 +354,12 @@ async def skip_session_title(session_key: str):
             success=False,
             detail="manual skip seek failed",
         )
-        raise HTTPException(status_code=502, detail="Failed to seek Plex client")
+        raise HTTPException(status_code=502, detail=f"Failed to seek {session.adapter} client")
 
     await db.insert_skip_event(
         session_key=session.session_key,
         user_id=session.user,
-        media_id=str(target_seg.get("media_id") or session.plex_guid),
+        media_id=str(target_seg.get("media_id") or session.media_id),
         title=session.full_title,
         position_ms=pos,
         seek_to_ms=seek_to_ms,
@@ -374,6 +378,7 @@ async def skip_session_title(session_key: str):
 
     return {
         "ok": True,
+        "adapter": session.adapter,
         "session_key": session.session_key,
         "title": session.full_title,
         "seek_to_ms": seek_to_ms,

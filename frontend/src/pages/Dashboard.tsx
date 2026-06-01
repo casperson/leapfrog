@@ -12,6 +12,7 @@ import { usePageVisibility } from '../lib/polling'
 import QueueManager from '../components/QueueManager'
 
 interface Session {
+  adapter: string
   session_key: string
   user: string
   title: string
@@ -363,6 +364,7 @@ export default function Dashboard() {
                         ? <span className="flex items-center gap-1 text-xs text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full"><Wifi size={11} />Controllable</span>
                         : <span className="flex items-center gap-1 text-xs text-gray-500 bg-white/5 px-2 py-0.5 rounded-full"><WifiOff size={11} />Not controllable</span>
                       }
+                      <span className="text-xs text-sky-300 bg-sky-300/10 px-2 py-0.5 rounded-full uppercase">{s.adapter}</span>
                       {s.filtering_enabled
                         ? <span className="text-xs text-plex-orange bg-plex-orange/10 px-2 py-0.5 rounded-full">Filtering ON</span>
                         : <span className="text-xs text-gray-500 bg-white/5 px-2 py-0.5 rounded-full">Filtering OFF</span>

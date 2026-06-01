@@ -6,9 +6,9 @@ import time
 from typing import Any
 
 from . import database as db
-from .adapters.plex_runtime import resolve_plex_playback_context
 from .logger import get_logger
-from .plex_client import ActiveSession, PlexClient
+from .media_server import MediaServerClient, ServerSession
+from .runtime_resolver import resolve_playback_context_for_session
 
 logger = get_logger(__name__)
 
@@ -23,8 +23,8 @@ def get_recent_skip_until(session_key: str) -> int:
     return int(recent.get("until_ms", 0)) if recent else 0
 
 
-def _segment_skip_key(session: ActiveSession, segment: dict[str, Any]) -> str:
-    media_id = str(segment.get("media_id") or session.plex_guid or session.rating_key)
+def _segment_skip_key(session: ServerSession, segment: dict[str, Any]) -> str:
+    media_id = str(segment.get("media_id") or session.media_id or session.rating_key)
     return "|".join(
         [
             media_id,
@@ -38,7 +38,7 @@ def _segment_skip_key(session: ActiveSession, segment: dict[str, Any]) -> str:
 
 
 async def _record_skip_event(
-    session: ActiveSession,
+    session: ServerSession,
     segment: dict[str, Any],
     *,
     seek_to_ms: int,
@@ -49,7 +49,7 @@ async def _record_skip_event(
         await db.insert_skip_event(
             session_key=session.session_key,
             user_id=session.user,
-            media_id=str(segment.get("media_id") or session.plex_guid),
+            media_id=str(segment.get("media_id") or session.media_id),
             title=session.full_title,
             position_ms=session.position_ms,
             seek_to_ms=seek_to_ms,
@@ -70,8 +70,8 @@ async def _record_skip_event(
 
 
 async def process(
-    session: ActiveSession,
-    client: PlexClient,
+    session: ServerSession,
+    client: MediaServerClient,
     skip_buffer_ms: int,
     lookahead_ms: int = 5000,
     user_preferences: dict[str, dict[str, float | bool]] | None = None,
@@ -93,7 +93,7 @@ async def process(
     if time.time() < blocked_until:
         return None
 
-    playback_context = await resolve_plex_playback_context(
+    playback_context = await resolve_playback_context_for_session(
         session,
         user_preferences=user_preferences,
     )
@@ -103,7 +103,7 @@ async def process(
         logger.info(
             "No segments found for '%s' (guid=%s, rating_key=%s, source=%s)",
             session.full_title,
-            session.plex_guid,
+            session.media_id,
             session.rating_key,
             playback_context.segment_source,
         )
@@ -148,13 +148,7 @@ async def process(
                 trigger_end,
                 f"{float(seg['confidence']):.2f}" if seg.get("confidence") is not None else "n/a",
             )
-            success = await client.seek(
-                session.client_identifier,
-                seek_target,
-                session.client_address,
-                session.client_port,
-                session.client_title,
-            )
+            success = await client.seek(session, seek_target)
             await _record_skip_event(
                 session,
                 seg,
@@ -168,7 +162,7 @@ async def process(
                 "title": session.full_title,
                 "position_ms": session.position_ms,
                 "client": session.client_title,
-                "media_id": seg.get("media_id") or session.plex_guid,
+                "media_id": seg.get("media_id") or session.media_id,
                 "seek_to_ms": seek_target,
                 "segment_start_ms": original_start,
                 "segment_end_ms": original_end,

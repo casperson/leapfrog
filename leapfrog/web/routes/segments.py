@@ -18,15 +18,15 @@ from ...preferences import (
 )
 from ...segment_export import build_canonical_media_export, build_sidecar_payload
 from ...adapters import get_segment_adapter, list_segment_adapters
-import leapfrog.plex_client as plex_mod
 from ... import database as db
 from ...domain import SUPPORTED_CATEGORIES
+from ...server_runtime import get_client
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api", tags=["segments"])
 
 # Pending debounce tasks keyed by plex_guid — cancelled and replaced on each delete.
-# This ensures bulk deletes trigger at most one Plex metadata write per title.
+# This ensures bulk deletes trigger at most one metadata write per title.
 _pending_summary_tasks: dict[str, asyncio.Task] = {}
 
 # scan_labels changes only when the user edits Settings, so a 30-second TTL avoids
@@ -48,7 +48,7 @@ def _invalidate_scan_labels_cache() -> None:
 
 
 async def _do_refresh_summary(plex_guid: str) -> None:
-    """Perform the actual Plex summary metadata update after a short debounce delay."""
+    """Perform the actual metadata update after a short debounce delay."""
     await asyncio.sleep(2)  # coalesce rapid sequential deletes
     _pending_summary_tasks.pop(plex_guid, None)
 
@@ -65,14 +65,16 @@ async def _do_refresh_summary(plex_guid: str) -> None:
         segment_count = await db.count_segments_for_guid(plex_guid)
         status = "Scanned" if job.get("status") == "done" else "Pending"
 
-        client = plex_mod.get_client()
-        await client.update_leapfrog_summary(
-            rating_key=rating_key,
-            status=status,
-            segment_count=segment_count,
-        )
+        client = get_client()
+        updater = getattr(client, "update_leapfrog_summary", None)
+        if updater is not None:
+            await updater(
+                rating_key=rating_key,
+                status=status,
+                segment_count=segment_count,
+            )
     except Exception as exc:
-        logger.debug("Could not refresh Plex summary for guid=%s: %s", plex_guid, exc)
+        logger.debug("Could not refresh server summary for guid=%s: %s", plex_guid, exc)
 
 
 def _refresh_leapfrog_summary_for_guid(plex_guid: str) -> None:
@@ -88,10 +90,10 @@ def _refresh_leapfrog_summary_for_guid(plex_guid: str) -> None:
     _pending_summary_tasks[plex_guid] = task
 
 
-def _plex_image_proxy_url(path: str) -> str:
-    if not path:
+def _server_image_proxy_url(ref: str) -> str:
+    if not ref:
         return ""
-    return f"/api/plex-image?path={quote(path, safe='')}"
+    return f"/api/server-image?ref={quote(ref, safe='')}"
 
 
 def _delete_thumbnail_files(paths: list[str]) -> None:
@@ -136,9 +138,9 @@ def _summarize_scan_state(
 
 @router.get("/libraries")
 async def get_libraries():
-    """Return all Plex library sections."""
+    """Return all active media-server library sections."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
         sections = await client.get_library_sections()
         return {
             "libraries": [
@@ -147,71 +149,71 @@ async def get_libraries():
             ]
         }
     except RuntimeError:
-        return {"libraries": [], "error": "Plex not configured"}
+        return {"libraries": [], "error": "Media server not configured"}
 
 
 @router.post("/libraries/{library_id}/sync")
 async def sync_library(library_id: str):
-    """Sync a library from Plex into DB. Returns count of new titles added."""
+    """Sync a library from the active media server into DB. Returns count of new titles added."""
     excluded = set(json.loads(await db.get_setting("excluded_library_ids", "[]")))
     if library_id in excluded:
         return {"ok": False, "error": "Library is excluded from scanning"}
     try:
-        client = plex_mod.get_client()
+        client = get_client()
         items = await client.get_library_items(library_id)
-        logger.info(f"Syncing library {library_id}: found {len(items)} items from Plex")
+        logger.info("Syncing library %s: found %s items from %s", library_id, len(items), client.adapter)
         
         scan_ratings = set(json.loads(await db.get_setting("scan_ratings", "[]")))
         file_items = [i for i in items if i.file_path]
-        existing_guids = await db.get_existing_guids([i.plex_guid for i in file_items])
+        existing_guids = await db.get_existing_guids([i.media_id for i in file_items])
 
-        # Refresh mutable Plex metadata for all existing titles in one transaction
-        # so that manual rating changes in Plex are reflected after sync.
+        # Refresh mutable server metadata for all existing titles in one transaction
+        # so that rating changes are reflected after sync.
         await db.refresh_scan_job_metadata_batch([
-            (i.plex_guid, i.title, i.file_path, i.rating_key, i.content_rating, i.year)
-            for i in file_items if i.plex_guid in existing_guids
+            (i.media_id, i.title, i.file_path, i.rating_key, i.content_rating, i.year)
+            for i in file_items if i.media_id in existing_guids
         ])
 
-        # Remove DB entries for titles Plex no longer reports in this library
+        # Remove DB entries for titles the active server no longer reports
         # (e.g. deleted files or removed duplicates).
-        plex_guids = [i.plex_guid for i in file_items]
+        plex_guids = [i.media_id for i in file_items]
         removed = await db.delete_scan_jobs_not_in(library_id, plex_guids)
         if removed:
             logger.info(f"Library {library_id} sync: removed {removed} stale titles")
 
         added = 0
         for item in file_items:
-            if item.plex_guid in existing_guids:
+            if item.media_id in existing_guids:
                 continue
             if scan_ratings:
                 # Filter strictly: "" = unrated, only included when the
                 # Unrated checkbox is ticked (saves "" in scan_ratings).
                 if (item.content_rating or "") not in scan_ratings:
                     continue
-                await db.upsert_scan_job(
-                    plex_guid=item.plex_guid,
-                    title=item.title,
-                    file_path=item.file_path,
-                    rating_key=item.rating_key,
+            await db.upsert_scan_job(
+                plex_guid=item.media_id,
+                title=item.title,
+                file_path=item.file_path,
+                rating_key=item.rating_key,
                 library_id=item.library_id,
                 library_title=item.library_title,
-                    content_rating=item.content_rating,
-                    media_type=item.media_type,
-                    year=item.year,
-                    show_guid=getattr(item, "show_guid", ""),
-                )
+                content_rating=item.content_rating,
+                media_type=item.media_type,
+                year=item.year,
+                show_guid=getattr(item, "show_guid", ""),
+            )
             added += 1
 
-        logger.info(f"Library {library_id} synced: {added} new titles added")
+        logger.info("Library %s synced: %s new titles added", library_id, added)
         return {"ok": True, "synced": len(items), "new": added, "removed": removed}
     except RuntimeError as e:
-        logger.error(f"Plex client error during library sync: {e}")
+        logger.error("Media server client error during library sync: %s", e)
         return {"ok": False, "error": str(e)}
 
 
 @router.get("/libraries/{library_id}/titles")
 async def get_titles_in_library(library_id: str):
-    """Return all scan jobs (titles) for a given library, with Plex poster URLs."""
+    """Return all scan jobs (titles) for a given library, with server artwork URLs."""
     jobs = await db.get_scan_jobs_by_library(library_id)
     seg_counts = await db.get_segment_counts_for_library(library_id)
     seg_counts_by_category = await db.get_segment_counts_by_category_for_library(library_id)
@@ -227,7 +229,7 @@ async def get_titles_in_library(library_id: str):
         # "Unrated" checkbox is ticked, which stores "" in scan_ratings.
         jobs = [j for j in jobs if (j.get("content_rating") or "") in scan_ratings]
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
         client = None
 
@@ -244,8 +246,11 @@ async def get_titles_in_library(library_id: str):
         season_rating_key = ""
         if client and job.get("rating_key"):
             rating_key = job["rating_key"]
-            thumb_url = _plex_image_proxy_url(f"/library/metadata/{rating_key}/thumb")
-            if job.get("media_type") == "episode":
+            if client.adapter == "plex":
+                thumb_url = _server_image_proxy_url(f"/library/metadata/{rating_key}/thumb")
+            else:
+                thumb_url = _server_image_proxy_url(f"/Items/{job['plex_guid']}/Images/Primary")
+            if client.adapter == "plex" and job.get("media_type") == "episode":
                 # Resolve true show-level poster path from episode metadata.
                 # Example resolved path from Plex: /library/metadata/<showKey>/thumb/<version>
                 # which matches how Plex itself loads show posters.
@@ -256,7 +261,7 @@ async def get_titles_in_library(library_id: str):
                     resolved_show_guid, resolved_show_title, show_thumb_path, resolved_show_rk, resolved_season_rk = await client.get_episode_show_art(rating_key)
                     show_guid = resolved_show_guid
                     show_title = resolved_show_title or parsed_show_name
-                    poster_url = _plex_image_proxy_url(show_thumb_path) if show_thumb_path else ""
+                    poster_url = _server_image_proxy_url(show_thumb_path) if show_thumb_path else ""
                     show_rating_key = resolved_show_rk
                     season_rating_key = resolved_season_rk
                     if parsed_show_name:
@@ -306,18 +311,20 @@ async def get_titles_in_library(library_id: str):
     return {"titles": result}
 
 
+@router.get("/server-image")
 @router.get("/plex-image")
-async def get_plex_image(path: str):
-    """Proxy Plex images through Leapfrog so artwork loads from remote clients."""
-    if not path:
-        raise HTTPException(status_code=400, detail="Missing image path")
+async def get_server_image(path: str = "", ref: str = ""):
+    """Proxy active-server images through Leapfrog so artwork loads from remote clients."""
+    image_ref = ref or path
+    if not image_ref:
+        raise HTTPException(status_code=400, detail="Missing image reference")
 
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
 
-    content, content_type = await client.fetch_image(path)
+    content, content_type = await client.fetch_image(image_ref)
     if not content:
         raise HTTPException(status_code=404, detail="Image not available")
 
@@ -545,7 +552,7 @@ async def get_scan_timeline_for_title(plex_guid: str):
 
 @router.post("/segments/{segment_id}/jump")
 async def jump_to_segment(segment_id: int):
-    """Seek an active, controllable Plex session for this title to the segment start."""
+    """Seek an active, controllable playback session for this title to the segment start."""
     seg = await db.get_segment_by_id(segment_id)
     if not seg:
         raise HTTPException(status_code=404, detail="Segment not found")
@@ -553,9 +560,9 @@ async def jump_to_segment(segment_id: int):
     job = await db.get_scan_job_by_guid(seg["plex_guid"])
 
     try:
-        client = plex_mod.get_client()
+        client = get_client()
     except RuntimeError:
-        raise HTTPException(status_code=503, detail="Plex not configured")
+        raise HTTPException(status_code=503, detail="Media server not configured")
 
     sessions = await client.get_active_sessions()
 
@@ -570,27 +577,23 @@ async def jump_to_segment(segment_id: int):
 
     if target is None:
         target = next(
-            (s for s in sessions if s.is_controllable and s.plex_guid == seg["plex_guid"]),
+            (s for s in sessions if s.is_controllable and s.media_id == seg["plex_guid"]),
             None,
         )
 
     if target is None:
         raise HTTPException(
             status_code=409,
-            detail="No active controllable Plex playback found for this title. Start the title in Plex first.",
+            detail=f"No active controllable {client.adapter} playback found for this title. Start the title first.",
         )
 
-    ok = await client.seek(
-        target.client_identifier,
-        int(seg["start_ms"]),
-        target.client_address,
-        target.client_port,
-    )
+    ok = await client.seek(target, int(seg["start_ms"]))
     if not ok:
-        raise HTTPException(status_code=502, detail="Failed to seek Plex client")
+        raise HTTPException(status_code=502, detail=f"Failed to seek {client.adapter} client")
 
     return {
         "ok": True,
+        "adapter": target.adapter,
         "segment_id": segment_id,
         "seek_to_ms": int(seg["start_ms"]),
         "client": target.client_title,

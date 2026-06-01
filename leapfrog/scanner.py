@@ -8,8 +8,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import leapfrog.plex_client as plex_mod
-
 from . import database as db
 from .detectors import (
     DrugsDetector,
@@ -23,6 +21,7 @@ from .detectors.semantic import ensure_semantic_model_async, get_semantic_backen
 from .domain import DETECTOR_STAGE_KEYS, MediaScanTarget, MediaSegment, SUPPORTED_CATEGORIES, get_vidangel_leaf_metadata
 from .frame_extractor import get_duration_ms, sample_video_frames
 from .logger import get_logger
+from .server_runtime import get_client
 
 if TYPE_CHECKING:
     pass
@@ -778,14 +777,16 @@ async def scan_video(plex_guid: str, config) -> None:
 
         if rating_key:
             try:
-                client = plex_mod.get_client()
-                await client.update_leapfrog_summary(
-                    rating_key=rating_key,
-                    status="Scanned",
-                    segment_count=segments_inserted,
-                )
+                client = get_client()
+                updater = getattr(client, "update_leapfrog_summary", None)
+                if updater is not None:
+                    await updater(
+                        rating_key=rating_key,
+                        status="Scanned",
+                        segment_count=segments_inserted,
+                    )
             except Exception as exc:
-                logger.debug("Could not update Plex summary metadata for %s: %s", plex_guid, exc)
+                logger.debug("Could not update summary metadata for %s: %s", plex_guid, exc)
 
         logger.info("Scan complete: %s — found %d segment(s)", title, segments_inserted)
 

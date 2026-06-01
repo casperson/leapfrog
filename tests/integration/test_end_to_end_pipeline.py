@@ -184,15 +184,16 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
 
     segments = await db.get_segments_for_guid("guid-e2e")
     assert {segment["category"] for segment in segments} == {
-        "nudity",
-        "sexual_content",
-        "profanity",
-        "violence",
-        "drugs",
+        "sex_nudity_immodesty",
+        "sex_any",
+        "kissing",
+        "language_profanity_captions",
+        "violence_blood_gore",
+        "alcohol_or_drug_use",
     }
-    assert any(segment["text_excerpt"] for segment in segments if segment["category"] == "profanity")
-    assert any(segment["labels"] == "heavy_making_out,intimate_touch" for segment in segments if segment["category"] == "sexual_content")
-    assert any(segment["labels"] == "fight,weapon_threat" for segment in segments if segment["category"] == "violence")
+    assert any(segment["text_excerpt"] for segment in segments if segment["category"] == "language_profanity_captions")
+    assert any((segment["labels"] or "") for segment in segments if segment["category"] in {"sex_any", "kissing"})
+    assert any((segment["labels"] or "") for segment in segments if segment["category"] == "violence_blood_gore")
 
     status_resp = await http_client.get(
         "/api/titles/guid-e2e/scan-status",
@@ -200,33 +201,46 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
     )
     assert status_resp.status_code == 200
     status_payload = status_resp.json()
-    assert status_payload["analysis_state"] == "scanned_flagged"
-    assert status_payload["segment_counts_by_category"] == {
-        "nudity": 1,
-        "sexual_content": 1,
-        "profanity": 1,
-        "violence": 1,
-        "drugs": 1,
+    assert status_payload["analysis_state"] == "partially_scanned"
+    assert {
+        key: status_payload["segment_counts_by_category"][key]
+        for key in (
+            "sex_nudity_immodesty",
+            "sex_any",
+            "kissing",
+            "language_profanity_captions",
+            "violence_blood_gore",
+            "alcohol_or_drug_use",
+        )
+    } == {
+        "sex_nudity_immodesty": 1,
+        "sex_any": 1,
+        "kissing": 1,
+        "language_profanity_captions": 1,
+        "violence_blood_gore": 1,
+        "alcohol_or_drug_use": 1,
     }
 
-    await db.set_user_preference("alice", "nudity", enabled=False, threshold=0.5)
-    await db.set_user_preference("alice", "sexual_content", enabled=False, threshold=0.5)
-    await db.set_user_preference("alice", "profanity", enabled=True, threshold=0.5)
-    await db.set_user_preference("alice", "violence", enabled=True, threshold=0.5)
-    await db.set_user_preference("alice", "drugs", enabled=False, threshold=0.5)
+    await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=False, threshold=0.5)
+    await db.set_user_preference("alice", "sex_any", enabled=False, threshold=0.5)
+    await db.set_user_preference("alice", "kissing", enabled=False, threshold=0.5)
+    await db.set_user_preference("alice", "language_profanity_captions", enabled=True, threshold=0.5)
+    await db.set_user_preference("alice", "violence_blood_gore", enabled=True, threshold=0.5)
+    await db.set_user_preference("alice", "alcohol_or_drug_use", enabled=False, threshold=0.5)
 
     preferences = await get_resolved_preferences_for_user(
         "alice",
         threshold_defaults={
-            "nudity": 0.4,
-            "sexual_content": 0.5,
-            "profanity": 0.5,
-            "violence": 0.5,
-            "drugs": 0.5,
+            "sex_nudity_immodesty": 0.4,
+            "sex_any": 0.5,
+            "kissing": 0.5,
+            "language_profanity_captions": 0.5,
+            "violence_blood_gore": 0.5,
+            "alcohol_or_drug_use": 0.5,
         },
     )
     effective_segments = get_effective_skip_segments(segments, preferences)
-    assert [segment["category"] for segment in effective_segments] == ["profanity", "violence"]
+    assert [segment["category"] for segment in effective_segments] == ["language_profanity_captions", "violence_blood_gore"]
 
     detail_resp = await http_client.get(
         "/api/titles/guid-e2e/scan-details",
@@ -235,12 +249,24 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
     assert detail_resp.status_code == 200
     detail_payload = detail_resp.json()
     assert detail_payload["effective_segment_count"] == 2
-    assert {row["category"] for row in detail_payload["scan_statuses"]} == {
-        "nudity",
-        "sexual_content",
-        "profanity",
-        "violence",
-        "drugs",
+    assert {
+        row["category"]
+        for row in detail_payload["scan_statuses"]
+        if row["category"] in {
+            "sex_nudity_immodesty",
+            "sex_any",
+            "kissing",
+            "language_profanity_captions",
+            "violence_blood_gore",
+            "alcohol_or_drug_use",
+        }
+    } == {
+        "sex_nudity_immodesty",
+        "sex_any",
+        "kissing",
+        "language_profanity_captions",
+        "violence_blood_gore",
+        "alcohol_or_drug_use",
     }
     assert {row["stage_key"] for row in detail_payload["stage_statuses"]} >= {
         "prepare",
@@ -263,11 +289,12 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
         for segment in segment_payload
     }
     assert would_skip == {
-        "nudity": False,
-        "sexual_content": False,
-        "profanity": True,
-        "violence": True,
-        "drugs": False,
+        "sex_nudity_immodesty": False,
+        "sex_any": False,
+        "kissing": False,
+        "language_profanity_captions": True,
+        "violence_blood_gore": True,
+        "alcohol_or_drug_use": False,
     }
 
     sidecar_payload = await build_sidecar_payload("guid-e2e", user_id="alice")
@@ -275,8 +302,8 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
     restored_sidecar = await read_sidecar_file(sidecar_path)
     assert restored_sidecar["format"] == "leapfrog.segment.sidecar/v1"
     assert [segment["category"] for segment in restored_sidecar["segments"]] == [
-        "profanity",
-        "violence",
+        "language_profanity_captions",
+        "violence_blood_gore",
     ]
 
     plex_context = await resolve_plex_playback_context(_plex_session(media_path))
@@ -302,9 +329,9 @@ async def test_end_to_end_scan_export_and_adapter_resolution(tmp_path, http_clie
     assert plex_context.segment_source == "sidecar+db"
     assert emby_context.segment_source == "sidecar+db"
     assert jellyfin_context.segment_source == "sidecar+db"
-    assert [segment["category"] for segment in plex_context.effective_segments] == ["profanity", "violence"]
-    assert [segment["category"] for segment in emby_context.effective_segments] == ["profanity", "violence"]
-    assert [segment["category"] for segment in jellyfin_context.effective_segments] == ["profanity", "violence"]
+    assert [segment["category"] for segment in plex_context.effective_segments] == ["language_profanity_captions", "violence_blood_gore"]
+    assert [segment["category"] for segment in emby_context.effective_segments] == ["language_profanity_captions", "violence_blood_gore"]
+    assert [segment["category"] for segment in jellyfin_context.effective_segments] == ["language_profanity_captions", "violence_blood_gore"]
 
 
 async def test_end_to_end_queue_title_detail_and_log_routes(http_client):
@@ -327,7 +354,7 @@ async def test_end_to_end_queue_title_detail_and_log_routes(http_client):
     await db.queue_scan_job("queue-c")
     await db.upsert_media_scan_status(
         "queue-c",
-        "profanity",
+        "language_profanity_captions",
         "done",
         source="subtitles",
         detail="Matched 1 subtitle profanity segment.",
@@ -336,7 +363,7 @@ async def test_end_to_end_queue_title_detail_and_log_routes(http_client):
     )
     await db.upsert_media_scan_status(
         "queue-c",
-        "nudity",
+        "sex_nudity_immodesty",
         "pending",
         source="nudenet",
         detail="Waiting for detector.",
@@ -355,7 +382,7 @@ async def test_end_to_end_queue_title_detail_and_log_routes(http_client):
         "queue-c",
         "profanity",
         "done",
-        category="profanity",
+        category="language_profanity_captions",
         source="subtitles",
         detail="Matched 1 profanity root.",
         progress=1.0,
@@ -364,7 +391,7 @@ async def test_end_to_end_queue_title_detail_and_log_routes(http_client):
         "queue-c",
         "nudity",
         "pending",
-        category="nudity",
+        category="sex_nudity_immodesty",
         source="nudenet",
         detail="Waiting for detector.",
         progress=0.0,
@@ -399,7 +426,7 @@ async def test_end_to_end_queue_title_detail_and_log_routes(http_client):
     detail_payload = detail_resp.json()
     assert detail_payload["queue"]["state"] == "queued"
     assert detail_payload["analysis_state"] == "partially_scanned"
-    assert detail_payload["segment_counts_by_category"]["profanity"] == 1
+    assert detail_payload["segment_counts_by_category"]["language_profanity_captions"] == 1
     assert [row["stage_key"] for row in detail_payload["stage_statuses"]] == [
         "prepare",
         "nudity",

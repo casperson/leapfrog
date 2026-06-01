@@ -2,9 +2,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...logger import get_logger
-import leapfrog.plex_client as plex_mod
 from ... import database as db
 from ... import scanner as scan_mod
+from ...server_runtime import get_client
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/scan", tags=["scanner"])
@@ -78,13 +78,13 @@ async def _ensure_scan_job(plex_guid: str, library_id: str | None = None) -> dic
     if not library_id:
         raise HTTPException(status_code=404, detail="Title not found")
     try:
-        client = plex_mod.get_client()
+        client = get_client()
         items = await client.get_library_items(library_id)
-        item = next((entry for entry in items if entry.plex_guid == plex_guid), None)
+        item = next((entry for entry in items if entry.media_id == plex_guid), None)
         if not item:
             raise HTTPException(status_code=404, detail="Title not found")
         await db.upsert_scan_job(
-            plex_guid=item.plex_guid,
+            plex_guid=item.media_id,
             title=item.title,
             file_path=item.file_path,
             rating_key=item.rating_key,
@@ -100,7 +100,7 @@ async def _ensure_scan_job(plex_guid: str, library_id: str | None = None) -> dic
             raise HTTPException(status_code=404, detail="Title not found")
         return job
     except RuntimeError as exc:
-        logger.error("Plex client error: %s", exc)
+        logger.error("Media server client error: %s", exc)
         raise HTTPException(status_code=404, detail="Title not found") from exc
 
 
@@ -135,12 +135,12 @@ async def scan_library(library_id: str, body: ScanLibraryRequest):
     jobs = await db.get_scan_jobs_by_library(library_id)
     if not jobs:
         try:
-            client = plex_mod.get_client()
+            client = get_client()
             items = await client.get_library_items(library_id)
             for item in items:
                 if item.file_path:
                     await db.upsert_scan_job(
-                        plex_guid=item.plex_guid,
+                        plex_guid=item.media_id,
                         title=item.title,
                         file_path=item.file_path,
                         rating_key=item.rating_key,
@@ -153,7 +153,7 @@ async def scan_library(library_id: str, body: ScanLibraryRequest):
                     )
             jobs = await db.get_scan_jobs_by_library(library_id)
         except RuntimeError:
-            return {"ok": False, "error": "Plex not configured"}
+            return {"ok": False, "error": "Media server not configured"}
 
     queued = 0
     for job in jobs:

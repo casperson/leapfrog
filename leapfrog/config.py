@@ -12,6 +12,9 @@ from .domain import DEFAULT_DETECT_LABELS, DEFAULT_SKIP_LABELS
 
 @dataclass
 class Config:
+    server_type: str = "plex"
+    server_url: str = ""
+    server_token: str = ""
     plex_url: str = ""
     plex_token: str = ""
     poll_interval: int = 5
@@ -83,6 +86,9 @@ class Config:
             return dict(fallback)
 
         return cls(
+            server_type=s.get("server_type", "plex"),
+            server_url=s.get("server_url", "") or s.get("plex_url", ""),
+            server_token=s.get("server_token", "") or s.get("plex_token", ""),
             plex_url=s.get("plex_url", ""),
             plex_token=s.get("plex_token", ""),
             poll_interval=int(s.get("poll_interval", "5")),
@@ -124,7 +130,10 @@ class Config:
         )
 
     def is_configured(self) -> bool:
-        return bool(self.plex_url and self.plex_token)
+        return bool(
+            (self.server_url or self.plex_url)
+            and (self.server_token or self.plex_token)
+        )
 
     def is_scan_window(self) -> bool:
         """Return True if current local time is within the scan window."""

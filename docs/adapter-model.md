@@ -42,5 +42,6 @@ All runtime adapters also use the same user preference model and threshold logic
 ## Current native state
 
 - Plex has a live playback loop and seek integration.
-- Emby and Jellyfin currently implement the runtime resolution layer only.
-- Native Emby and Jellyfin playback hooks are still a future step.
+- Jellyfin now has native session polling, library sync, artwork proxying, and seek integration through the shared media-server runtime.
+- Emby currently implements the runtime resolution layer only.
+- Native Emby playback hooks are still a future step.

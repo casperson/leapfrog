@@ -48,15 +48,19 @@ def make_mock_plex_client(
 ):
     """Return a MagicMock with the same async interface as PlexClient."""
     mock = MagicMock()
+    mock.adapter = "plex"
     mock.get_active_sessions = AsyncMock(return_value=sessions or [])
     mock.get_library_sections = AsyncMock(return_value=library_sections or [])
     mock.get_library_items = AsyncMock(return_value=library_items or [])
     mock.seek = AsyncMock(return_value=seek_result)
     mock.get_episode_show_art = AsyncMock(return_value=show_art)
     mock.thumb_url = MagicMock(side_effect=lambda p: f"http://plex{p}" if p else "")
+    mock.build_image_url = MagicMock(side_effect=lambda p: f"http://plex{p}" if p else "")
     mock.fetch_image = AsyncMock(return_value=(b"imgdata", "image/jpeg"))
     mock.update_leapfrog_summary = AsyncMock(return_value=True)
     mock.test_connection = AsyncMock(return_value=(connection_ok, "My Plex"))
+    mock.get_machine_identifier = AsyncMock(return_value="plex-machine")
+    mock.close = AsyncMock(return_value=None)
     mock.probe_seek = AsyncMock(return_value={"probe_success": seek_result})
     mock.get_last_seek_failure = MagicMock(return_value=None)
     mock.get_last_seek_success_at = MagicMock(return_value=None)

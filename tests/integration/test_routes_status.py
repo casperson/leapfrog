@@ -11,7 +11,7 @@ pytestmark = pytest.mark.usefixtures("setup_db")
 
 
 async def test_get_application_status_returns_expected_shape(http_client):
-    with patch("leapfrog.web.routes.status.plex_mod.get_client", side_effect=RuntimeError("not configured")):
+    with patch("leapfrog.web.routes.status.get_client", side_effect=RuntimeError("not configured")):
         resp = await http_client.get("/api/status")
 
     assert resp.status_code == 200

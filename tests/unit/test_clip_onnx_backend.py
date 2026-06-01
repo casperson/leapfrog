@@ -126,17 +126,19 @@ def test_get_shared_clip_backend_reuses_instances():
     assert first is second
 
 
-def test_clip_backend_prefers_local_assets_once_downloaded():
+def test_clip_backend_prefers_local_assets_once_downloaded(tmp_path):
     backend = ClipOnnxSemanticBackend(
         model_repo="repo/model",
         processor_repo="repo/processor",
         variant="int8",
     )
-    backend.model_dir.mkdir(parents=True, exist_ok=True)
-    backend.processor_dir.mkdir(parents=True, exist_ok=True)
-    (backend.model_dir / "onnx").mkdir(parents=True, exist_ok=True)
-    vision_path = backend.model_dir / "onnx" / "vision_model_int8.onnx"
-    text_path = backend.model_dir / "onnx" / "text_model_int8.onnx"
+    model_dir = tmp_path / "semantic_repo_model"
+    processor_dir = model_dir / "processor_repo_processor"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    processor_dir.mkdir(parents=True, exist_ok=True)
+    (model_dir / "onnx").mkdir(parents=True, exist_ok=True)
+    vision_path = model_dir / "onnx" / "vision_model_int8.onnx"
+    text_path = model_dir / "onnx" / "text_model_int8.onnx"
     vision_path.write_bytes(b"vision")
     text_path.write_bytes(b"text")
     for file_name in (
@@ -148,10 +150,12 @@ def test_clip_backend_prefers_local_assets_once_downloaded():
         "tokenizer_config.json",
         "vocab.json",
     ):
-        (backend.processor_dir / file_name).write_text("{}", encoding="utf-8")
+        (processor_dir / file_name).write_text("{}", encoding="utf-8")
 
     fake_session = object()
-    with patch("leapfrog.detectors.clip_onnx.hf_hub_download", side_effect=AssertionError("network not expected")), patch(
+    with patch("leapfrog.detectors.clip_onnx.get_models_dir", return_value=tmp_path), patch(
+        "leapfrog.detectors.clip_onnx.hf_hub_download", side_effect=AssertionError("network not expected")
+    ), patch(
         "leapfrog.detectors.clip_onnx.snapshot_download",
         side_effect=AssertionError("network not expected"),
     ), patch(

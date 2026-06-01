@@ -405,7 +405,7 @@ async def test_upsert_scan_job_creates_job():
     assert job["status"] == "pending"
     scan_statuses = await db.get_media_scan_statuses_for_media("guid-job")
     categories = {row["category"] for row in scan_statuses}
-    assert {"nudity", "profanity"} <= categories
+    assert {"sex_nudity_immodesty", "language_profanity"} <= categories
 
 
 async def test_upsert_scan_job_is_idempotent():

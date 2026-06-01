@@ -234,6 +234,9 @@ ON media_scan_stage_status(media_id, stage_order, stage_key);
 """
 
 DEFAULT_SETTINGS = {
+    "server_type": "plex",
+    "server_url": "",
+    "server_token": "",
     "plex_url": "",
     "plex_token": "",
     "poll_interval": "5",

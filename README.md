@@ -700,12 +700,20 @@ The resulting wheel and sdist are written to `dist/`.
 .venv/bin/python -m pytest tests/ -v
 bash scripts/dev-start.sh
 bash scripts/dev-verify.sh
+bash scripts/jellyfin-smoke.sh
 bash scripts/dev-stop.sh
 cd frontend && npm test
 cd frontend && npm run build
 ```
 
 `scripts/dev-start.sh` now works with either POSIX virtualenv layouts (`.venv/bin/leapfrog`) or Windows-style layouts (`.venv/Scripts/leapfrog.exe`).
+
+`scripts/jellyfin-smoke.sh` is optional and is meant for a real Jellyfin-backed dev instance. It verifies the server-agnostic API surface plus optional authenticated artwork and active-seek flows when you provide:
+
+- `EXPECT_CONFIGURED=1`
+- `JELLYFIN_IMAGE_REF='/Items/<item-id>/Images/Primary?tag=<tag>'`
+- `JELLYFIN_SEGMENT_ID=<segment-id>`
+- `JELLYFIN_SESSION_KEY=<session-key>`
 
 ### Optional Whisper setup
 

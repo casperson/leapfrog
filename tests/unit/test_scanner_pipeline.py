@@ -143,7 +143,7 @@ async def test_scan_video_persists_detector_results(tmp_path, caplog):
         "leapfrog.scanner.ProfanityDetector",
         return_value=profanity_detector,
     ), patch(
-        "leapfrog.scanner.plex_mod.get_client",
+        "leapfrog.scanner.get_client",
         return_value=mock_client,
     ):
         await scanner.scan_video("guid-scan", _config())
@@ -262,7 +262,7 @@ async def test_scan_video_replaces_category_segments_and_deletes_stale_thumbnail
         "leapfrog.scanner.ProfanityDetector",
         return_value=profanity_detector,
     ), patch(
-        "leapfrog.scanner.plex_mod.get_client",
+        "leapfrog.scanner.get_client",
         return_value=mock_client,
     ):
         await scanner.scan_video("guid-replace", _config())

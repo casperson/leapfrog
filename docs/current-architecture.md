@@ -1,20 +1,20 @@
 # Leapfrog Current Architecture
 
-Leapfrog is organized around a server-side media-filtering execution loop: Plex discovery populates `scan_jobs`, background workers scan media files offline, detected segments are stored in SQLite, and playback enforcement happens server-side by polling active sessions and issuing seeks through Plex.
+Leapfrog is organized around a server-side media-filtering execution loop: active media-server discovery populates `scan_jobs`, background workers scan media files offline, detected segments are stored in SQLite, and playback enforcement happens server-side by polling active sessions and issuing seeks through the configured server client.
 
 ## Runtime flow
 
-1. `leapfrog/main.py` bootstraps the SQLite database, loads settings into `Config`, initializes the Plex client, and runs the FastAPI app plus the watcher and scanner loops.
-2. `leapfrog/watcher.py` polls Plex for active sessions and new library items.
+1. `leapfrog/main.py` bootstraps the SQLite database, loads settings into `Config`, initializes the active media-server client, and runs the FastAPI app plus the watcher and scanner loops.
+2. `leapfrog/watcher.py` polls the active media server for sessions and new library items.
 3. `leapfrog/scanner.py` manages the scan queue and runs category detectors against each queued media file.
-4. `leapfrog/filter_engine.py` performs playback-time segment selection and seeks the active Plex client when the user’s enabled categories match the current position.
+4. `leapfrog/filter_engine.py` performs playback-time segment selection and seeks the active media-server client when the user’s enabled categories match the current position.
 
 ## Core backend modules
 
 - `leapfrog/database.py`
   Owns the SQLite schema and all SQL access. Segments, user preferences, scan jobs, queue state, scan status rows, settings, sync metadata, and background jobs are all persisted here.
-- `leapfrog/plex_client.py`
-  Wraps all Plex API access, including active sessions, library enumeration, image proxying, and server-side seek commands.
+- `leapfrog/plex_client.py` and `leapfrog/jellyfin_client.py`
+  Wrap native server access for active sessions, library enumeration, image proxying, users, and server-side seek commands.
 - `leapfrog/scanner.py`
   Owns queueing, worker lifecycle, pause/restart/force-scan behavior, shared-frame extraction, and detector orchestration.
 - `leapfrog/detectors/nudity.py`
@@ -68,7 +68,7 @@ The canonical segment record now keeps the original `plex_guid`-based storage fo
 
 ## Playback enforcement
 
-Playback remains server-side. The watcher loads a user’s effective category and label settings, resolves a runtime adapter context, filters stored or sidecar-backed segments by enabled category, enabled label, and threshold, then asks `PlexClient.seek(...)` to jump over matching content. No ML inference happens in the playback hot path.
+Playback remains server-side. The watcher loads a user’s effective category and label settings, resolves a runtime adapter context, filters stored or sidecar-backed segments by enabled category, enabled label, and threshold, then asks the active media-server client to jump over matching content. No ML inference happens in the playback hot path.
 
 ## Queue, status, and logs
 
@@ -91,4 +91,5 @@ Playback remains server-side. The watcher loads a user’s effective category an
 - Internal module paths still use the historical `leapfrog` package name to avoid a destabilizing rewrite.
 - User-facing branding, docs, and metadata are moving to `Leapfrog`.
 - The schema migration is additive, so existing nudity/profanity scans remain readable after upgrade while new queue and scan-status fields are added in place.
-- Runtime adapters for Emby and Jellyfin currently resolve media and effective segments, but live native playback hooks for those servers are still future work.
+- Jellyfin now supports native session polling, library sync, authenticated artwork proxying, and seek control through the shared media-server runtime.
+- Emby still resolves media and effective segments through the runtime adapter layer only; native Emby playback hooks are still future work.

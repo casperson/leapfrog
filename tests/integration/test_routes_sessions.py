@@ -46,7 +46,7 @@ def _active_session(
 # ── GET /api/sessions ─────────────────────────────────────────────────────────
 
 async def test_get_sessions_returns_empty_when_no_plex(http_client):
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", side_effect=RuntimeError("not set")):
+    with patch("leapfrog.web.routes.sessions.get_client", side_effect=RuntimeError("not set")):
         resp = await http_client.get("/api/sessions")
     assert resp.status_code == 200
     data = resp.json()
@@ -57,20 +57,34 @@ async def test_get_sessions_returns_empty_when_no_plex(http_client):
 async def test_get_sessions_returns_session_list(http_client):
     sessions = [_active_session()]
     mock_client = make_mock_plex_client(sessions=sessions)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions")
     assert resp.status_code == 200
     result = resp.json()["sessions"]
     assert len(result) == 1
+    assert result[0]["adapter"] == "plex"
     assert result[0]["session_key"] == "s1"
     assert result[0]["user"] == "alice"
+
+
+async def test_get_sessions_uses_client_image_url_builder(http_client):
+    sessions = [_active_session(thumb="/Items/123/Images/Primary")]
+    mock_client = make_mock_plex_client(sessions=sessions)
+    mock_client.adapter = "jellyfin"
+    mock_client.build_image_url.side_effect = lambda ref: f"/api/server-image?ref={ref}"
+
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
+        resp = await http_client.get("/api/sessions")
+
+    assert resp.status_code == 200
+    assert resp.json()["sessions"][0]["thumb_url"] == "/api/server-image?ref=/Items/123/Images/Primary"
 
 
 async def test_get_sessions_filtering_enabled_default_when_no_filter(http_client):
     """Category toggles default off until a user explicitly enables them."""
     sessions = [_active_session(user="bob")]
     mock_client = make_mock_plex_client(sessions=sessions)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions")
     result = resp.json()["sessions"]
     assert result[0]["filtering_enabled"] is False
@@ -81,7 +95,7 @@ async def test_get_sessions_filtering_disabled_when_filter_set(http_client):
     await db.upsert_user_filter("charlie", enabled=False)
     sessions = [_active_session(user="charlie")]
     mock_client = make_mock_plex_client(sessions=sessions)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions")
     result = resp.json()["sessions"]
     assert result[0]["filtering_enabled"] is False
@@ -92,7 +106,7 @@ async def test_get_sessions_batches_user_filter_lookup(http_client):
     sessions = [_active_session(session_key=f"s{i}", user=f"user{i}") for i in range(5)]
     mock_client = make_mock_plex_client(sessions=sessions)
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client), \
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client), \
          patch("leapfrog.web.routes.sessions.db.get_all_user_filters", wraps=db.get_all_user_filters) as spy:
         resp = await http_client.get("/api/sessions")
 
@@ -132,7 +146,7 @@ async def test_get_session_adapter_status_returns_status(http_client):
     await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=True, threshold=0.5)
     sessions = [_active_session()]
     mock_client = make_mock_plex_client(sessions=sessions)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions/s1/adapter-status")
     assert resp.status_code == 200
     data = resp.json()
@@ -158,7 +172,7 @@ async def test_get_session_seek_diagnostics_returns_last_attempts(http_client):
     mock_client.get_last_seek_failure.return_value = {"detail": "connection refused"}
     mock_client.get_last_seek_diagnostics.return_value = diagnostics
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions/s1/seek-diagnostics")
 
     assert resp.status_code == 200
@@ -170,7 +184,7 @@ async def test_get_session_seek_diagnostics_returns_last_attempts(http_client):
 
 async def test_get_session_seek_diagnostics_returns_404_for_missing_session(http_client):
     mock_client = make_mock_plex_client(sessions=[])
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions/missing/seek-diagnostics")
 
     assert resp.status_code == 404
@@ -188,7 +202,7 @@ async def test_get_companion_clients_returns_discovered_client_list(http_client)
         }
     ])
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions/companion-clients")
 
     assert resp.status_code == 200
@@ -206,7 +220,7 @@ async def test_get_session_companion_compare_returns_session_and_match(http_clie
         "companion_clients": [{"machine_identifier": "client-1"}],
     })
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.get("/api/sessions/s1/companion-compare")
 
     assert resp.status_code == 200
@@ -227,7 +241,7 @@ async def test_probe_session_seek_returns_probe_payload(http_client):
         }
     )
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/probe-seek", json={"delta_ms": 1500})
 
     assert resp.status_code == 200
@@ -238,7 +252,7 @@ async def test_probe_session_seek_returns_probe_payload(http_client):
 
 async def test_probe_session_seek_returns_404_for_missing_session(http_client):
     mock_client = make_mock_plex_client(sessions=[])
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/missing/probe-seek", json={"delta_ms": 1000})
 
     assert resp.status_code == 404
@@ -271,7 +285,7 @@ async def test_scanner_status_marks_skipper_degraded_after_seek_failure(http_cli
     }
     mock_client.get_last_seek_success_at.return_value = None
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client), \
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client), \
          patch("leapfrog.web.routes.sessions.get_current_scan", return_value=None), \
          patch("leapfrog.web.routes.sessions.get_current_scans", return_value=[]), \
          patch("leapfrog.web.routes.sessions.get_queue_size", return_value=0), \
@@ -306,7 +320,7 @@ async def test_scanner_status_marks_skipper_idle_when_no_sessions_after_seek_fai
     }
     mock_client.get_last_seek_success_at.return_value = None
 
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client), \
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client), \
          patch("leapfrog.web.routes.sessions.get_current_scan", return_value=None), \
          patch("leapfrog.web.routes.sessions.get_current_scans", return_value=[]), \
          patch("leapfrog.web.routes.sessions.get_queue_size", return_value=0), \
@@ -361,14 +375,14 @@ async def test_scanner_status_batches_db_lookup(http_client):
 # ── POST /api/sessions/{session_key}/skip ─────────────────────────────────────
 
 async def test_skip_session_returns_404_when_plex_not_configured(http_client):
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.sessions.get_client", side_effect=RuntimeError):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 503
 
 
 async def test_skip_session_returns_404_when_session_not_found(http_client):
     mock_client = make_mock_plex_client(sessions=[])
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/no-such-session/skip")
     assert resp.status_code == 404
 
@@ -376,7 +390,7 @@ async def test_skip_session_returns_404_when_session_not_found(http_client):
 async def test_skip_session_returns_409_when_not_controllable(http_client):
     sessions = [_active_session(is_controllable=False)]
     mock_client = make_mock_plex_client(sessions=sessions)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 409
 
@@ -384,7 +398,7 @@ async def test_skip_session_returns_409_when_not_controllable(http_client):
 async def test_skip_session_returns_404_when_no_segments(http_client):
     sessions = [_active_session()]
     mock_client = make_mock_plex_client(sessions=sessions)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 404
 
@@ -401,7 +415,7 @@ async def test_skip_session_seeks_to_next_segment(http_client):
     await db.set_user_preference("alice", "sex_nudity_immodesty", enabled=True, threshold=0.5)
     sessions = [_active_session(position_ms=10000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
     data = resp.json()
@@ -417,7 +431,7 @@ async def test_skip_session_with_nudity_enabled_only_ignores_other_categories(ht
     await db.set_user_preference("alice", "language_profanity", enabled=False, threshold=0.5)
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
     assert resp.json()["seek_to_ms"] == 61000
@@ -430,7 +444,7 @@ async def test_skip_session_with_profanity_enabled_only_ignores_nudity(http_clie
     await db.set_user_preference("alice", "language_profanity", enabled=True, threshold=0.5)
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
     assert resp.json()["seek_to_ms"] == 21000
@@ -443,7 +457,7 @@ async def test_skip_session_returns_404_when_all_categories_disabled(http_client
     await db.set_user_preference("alice", "language_profanity", enabled=False, threshold=0.5)
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 404
 
@@ -453,7 +467,7 @@ async def test_skip_session_with_missing_preferences_defaults_to_all_disabled(ht
     await db.insert_segment("g1", "Movie", start_ms=10000, end_ms=20000, confidence=0.9, category="language_profanity")
     sessions = [_active_session(position_ms=5000)]
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 404
 
@@ -485,7 +499,7 @@ async def test_skip_session_uses_sidecar_when_available(http_client, tmp_path):
     sessions = [_active_session(position_ms=10000)]
     sessions[0].file_path = str(media_path)
     mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
-    with patch("leapfrog.web.routes.sessions.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.sessions.get_client", return_value=mock_client):
         resp = await http_client.post("/api/sessions/s1/skip")
     assert resp.status_code == 200
     assert resp.json()["seek_to_ms"] == 61000

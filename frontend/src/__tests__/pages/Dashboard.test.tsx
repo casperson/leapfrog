@@ -90,6 +90,7 @@ describe('Dashboard', () => {
 
   it('displays active session info', async () => {
     const session = {
+      adapter: 'plex',
       session_key: 's1',
       user: 'alice',
       title: 'Inception',

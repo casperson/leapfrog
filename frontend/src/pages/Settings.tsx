@@ -4,8 +4,9 @@ import { CheckCircle2, XCircle, Loader2, Eye, EyeOff, RotateCcw, Trash2 } from '
 import { CategoryDefinition } from '../lib/categories'
 
 interface Settings {
-  plex_url: string
-  plex_token: string
+  server_type: string
+  server_url: string
+  server_token: string
   poll_interval: string
   confidence_threshold: string
   sexual_content_detection_threshold: string
@@ -51,8 +52,9 @@ interface SyncStatus {
 }
 
 const DEFAULT: Settings = {
-  plex_url: '',
-  plex_token: '',
+  server_type: 'plex',
+  server_url: '',
+  server_token: '',
   poll_interval: '5',
   confidence_threshold: '0.4',
   sexual_content_detection_threshold: '0.70',
@@ -199,7 +201,7 @@ export default function SettingsPage() {
     setTesting(true)
     setTestResult(null)
     // Save first so the server uses current values
-    await api.put('/api/settings', { plex_url: form.plex_url, plex_token: form.plex_token })
+    await api.put('/api/settings', { server_type: form.server_type, server_url: form.server_url, server_token: form.server_token })
     try {
       const r = await api.post<{ ok: boolean; message: string }>('/api/settings/test-connection')
       setTestResult(r)
@@ -373,26 +375,33 @@ export default function SettingsPage() {
     <div className="max-w-xl space-y-8">
       <h1 className="text-2xl font-bold text-gray-100">Settings</h1>
 
-      {/* Plex connection */}
+      {/* Media server connection */}
       <section>
-        <h2 className="text-base font-semibold text-gray-200 mb-4 pb-2 border-b border-plex-border">Plex Connection</h2>
+        <h2 className="text-base font-semibold text-gray-200 mb-4 pb-2 border-b border-plex-border">Media Server</h2>
         <div className="space-y-4">
-          <Field label="Plex Server URL" hint="e.g. http://192.168.1.10:32400">
+          <Field label="Server Type" hint="Choose which server Leapfrog should control in this instance.">
+            <select value={form.server_type} onChange={set('server_type')} className={inputCls}>
+              <option value="plex">Plex</option>
+              <option value="jellyfin">Jellyfin</option>
+            </select>
+          </Field>
+
+          <Field label="Server URL" hint="e.g. http://192.168.1.10:32400 or http://192.168.1.10:8096">
             <input
               type="url"
-              value={form.plex_url}
-              onChange={set('plex_url')}
+              value={form.server_url}
+              onChange={set('server_url')}
               placeholder="http://localhost:32400"
               className={inputCls}
             />
           </Field>
 
-          <Field label="Plex Token" hint="Find yours at plex.tv/devices.xml or in Plex logs">
+          <Field label="Server Token" hint={form.server_type === 'plex' ? 'Find your Plex token at plex.tv/devices.xml or in Plex logs.' : 'Use a Jellyfin API key for the selected server.'}>
             <div className="relative">
               <input
                 type={showToken ? 'text' : 'password'}
-                value={form.plex_token}
-                onChange={set('plex_token')}
+                value={form.server_token}
+                onChange={set('server_token')}
                 placeholder="xxxxxxxxxxxxxxxxxxxx"
                 className={inputCls + ' pr-10'}
               />
@@ -409,7 +418,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={testConnection}
-              disabled={testing || !form.plex_url || !form.plex_token}
+              disabled={testing || !form.server_url || !form.server_token}
               className="px-4 py-2 text-sm bg-plex-card border border-plex-border rounded-lg text-gray-300 hover:border-plex-orange/50 hover:text-white transition-colors disabled:opacity-40 flex items-center gap-2"
             >
               {testing && <Loader2 size={14} className="animate-spin" />}

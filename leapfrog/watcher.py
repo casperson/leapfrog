@@ -55,7 +55,7 @@ def get_skipper_runtime_state() -> dict[str, str | int | None]:
 
 
 async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
-    """Poll Plex sessions every `poll_interval` seconds and fire skips."""
+    """Poll active media-server sessions every `poll_interval` seconds and fire skips."""
     while True:
         config = await get_config_fn()
 
@@ -112,7 +112,7 @@ async def session_watcher_loop(get_config_fn, get_client_fn) -> None:
 
 
 async def library_watcher_loop(get_config_fn, get_client_fn) -> None:
-    """Periodically discover Plex library items without automatically queueing scans."""
+    """Periodically discover media-server library items without automatically queueing scans."""
     first_run = True
     while True:
         if not first_run:
@@ -138,10 +138,10 @@ async def library_watcher_loop(get_config_fn, get_client_fn) -> None:
                         continue
                     if scan_ratings and (item.content_rating or "") not in scan_ratings:
                         continue
-                    existing = await db.get_scan_job_by_guid(item.plex_guid)
+                    existing = await db.get_scan_job_by_guid(item.media_id)
                     if existing is None:
                         await db.upsert_scan_job(
-                            plex_guid=item.plex_guid,
+                            plex_guid=item.media_id,
                             title=item.title,
                             file_path=item.file_path,
                             rating_key=item.rating_key,

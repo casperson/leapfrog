@@ -19,8 +19,9 @@ const mockApi = api as {
 }
 
 const defaultSettings = {
-  plex_url: 'http://plex:32400',
-  plex_token: 'abc',
+  server_type: 'plex',
+  server_url: 'http://plex:32400',
+  server_token: 'abc',
   poll_interval: '5',
   confidence_threshold: '0.4',
   sexual_content_detection_threshold: '0.70',
@@ -106,7 +107,7 @@ describe('Settings', () => {
     await waitFor(() => expect(screen.getByText('Settings')).toBeInTheDocument())
   })
 
-  it('loads and displays plex url from settings', async () => {
+  it('loads and displays server url from settings', async () => {
     renderSettings()
     await waitFor(() => {
       const input = screen.getByDisplayValue('http://plex:32400')
@@ -118,9 +119,9 @@ describe('Settings', () => {
     renderSettings()
 
     await waitFor(() => expect(screen.getAllByDisplayValue('0.70').length).toBeGreaterThan(0))
-    expect(screen.getByText('Sexual Content Threshold')).toBeInTheDocument()
+    expect(screen.getByText('Sex & Suggestive Threshold')).toBeInTheDocument()
     expect(screen.getByText('Violence Threshold')).toBeInTheDocument()
-    expect(screen.getByText('Drugs Threshold')).toBeInTheDocument()
+    expect(screen.getByText('Drugs & Alcohol Threshold')).toBeInTheDocument()
   })
 
   it('calls semantic model prep endpoint from settings', async () => {

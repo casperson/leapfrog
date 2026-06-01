@@ -200,19 +200,19 @@ async def test_resolve_plex_playback_context_reads_adjacent_edl_file(tmp_path):
     media_path = tmp_path / "Movie.mkv"
     media_path.write_text("stub", encoding="utf-8")
     media_path.with_suffix(".edl").write_text(
-        "10.0 20.5 0 violence fight\n",
+        "10.0 20.5 0 violence_blood_gore fight\n",
         encoding="utf-8",
     )
 
     context = await resolve_plex_playback_context(
         _session(file_path=str(media_path)),
-        user_preferences={"violence": {"enabled": True, "threshold": 0.5}},
+        user_preferences={"violence_blood_gore": {"enabled": True, "threshold": 0.5}},
     )
 
     assert context.segment_source == "sidecar"
     assert context.effective_segments[0]["start_ms"] == 10000
     assert context.effective_segments[0]["end_ms"] == 20500
-    assert context.effective_segments[0]["category"] == "violence"
+    assert context.effective_segments[0]["category"] == "violence_blood_gore"
     assert context.effective_segments[0]["labels"] == "fight"
 
 
@@ -221,24 +221,24 @@ async def test_resolve_plex_playback_context_reads_adjacent_csv_file(tmp_path):
     media_path.write_text("stub", encoding="utf-8")
     media_path.with_suffix(".csv").write_text(
         "start_time,end_time,category,labels,confidence\n"
-        "00:01:00,00:01:10,drugs,marijuana,0.91\n",
+        "00:01:00,00:01:10,alcohol_or_drug_use,drugs_illegal,0.91\n",
         encoding="utf-8",
     )
 
     context = await resolve_plex_playback_context(
         _session(file_path=str(media_path)),
         user_preferences={
-            "drugs": {
+            "alcohol_or_drug_use": {
                 "enabled": True,
                 "threshold": 0.5,
-                "labels": {"marijuana": {"enabled": True, "threshold": None}},
+                "labels": {"drugs_illegal": {"enabled": True, "threshold": None}},
             },
         },
     )
 
     assert context.segment_source == "sidecar"
     assert context.effective_segments[0]["start_ms"] == 60000
-    assert context.effective_segments[0]["category"] == "drugs"
+    assert context.effective_segments[0]["category"] == "alcohol_or_drug_use"
 
 
 async def test_resolve_plex_playback_context_falls_back_to_db_without_sidecar():
@@ -255,20 +255,21 @@ async def test_resolve_plex_playback_context_falls_back_to_db_without_sidecar():
         "Movie",
         start_ms=1000,
         end_ms=3000,
-        category="nudity",
+        category="sex_nudity_immodesty",
         source="nudenet",
         confidence=0.9,
     )
 
     context = await resolve_plex_playback_context(
-        _session(plex_guid="guid-fallback", rating_key="rk-fallback")
+        _session(plex_guid="guid-fallback", rating_key="rk-fallback"),
+        user_preferences={"sex_nudity_immodesty": {"enabled": True, "threshold": 0.5}},
     )
 
     assert context.segment_source == "db"
     assert context.effective_segment_count == 1
 
 
-async def test_resolve_plex_playback_context_defaults_to_nudity_when_preferences_missing():
+async def test_resolve_plex_playback_context_defaults_to_disabled_categories_when_preferences_missing():
     await db.upsert_scan_job(
         plex_guid="guid-defaults",
         title="Movie",
@@ -301,8 +302,7 @@ async def test_resolve_plex_playback_context_defaults_to_nudity_when_preferences
     )
 
     assert context.preferences_resolved is True
-    assert context.effective_segment_count == 1
-    assert context.effective_segments[0]["category"] == "nudity"
+    assert context.effective_segment_count == 0
 
 
 async def test_find_sidecar_path_checks_adjacent_export_names(tmp_path):

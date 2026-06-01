@@ -311,7 +311,7 @@ async def test_scan_status_includes_partially_scanned_titles_with_zero_segments(
     assert resp.status_code == 200
     payload = resp.json()
     assert payload["analysis_state"] == "partially_scanned"
-    assert payload["segment_counts_by_category"]["nudity"] == 0
+    assert payload["segment_counts_by_category"]["sex_nudity_immodesty"] == 0
 
 
 async def test_scan_details_returns_stage_statuses_and_queue_state(http_client):
@@ -505,7 +505,7 @@ async def test_get_all_segments_pagination(http_client):
 # ── GET /api/libraries ─────────────────────────────────────────────────────────
 
 async def test_get_libraries_returns_error_when_plex_not_configured(http_client):
-    with patch("leapfrog.web.routes.segments.plex_mod.get_client", side_effect=RuntimeError("not configured")):
+    with patch("leapfrog.web.routes.segments.get_client", side_effect=RuntimeError("not configured")):
         resp = await http_client.get("/api/libraries")
     assert resp.status_code == 200
     data = resp.json()
@@ -518,7 +518,7 @@ async def test_get_libraries_returns_sections(http_client):
     mock_client = make_mock_plex_client(
         library_sections=[LibrarySection("1", "Movies", "movie"), LibrarySection("2", "Shows", "show")]
     )
-    with patch("leapfrog.web.routes.segments.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.segments.get_client", return_value=mock_client):
         resp = await http_client.get("/api/libraries")
     assert resp.status_code == 200
     libs = resp.json()["libraries"]
@@ -529,7 +529,7 @@ async def test_get_libraries_returns_sections(http_client):
 # ── GET /api/libraries/{library_id}/titles ────────────────────────────────────
 
 async def test_get_titles_in_library_returns_empty_for_no_jobs(http_client):
-    with patch("leapfrog.web.routes.segments.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.segments.get_client", side_effect=RuntimeError):
         resp = await http_client.get("/api/libraries/lib1/titles")
     assert resp.status_code == 200
     assert resp.json()["titles"] == []
@@ -547,7 +547,7 @@ async def test_get_titles_in_library_returns_jobs(http_client):
     await db.insert_segment("title-guid", "Test Movie", start_ms=0, end_ms=1000)
 
     mock_client = make_mock_plex_client()
-    with patch("leapfrog.web.routes.segments.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.segments.get_client", return_value=mock_client):
         resp = await http_client.get("/api/libraries/lib1/titles")
 
     assert resp.status_code == 200
@@ -560,7 +560,7 @@ async def test_get_titles_in_library_returns_jobs(http_client):
 # ── POST /api/libraries/{library_id}/sync ─────────────────────────────────────
 
 async def test_sync_library_returns_error_when_plex_not_configured(http_client):
-    with patch("leapfrog.web.routes.segments.plex_mod.get_client", side_effect=RuntimeError("not set")):
+    with patch("leapfrog.web.routes.segments.get_client", side_effect=RuntimeError("not set")):
         resp = await http_client.post("/api/libraries/lib1/sync")
     assert resp.status_code == 200
     assert resp.json()["ok"] is False
@@ -583,9 +583,88 @@ async def test_sync_library_adds_new_titles(http_client):
         )
     ]
     mock_client = make_mock_plex_client(library_items=items)
-    with patch("leapfrog.web.routes.segments.plex_mod.get_client", return_value=mock_client):
+    with patch("leapfrog.web.routes.segments.get_client", return_value=mock_client):
         resp = await http_client.post("/api/libraries/lib2/sync")
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
     assert data["new"] == 1
+
+
+async def test_sync_library_persists_library_title_from_jellyfin_items(http_client):
+    from leapfrog.media_server import ServerMediaItem
+
+    items = [
+        ServerMediaItem(
+            media_id="jf-1",
+            title="Jellyfin Movie",
+            year=2024,
+            thumb="",
+            file_path="/jellyfin/movie.mkv",
+            library_id="lib-jf",
+            library_title="Jellyfin Movies",
+            media_type="movie",
+            rating_key="jf-1",
+        )
+    ]
+    mock_client = make_mock_plex_client(library_items=items)
+    mock_client.adapter = "jellyfin"
+
+    with patch("leapfrog.web.routes.segments.get_client", return_value=mock_client):
+        resp = await http_client.post("/api/libraries/lib-jf/sync")
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    job = await db.get_scan_job_by_guid("jf-1")
+    assert job["library_title"] == "Jellyfin Movies"
+
+
+async def test_jump_to_segment_can_seek_jellyfin_session_by_media_id(http_client):
+    from leapfrog.media_server import ServerSession
+
+    await db.upsert_scan_job(
+        plex_guid="jf-jump",
+        title="Jellyfin Jump",
+        file_path="/media/jellyfin-jump.mkv",
+        rating_key="rk-jf-jump",
+        library_id="lib-jf",
+        library_title="Jellyfin Movies",
+    )
+    seg_id = await db.insert_segment(
+        "jf-jump",
+        "Jellyfin Jump",
+        start_ms=12000,
+        end_ms=18000,
+        category="language_profanity",
+        source="subtitles",
+        confidence=0.95,
+    )
+    sessions = [
+        ServerSession(
+            adapter="jellyfin",
+            session_key="sess-jf",
+            user="alice",
+            title="Jellyfin Jump",
+            full_title="Jellyfin Jump",
+            media_id="jf-jump",
+            rating_key="rk-jf-jump",
+            media_type="movie",
+            position_ms=5000,
+            duration_ms=60000,
+            client_identifier="client-jf",
+            client_title="Jellyfin Web",
+            is_controllable=True,
+        )
+    ]
+    mock_client = make_mock_plex_client(sessions=sessions, seek_result=True)
+    mock_client.adapter = "jellyfin"
+
+    with patch("leapfrog.web.routes.segments.get_client", return_value=mock_client):
+        resp = await http_client.post(f"/api/segments/{seg_id}/jump")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["adapter"] == "jellyfin"
+    assert data["seek_to_ms"] == 12000
+    mock_client.seek.assert_awaited_once_with(sessions[0], 12000)

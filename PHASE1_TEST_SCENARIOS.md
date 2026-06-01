@@ -277,3 +277,35 @@ and conflict resolution logic. All scenarios are designed to validate robustness
 #    - Empty databases, no segments
 #    - Conflicting API calls, network interruptions (Phase 2)
 # ============================================================================
+
+
+# ============================================================================
+# SCENARIO 13: Jellyfin Native Playback Smoke
+# ============================================================================
+# Setup:
+#   - Leapfrog dev instance running on http://localhost:7980
+#   - Active settings use server_type="jellyfin"
+#   - Valid Jellyfin URL + API token saved in Settings
+#   - At least one Jellyfin library is visible to Leapfrog
+#   - Optional: one active Jellyfin playback session on a title with segments
+#
+# Test:
+#   1. bash scripts/jellyfin-smoke.sh
+#   2. If you have a visible artwork ref, rerun with:
+#      JELLYFIN_IMAGE_REF='/Items/<item-id>/Images/Primary?tag=<tag>' bash scripts/jellyfin-smoke.sh
+#   3. If you have an active session and a segment id, rerun with:
+#      JELLYFIN_SEGMENT_ID=<segment-id> JELLYFIN_SESSION_KEY=<session-key> EXPECT_CONFIGURED=1 bash scripts/jellyfin-smoke.sh
+#
+# Expected Results:
+# - /api/settings reports server_type="jellyfin"
+# - /api/status reports Jellyfin native_connected=true when EXPECT_CONFIGURED=1
+# - /api/libraries, /api/users, and /api/sessions all return 200
+# - /api/server-image returns 200 for a Jellyfin artwork ref
+# - /api/segments/{id}/jump returns 200 for an active controllable Jellyfin session
+# - /api/sessions/{session_key}/skip returns 200 when the title has an effective segment at or after the current position
+#
+# Edge Cases:
+# - Clearing the Jellyfin URL or token should leave /api/settings unconfigured and should not keep stale sessions available
+# - Libraries with no active playback should still pass the base smoke checks
+# - Protected artwork endpoints should load through /api/server-image even when the browser cannot fetch Jellyfin directly
+# ============================================================================

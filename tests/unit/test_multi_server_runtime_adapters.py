@@ -173,7 +173,7 @@ async def test_jellyfin_runtime_adapter_resolves_media_by_file_path_fallback():
     assert context.segment_source == "db"
 
 
-async def test_jellyfin_runtime_adapter_defaults_to_nudity_when_preferences_missing():
+async def test_jellyfin_runtime_adapter_defaults_to_disabled_categories_when_preferences_missing():
     await db.upsert_scan_job(
         plex_guid="guid-jelly-default",
         title="Jellyfin Default Movie",
@@ -211,8 +211,7 @@ async def test_jellyfin_runtime_adapter_defaults_to_nudity_when_preferences_miss
     )
 
     assert context.preferences_resolved is True
-    assert context.effective_segment_count == 1
-    assert context.effective_segments[0]["category"] == "nudity"
+    assert context.effective_segment_count == 0
 
 
 async def test_jellyfin_runtime_adapter_respects_confidence_thresholds():

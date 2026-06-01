@@ -4,10 +4,10 @@ from pydantic import BaseModel
 from ...logger import configure_log_buffer, get_logger
 from ... import database as db
 from ...config import Config
-import leapfrog.plex_client as plex_mod
 from ... import scanner as scan_mod
 from ...detectors.semantic import ensure_semantic_model_async
 from ...preferences import get_category_metadata
+from ...server_runtime import build_client, clear_client, get_client, init_active_client
 from .segments import _invalidate_scan_labels_cache
 
 logger = get_logger(__name__)
@@ -40,6 +40,9 @@ DETECTOR_LABELS = [
 
 
 class SettingsPayload(BaseModel):
+    server_type: str | None = None
+    server_url: str | None = None
+    server_token: str | None = None
     plex_url: str | None = None
     plex_token: str | None = None
     poll_interval: str | None = None
@@ -82,7 +85,15 @@ class ValidateModelPathPayload(BaseModel):
 
 @router.get("")
 async def get_settings():
-    return await db.get_all_settings()
+    settings = await db.get_all_settings()
+    server_url = settings.get("server_url", "") or settings.get("plex_url", "")
+    server_token = settings.get("server_token", "") or settings.get("plex_token", "")
+    return {
+        **settings,
+        "server_type": settings.get("server_type", "plex"),
+        "server_url": server_url,
+        "server_token": server_token,
+    }
 
 
 @router.get("/categories")
@@ -91,11 +102,12 @@ async def get_categories():
     return {"categories": await get_category_metadata()}
 
 
+@router.get("/server-id")
 @router.get("/plex-server-id")
-async def get_plex_server_id():
-    """Return the Plex server machine identifier for constructing web deep links."""
+async def get_server_id():
+    """Return the active server machine identifier when available."""
     try:
-        client = plex_mod.get_client()
+        client = get_client()
         machine_id = await client.get_machine_identifier()
         return {"machine_identifier": machine_id}
     except RuntimeError:
@@ -108,6 +120,16 @@ async def get_plex_server_id():
 @router.put("")
 async def update_settings(payload: SettingsPayload):
     data = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "plex_url" in data and "server_url" not in data:
+        data["server_url"] = data["plex_url"]
+    if "plex_token" in data and "server_token" not in data:
+        data["server_token"] = data["plex_token"]
+    if "server_url" in data and "plex_url" not in data:
+        data["plex_url"] = data["server_url"]
+    if "server_token" in data and "plex_token" not in data:
+        data["plex_token"] = data["server_token"]
+    if "server_type" in data:
+        data["server_type"] = (data["server_type"] or "plex").strip().lower()
     
     # Check if scan_workers is being changed
     scan_workers_changed = False
@@ -124,12 +146,21 @@ async def update_settings(payload: SettingsPayload):
         _invalidate_scan_labels_cache()
 
     # Reinitialise client if connection details changed
-    if "plex_url" in data or "plex_token" in data:
+    if {"server_type", "server_url", "server_token", "plex_url", "plex_token"} & set(data):
         settings = await db.get_all_settings()
-        url = settings.get("plex_url", "")
-        token = settings.get("plex_token", "")
+        url = settings.get("server_url", "") or settings.get("plex_url", "")
+        token = settings.get("server_token", "") or settings.get("plex_token", "")
+        server_type = settings.get("server_type", "plex")
         if url and token:
-            plex_mod.init_client(url, token)
+            init_active_client(
+                Config(
+                    server_type=server_type,
+                    server_url=url,
+                    server_token=token,
+                )
+            )
+        else:
+            clear_client()
 
     if "log_buffer_capacity" in data:
         configure_log_buffer(int(data["log_buffer_capacity"]))
@@ -144,12 +175,14 @@ async def update_settings(payload: SettingsPayload):
 @router.post("/test-connection")
 async def test_connection():
     settings = await db.get_all_settings()
-    url = settings.get("plex_url", "")
-    token = settings.get("plex_token", "")
+    url = settings.get("server_url", "") or settings.get("plex_url", "")
+    token = settings.get("server_token", "") or settings.get("plex_token", "")
+    server_type = settings.get("server_type", "plex")
     if not url or not token:
-        return {"ok": False, "message": "Plex URL and token are required"}
-    client = plex_mod.PlexClient(url, token)
+        return {"ok": False, "message": "Server URL and token are required"}
+    client = build_client(server_type, url, token)
     ok, message = await client.test_connection()
+    await client.close()
     return {"ok": ok, "message": message}
 
 

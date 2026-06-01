@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from leapfrog import database as db
+from tests.conftest import make_mock_plex_client
 
 
 pytestmark = pytest.mark.usefixtures("setup_db")
@@ -70,9 +71,38 @@ async def test_scan_title_now_resumes_scanner(http_client):
 
 
 async def test_scan_title_returns_404_when_job_not_found(http_client):
-    with patch("leapfrog.web.routes.scanner_routes.plex_mod.get_client", side_effect=RuntimeError):
+    with patch("leapfrog.web.routes.scanner_routes.get_client", side_effect=RuntimeError):
         resp = await http_client.post("/api/scan/title", json={"plex_guid": "no-such-guid"})
     assert resp.status_code == 404
+
+
+async def test_scan_title_can_backfill_missing_job_from_jellyfin_library(http_client):
+    from leapfrog.media_server import ServerMediaItem
+
+    items = [
+        ServerMediaItem(
+            media_id="jf-scan-me",
+            title="Jellyfin Scan Me",
+            year=2024,
+            thumb="",
+            file_path="/media/jellyfin-scan-me.mkv",
+            library_id="lib-jf",
+            library_title="Jellyfin Movies",
+            media_type="movie",
+            rating_key="rk-jf",
+        )
+    ]
+    mock_client = make_mock_plex_client(library_items=items)
+    mock_client.adapter = "jellyfin"
+
+    with patch("leapfrog.web.routes.scanner_routes.get_client", return_value=mock_client):
+        resp = await http_client.post("/api/scan/title", json={"plex_guid": "jf-scan-me", "library_id": "lib-jf"})
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    job = await db.get_scan_job_by_guid("jf-scan-me")
+    assert job is not None
+    assert job["library_title"] == "Jellyfin Movies"
 
 
 async def test_pause_and_resume_scanner(http_client):

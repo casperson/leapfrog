@@ -12,8 +12,8 @@ from ...preferences import (
     get_preference_threshold_settings,
     resolve_preferences_for_users,
 )
-import leapfrog.plex_client as plex_mod
 from ... import database as db
+from ...server_runtime import get_client
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -35,13 +35,12 @@ class UserLabelPreferenceUpdate(BaseModel):
 
 @router.get("")
 async def get_users():
-    """Return all Plex users merged with their filter settings."""
-    # Get users from Plex if available
-    plex_users: list[dict] = []
+    """Return all media-server users merged with their filter settings."""
+    server_users: list[dict] = []
     try:
-        client = plex_mod.get_client()
+        client = get_client()
         users = await client.get_all_users()
-        plex_users = [{"username": u.username, "thumb": u.thumb} for u in users]
+        server_users = [{"username": u.username, "thumb": client.build_image_url(u.thumb)} for u in users]
     except RuntimeError:
         pass
 
@@ -61,7 +60,7 @@ async def get_users():
         for category in category_metadata
     }
     known_usernames = sorted(
-        set(filters) | set(category_preferences) | set(label_preferences) | {u["username"] for u in plex_users}
+        set(filters) | set(category_preferences) | set(label_preferences) | {u["username"] for u in server_users}
     )
     resolved_preferences = resolve_preferences_for_users(
         known_usernames,
@@ -76,7 +75,7 @@ async def get_users():
     # Merge: if username not in DB, default enabled=True
     result = []
     seen = set()
-    for u in plex_users:
+    for u in server_users:
         name = u["username"]
         seen.add(name)
         result.append({
