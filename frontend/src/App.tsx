@@ -6,6 +6,7 @@ import LogsPage from './pages/Logs'
 import Segments from './pages/Segments'
 import UsersPage from './pages/Users'
 import SettingsPage from './pages/Settings'
+import VidAngelExportPage from './pages/VidAngelExport'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/segments" element={<Segments />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/vidangel-export" element={<VidAngelExportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>

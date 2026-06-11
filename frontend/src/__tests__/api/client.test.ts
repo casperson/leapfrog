@@ -111,3 +111,17 @@ describe('api.delete', () => {
     )
   })
 })
+
+describe('api.postText', () => {
+  it('returns raw text on success', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
+      text: () => Promise.resolve('0:00:01 --> 0:00:02\nskip\n'),
+    })
+
+    const result = await api.postText('/api/vidangel/export/titles/1/skp', { selected_leaf_keys: ['foo'] })
+
+    expect(result).toContain('0:00:01 --> 0:00:02')
+  })
+})

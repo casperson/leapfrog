@@ -291,6 +291,27 @@ By default the exporter writes to `repo_root/vidangel/`:
 
 This default output is intentionally database-first: one master catalog plus one master event table, not one file per VidAngel title.
 
+#### Generate a filtered `.skp` from VidAngel export data
+
+Leapfrog also lets you browse the exported VidAngel title catalog, pick only the leaf filters you want, and generate a filtered `.skp` file from that subset. The browser UI lives on the new VidAngel page, and the same path is available from the backend and CLI for automation.
+
+The filtered export workflow is:
+
+1. open the VidAngel page in Leapfrog,
+2. choose a title from the exported catalog,
+3. toggle the leaf filters you want to keep,
+4. generate the `.skp` download.
+
+The matching CLI command exports the same filtered selection to disk or stdout:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_export export-skp \
+  --media-id movie-1 \
+  --leaf-key fuck \
+  --leaf-key immodesty_female \
+  --output /path/to/Sample_Movie.skp
+```
+
 Important: Leapfrog only auto-loads sidecars that live adjacent to the actual movie or episode file, for example:
 
 - `/media/Movies/Angel Has Fallen (2019).mkv`
@@ -418,6 +439,16 @@ To generate sidecars only for titles in your local Plex library, run:
 ```bash
 .venv/bin/python -m leapfrog.vidangel_sidecars
 ```
+
+#### VidAngel export API
+
+The VidAngel export browser page uses these endpoints:
+
+- `GET /api/vidangel/export/catalog`
+- `GET /api/vidangel/export/titles/{media_id}/filters`
+- `POST /api/vidangel/export/titles/{media_id}/skp`
+
+`POST /api/vidangel/export/titles/{media_id}/skp` returns a downloadable `.skp` by default. Include `output_path` in the JSON body when you want Leapfrog to write the file to disk instead of returning it inline.
 
 ```bash
 .venv/bin/python -m leapfrog.vidangel_sidecars \

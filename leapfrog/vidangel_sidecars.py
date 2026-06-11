@@ -16,7 +16,12 @@ from . import database as db
 from .logger import get_logger, setup_logging
 from .paths import get_data_dir
 from .segment_export import write_sidecar_file
-from .vidangel_export import RawFilterEvent, build_sidecar_payload, get_vidangel_export_dir
+from .vidangel_export import (
+    RawFilterEvent,
+    build_sidecar_payload,
+    get_vidangel_export_dir,
+    load_vidangel_raw_event_records,
+)
 import leapfrog.plex_client as plex_mod
 
 logger = get_logger(__name__)
@@ -105,6 +110,11 @@ async def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
                 writer.writerow(row)
 
     await asyncio.to_thread(_write)
+
+
+async def _load_raw_events_async(export_dir: Path) -> dict[tuple[str, str], list[RawFilterEvent]]:
+    """Load raw VidAngel events using the shared export parser."""
+    return await load_vidangel_raw_event_records(export_dir)
 
 
 def _load_movie_catalog(export_dir: Path) -> list[dict[str, Any]]:
@@ -369,7 +379,7 @@ async def generate_vidangel_sidecars(
     source_dir = export_dir or get_vidangel_export_dir()
     movie_index = _build_movie_index(_load_movie_catalog(source_dir))
     episode_index = _build_episode_index(_load_tv_catalog(source_dir))
-    event_index = _load_raw_events(source_dir)
+    event_index = await _load_raw_events_async(source_dir)
 
     jobs = await db.get_scan_jobs_by_library(library_id) if library_id else await db.get_scan_jobs()
     if not jobs:

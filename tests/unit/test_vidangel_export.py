@@ -5,16 +5,22 @@ from __future__ import annotations
 import subprocess
 import sys
 import zipfile
+import json
 from pathlib import Path
+
+import pytest
 
 from leapfrog.vidangel_export import (
     DEFAULT_MIN_SEGMENT_MS,
     ShowSummary,
     TitleArtifact,
+    VidAngelExportDataError,
     _create_simple_xlsx,
+    build_vidangel_filter_catalog,
     _parse_optional_int,
     _parse_required_int,
     _show_catalog_rows,
+    generate_filtered_vidangel_skp,
     WorkStub,
     build_catalog_queries,
     build_show_summaries,
@@ -451,3 +457,144 @@ def test_module_help_entrypoint_exits_zero():
     assert result.returncode == 0
     assert "output-dir" in result.stdout
     assert "write-per-title-artifacts" in result.stdout
+    assert "export-skp" in result.stdout
+
+
+def _write_sample_vidangel_export(tmp_path: Path) -> Path:
+    export_dir = tmp_path / "vidangel"
+    export_dir.mkdir()
+    (export_dir / "title_catalog.json").write_text(
+        json.dumps(
+            {
+                "titles": [
+                    {
+                        "media_id": "movie-1",
+                        "media_type": "movie",
+                        "title": "Sample Movie",
+                        "slug": "sample-movie",
+                        "event_count": 3,
+                        "category_count": 2,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (export_dir / "tag_definitions.json").write_text(
+        json.dumps(
+            {
+                "definitions": [
+                    {
+                        "key": "fuck",
+                        "display_title": "Fu**",
+                        "path_keys": ["language", "profanity", "fuck"],
+                        "path_titles": ["Language", "Profanity", "f-word"],
+                        "default_type": "audio",
+                        "mapped_category": "language_profanity",
+                        "example_description": "Example f-word usage.",
+                    },
+                    {
+                        "key": "shit",
+                        "display_title": "Sh**",
+                        "path_keys": ["language", "profanity", "shit"],
+                        "path_titles": ["Language", "Profanity", "s-word"],
+                        "default_type": "audio",
+                        "mapped_category": "language_profanity",
+                        "example_description": "Example s-word usage.",
+                    },
+                    {
+                        "key": "immodesty_female",
+                        "display_title": "Female Immodesty",
+                        "path_keys": ["sex_nudity_immodesty", "immodesty_female"],
+                        "path_titles": ["Nudity & Immodesty", "Female Immodesty"],
+                        "default_type": "audiovisual",
+                        "mapped_category": "sex_nudity_immodesty",
+                        "example_description": "Example immodesty filter.",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (export_dir / "raw_filter_events.csv").write_text(
+        "\n".join(
+            [
+                "media_id,media_type,title,slug,service_slug,season_number,episode_number,tag_set_id,path_keys,path_titles,display_title,description,tag_type,start_ms,end_ms,mapped_category,leaf_key",
+                "movie-1,movie,Sample Movie,sample-movie,vidangel,,,1,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,1000,1000,language_profanity,fuck",
+                "movie-1,movie,Sample Movie,sample-movie,vidangel,,,1,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,1300,1300,language_profanity,fuck",
+                "movie-1,movie,Sample Movie,sample-movie,vidangel,,,1,language/profanity/shit,Language > Profanity > s-word,s-word,s-word,audio,4000,4000,language_profanity,shit",
+                "movie-1,movie,Sample Movie,sample-movie,vidangel,,,1,sex_nudity_immodesty/immodesty_female,Nudity & Immodesty > Female Immodesty,Female Immodesty,Example immodesty filter.,audiovisual,6000,6000,sex_nudity_immodesty,immodesty_female",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return export_dir
+
+
+def _write_sample_vidangel_export_without_raw_events(tmp_path: Path) -> Path:
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    (export_dir / "raw_filter_events.csv").unlink()
+    return export_dir
+
+
+@pytest.mark.asyncio
+async def test_build_vidangel_filter_catalog_groups_leaf_filters(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+
+    catalog = await build_vidangel_filter_catalog("movie-1", export_dir=export_dir)
+
+    assert catalog["title"]["title"] == "Sample Movie"
+    assert catalog["leaf_count"] == 3
+    assert [category["label"] for category in catalog["categories"]] == [
+        "Nudity & Immodesty",
+        "Profanity",
+    ]
+    profanity = next(category for category in catalog["categories"] if category["key"] == "language_profanity")
+    assert [filter_row["leaf_key"] for filter_row in profanity["filters"]] == ["fuck", "shit"]
+
+
+@pytest.mark.asyncio
+async def test_build_vidangel_filter_catalog_rejects_missing_raw_events(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export_without_raw_events(tmp_path)
+
+    with pytest.raises(VidAngelExportDataError, match="raw filter events export is missing"):
+        await build_vidangel_filter_catalog("movie-1", export_dir=export_dir)
+
+
+@pytest.mark.asyncio
+async def test_generate_filtered_vidangel_skp_uses_only_selected_leaf_keys(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    output_path = tmp_path / "sample_movie.skp"
+
+    result = await generate_filtered_vidangel_skp(
+        "movie-1",
+        ["fuck", "immodesty_female"],
+        export_dir=export_dir,
+        output_path=output_path,
+    )
+
+    assert result["selected_event_count"] == 3
+    assert output_path.exists()
+    content = output_path.read_text(encoding="utf-8")
+    assert "Example immodesty filter." in content
+    assert "s-word" not in content
+
+
+@pytest.mark.asyncio
+async def test_generate_filtered_vidangel_skp_rejects_missing_raw_events(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export_without_raw_events(tmp_path)
+
+    with pytest.raises(VidAngelExportDataError, match="raw filter events export is missing"):
+        await generate_filtered_vidangel_skp("movie-1", ["fuck"], export_dir=export_dir)
+
+
+@pytest.mark.asyncio
+async def test_generate_filtered_vidangel_skp_rejects_empty_and_unknown_leaf_keys(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+
+    with pytest.raises(ValueError):
+        await generate_filtered_vidangel_skp("movie-1", [], export_dir=export_dir)
+
+    with pytest.raises(ValueError):
+        await generate_filtered_vidangel_skp("movie-1", ["unknown"], export_dir=export_dir)

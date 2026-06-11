@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import io
 import json
 import os
 import re
 import zipfile
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,8 @@ import httpx
 
 from .logger import get_logger, setup_logging
 from .paths import get_data_dir
-from .vidangel_taxonomy import normalize_vidangel_group_key
+from .skip_file_converter import sidecar_to_skp_text
+from .vidangel_taxonomy import get_vidangel_category_rows, normalize_vidangel_group_key
 
 logger = get_logger(__name__)
 
@@ -143,6 +146,33 @@ class RawFilterEvent:
     mapped_category: str | None
     leaf_key: str
 
+    @classmethod
+    def from_record(cls, row: dict[str, Any]) -> "RawFilterEvent":
+        """Parse a persisted raw-filter row into a typed event."""
+        media_type = str(row.get("media_type") or "").strip()
+        media_id = str(row.get("media_id") or "").strip()
+        if not media_type or not media_id:
+            raise ValueError("missing media_id or media_type")
+        return cls(
+            media_id=media_id,
+            media_type=media_type,
+            title=str(row.get("title") or ""),
+            slug=str(row.get("slug") or ""),
+            service_slug=str(row.get("service_slug") or ""),
+            tag_set_id=_parse_required_int(row.get("tag_set_id"), field_name="tag_set_id"),
+            season_number=_parse_optional_int(row.get("season_number")),
+            episode_number=_parse_optional_int(row.get("episode_number")),
+            path_keys=tuple(part for part in str(row.get("path_keys") or "").split("/") if part),
+            path_titles=tuple(part for part in str(row.get("path_titles") or "").split(" > ") if part),
+            display_title=str(row.get("display_title") or ""),
+            description=str(row.get("description") or "").strip() or None,
+            tag_type=str(row.get("tag_type") or ""),
+            start_ms=_parse_required_int(row.get("start_ms"), field_name="start_ms"),
+            end_ms=_parse_required_int(row.get("end_ms"), field_name="end_ms"),
+            mapped_category=str(row.get("mapped_category") or "").strip() or None,
+            leaf_key=str(row.get("leaf_key") or ""),
+        )
+
     def to_record(self) -> dict[str, Any]:
         return {
             "media_id": self.media_id,
@@ -163,6 +193,10 @@ class RawFilterEvent:
             "mapped_category": self.mapped_category,
             "leaf_key": self.leaf_key,
         }
+
+
+class VidAngelExportDataError(RuntimeError):
+    """Raised when a VidAngel export artifact is missing or malformed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,18 +434,218 @@ def get_vidangel_export_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "vidangel"
 
 
-def load_vidangel_tag_definition_records(export_dir: Path | None = None) -> list[dict[str, Any]]:
+async def load_vidangel_title_catalog_records(export_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Return normalized title catalog rows from the master VidAngel export, if present."""
+    root = export_dir or get_vidangel_export_dir()
+    source = root / "title_catalog.json"
+    if not source.exists():
+        return []
+    try:
+        raw = await asyncio.to_thread(source.read_text, encoding="utf-8")
+        payload = json.loads(raw)
+    except Exception as exc:
+        raise VidAngelExportDataError(f"Invalid VidAngel title catalog: {source}") from exc
+    rows = payload.get("titles")
+    if not isinstance(rows, list):
+        raise VidAngelExportDataError(f"Invalid VidAngel title catalog: {source}")
+    return [dict(row) for row in rows]
+
+
+async def load_vidangel_tag_definition_records(export_dir: Path | None = None) -> list[dict[str, Any]]:
     """Return normalized tag definition rows from the master VidAngel export, if present."""
     root = export_dir or get_vidangel_export_dir()
     source = root / "tag_definitions.json"
     if not source.exists():
         return []
     try:
-        payload = json.loads(source.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+        raw = await asyncio.to_thread(source.read_text, encoding="utf-8")
+        payload = json.loads(raw)
+    except Exception as exc:
+        raise VidAngelExportDataError(f"Invalid VidAngel tag definitions: {source}") from exc
     rows = payload.get("definitions")
-    return [dict(row) for row in rows] if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        raise VidAngelExportDataError(f"Invalid VidAngel tag definitions: {source}")
+    return [dict(row) for row in rows]
+
+
+async def load_vidangel_raw_event_records(
+    export_dir: Path | None = None,
+) -> dict[tuple[str, str], list[RawFilterEvent]]:
+    """Return raw VidAngel events grouped by media type and media id."""
+    root = export_dir or get_vidangel_export_dir()
+    source = root / "raw_filter_events.csv"
+    if not source.exists():
+        return {}
+    if source.stat().st_size == 0:
+        return {}
+
+    grouped: dict[tuple[str, str], list[RawFilterEvent]] = {}
+    raw_text = await asyncio.to_thread(source.read_text, encoding="utf-8")
+    reader = csv.DictReader(io.StringIO(raw_text))
+    for row in reader:
+        try:
+            event = RawFilterEvent.from_record(dict(row))
+        except ValueError as exc:
+            logger.warning(
+                "Skipping malformed VidAngel raw event row from %s for media_id=%r title=%r: %s",
+                source,
+                row.get("media_id"),
+                row.get("title"),
+                exc,
+            )
+            continue
+        grouped.setdefault((event.media_type, event.media_id), []).append(event)
+    return grouped
+
+
+async def load_vidangel_export_title(
+    media_id: str,
+    *,
+    export_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Return the persisted VidAngel title metadata for one media id."""
+    titles = await load_vidangel_title_catalog_records(export_dir)
+    for row in titles:
+        if str(row.get("media_id") or "") == str(media_id):
+            return dict(row)
+    raise LookupError(media_id)
+
+
+async def build_vidangel_filter_catalog(
+    media_id: str,
+    *,
+    export_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Return grouped leaf-filter metadata for one VidAngel title."""
+    title = await load_vidangel_export_title(media_id, export_dir=export_dir)
+    root = export_dir or get_vidangel_export_dir()
+    raw_source = root / "raw_filter_events.csv"
+    if not raw_source.exists() or raw_source.stat().st_size == 0:
+        raise VidAngelExportDataError("VidAngel raw filter events export is missing.")
+
+    grouped_events = await load_vidangel_raw_event_records(export_dir)
+    key = (str(title.get("media_type") or ""), str(title.get("media_id") or ""))
+    events = grouped_events.get(key, [])
+    if not events:
+        raise VidAngelExportDataError(
+            f"No VidAngel raw filter events were exported for {media_id}."
+        )
+
+    definitions = {
+        str(row.get("key") or ""): dict(row)
+        for row in await load_vidangel_tag_definition_records(export_dir)
+        if str(row.get("key") or "").strip()
+    }
+    if not definitions:
+        raise VidAngelExportDataError("VidAngel tag definitions export is missing.")
+
+    category_meta = {row["key"]: row for row in get_vidangel_category_rows()}
+    counts = Counter(event.leaf_key for event in events if event.leaf_key)
+    leaf_rows: list[dict[str, Any]] = []
+    for leaf_key, count in sorted(counts.items()):
+        definition = definitions.get(leaf_key, {})
+        category_key = str(definition.get("mapped_category") or "").strip()
+        category_row = category_meta.get(category_key, {})
+        leaf_rows.append(
+            {
+                "leaf_key": leaf_key,
+                "label": str(definition.get("display_title") or definition.get("key") or leaf_key),
+                "description": str(definition.get("example_description") or "").strip() or None,
+                "category": category_key or None,
+                "category_label": str(category_row.get("label") or category_key or "Uncategorized"),
+                "path_keys": list(definition.get("path_keys") or []),
+                "path_titles": list(definition.get("path_titles") or []),
+                "default_type": str(definition.get("default_type") or "").strip() or None,
+                "event_count": count,
+                "tag_type": next(
+                    (event.tag_type for event in events if event.leaf_key == leaf_key),
+                    "",
+                ),
+            }
+        )
+
+    grouped_by_category: dict[str, dict[str, Any]] = {}
+    for leaf in leaf_rows:
+        category = str(leaf.get("category") or "").strip() or "uncategorized"
+        category_row = category_meta.get(category, {})
+        grouped_by_category.setdefault(
+            category,
+            {
+                "key": category,
+                "label": str(category_row.get("label") or (category.replace("_", " ").title() if category != "uncategorized" else "Uncategorized")),
+                "description": str(category_row.get("description") or ""),
+                "filters": [],
+            },
+        )
+        grouped_by_category[category]["filters"].append(leaf)
+
+    return {
+        "title": title,
+        "leaf_count": len(leaf_rows),
+        "event_count": len(events),
+        "categories": sorted(
+            grouped_by_category.values(),
+            key=lambda item: str(item["label"]).lower(),
+        ),
+    }
+
+
+async def generate_filtered_vidangel_skp(
+    media_id: str,
+    selected_leaf_keys: list[str],
+    *,
+    export_dir: Path | None = None,
+    output_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Generate .skp text from a VidAngel title and a selected leaf-filter subset."""
+    title = await load_vidangel_export_title(media_id, export_dir=export_dir)
+    root = export_dir or get_vidangel_export_dir()
+    raw_source = root / "raw_filter_events.csv"
+    if not raw_source.exists() or raw_source.stat().st_size == 0:
+        raise VidAngelExportDataError("VidAngel raw filter events export is missing.")
+
+    grouped_events = await load_vidangel_raw_event_records(export_dir)
+    key = (str(title.get("media_type") or ""), str(title.get("media_id") or ""))
+    events = grouped_events.get(key, [])
+    if not events:
+        raise VidAngelExportDataError(
+            f"No VidAngel raw filter events were exported for {media_id}."
+        )
+
+    requested = [str(value).strip() for value in selected_leaf_keys if str(value).strip()]
+    if not requested:
+        raise ValueError("At least one leaf filter must be selected.")
+
+    requested_set = set(requested)
+    available = {event.leaf_key for event in events if event.leaf_key}
+    unknown = sorted(requested_set - available)
+    if unknown:
+        raise ValueError(f"Unknown VidAngel leaf filter(s): {', '.join(unknown)}")
+
+    filtered_events = [event for event in events if event.leaf_key in requested_set]
+    if not filtered_events:
+        raise ValueError("The selected VidAngel filters did not match any export events.")
+
+    sidecar_payload = build_sidecar_payload(
+        media_id=str(title.get("media_id") or media_id),
+        title=str(title.get("title") or media_id),
+        slug=str(title.get("slug") or ""),
+        events=filtered_events,
+    )
+    skp_text = sidecar_to_skp_text(sidecar_payload)
+    output_file = Path(output_path) if output_path else None
+    if output_file:
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(output_file.write_text, skp_text, "utf-8")
+
+    return {
+        "title": title,
+        "selected_leaf_keys": requested,
+        "selected_event_count": len(filtered_events),
+        "skp_text": skp_text,
+        "filename": f"{_sanitize_filename(str(title.get('title') or media_id))}.skp",
+        "output_path": str(output_file) if output_file else None,
+    }
 
 
 def build_catalog_queries(parameters: dict[str, Any]) -> list[QueryPlan]:
@@ -1429,12 +1663,45 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Also write one raw JSON and one Leapfrog sidecar per exported title.",
     )
+    export_skp_parser = parser.add_subparsers(dest="command")
+    skp_parser = export_skp_parser.add_parser(
+        "export-skp",
+        help="Export a filtered VidAngel title to .skp text.",
+    )
+    skp_parser.add_argument("--media-id", required=True, help="VidAngel media_id to export.")
+    skp_parser.add_argument(
+        "--leaf-key",
+        action="append",
+        required=True,
+        help="VidAngel leaf filter key to include. Repeat for multiple filters.",
+    )
+    skp_parser.add_argument(
+        "--export-dir",
+        help="Directory containing the VidAngel export artifacts. Defaults to the configured export directory.",
+    )
+    skp_parser.add_argument("--output", help="Optional output .skp path. Writes to stdout when omitted.")
     return parser
 
 
 async def _amain() -> int:
     setup_logging(level=os.environ.get("LEAPFROG_LOG_LEVEL", "INFO"))
     args = _build_arg_parser().parse_args()
+    if getattr(args, "command", None) == "export-skp":
+        result = await generate_filtered_vidangel_skp(
+            args.media_id,
+            args.leaf_key,
+            export_dir=Path(args.export_dir) if getattr(args, "export_dir", None) else get_vidangel_export_dir(),
+            output_path=args.output,
+        )
+        if not args.output:
+            print(result["skp_text"], end="")
+        logger.info(
+            "VidAngel filtered SKP export completed: media_id=%s selected=%s output=%s",
+            args.media_id,
+            result["selected_event_count"],
+            result["output_path"] or "stdout",
+        )
+        return 0
     result = await export_vidangel_artifacts(
         output_dir=Path(args.output_dir),
         concurrency=max(1, args.concurrency),
