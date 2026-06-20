@@ -4,6 +4,7 @@ import asyncio
 import json
 from .logger import get_logger
 from . import database as db
+from . import media_rewriter
 from .sync import prepare_segments_for_upload, push_segments_to_library, mark_sync_complete, get_sync_config
 
 # db.get_connection is imported directly by recover_stale_jobs for a raw UPDATE.
@@ -106,6 +107,78 @@ async def enqueue_upload_job() -> int:
     _running_tasks[job_id] = task
     
     logger.info(f"Enqueued upload job {job_id}")
+    return job_id
+
+
+async def process_rewrite_job(job_id: int, request: dict) -> None:
+    """Process one or more media rewrite exports in the background."""
+    try:
+        await db.update_bg_job(job_id, status='running', progress=0)
+        media_ids = [str(value).strip() for value in request.get("media_ids", []) if str(value).strip()]
+        if not media_ids:
+            raise Exception("No media ids were provided")
+
+        explicit_leaf_keys = [str(value).strip() for value in request.get("selected_leaf_keys", []) if str(value).strip()]
+        profile_user = str(request.get("profile_user") or "").strip()
+        selected_leaf_keys = explicit_leaf_keys or (
+            await media_rewriter.get_leaf_keys_for_user_profile(profile_user) if profile_user else []
+        )
+        if not selected_leaf_keys:
+            raise Exception("No VidAngel leaf filters were selected")
+
+        language_mode = str(request.get("language_mode") or media_rewriter.REWRITE_LANGUAGE_MODE_DEFAULT)
+        per_media_language_mode = {
+            str(key): str(value)
+            for key, value in dict(request.get("per_media_language_mode") or {}).items()
+            if str(key).strip() and str(value).strip()
+        }
+        size_limit_percent = int(request.get("size_limit_percent") or media_rewriter.REWRITE_SIZE_LIMIT_PERCENT)
+
+        results = []
+        total = len(media_ids)
+        for index, media_id in enumerate(media_ids):
+            job_language_mode = per_media_language_mode.get(media_id, language_mode)
+            plan = await media_rewriter.build_rewrite_plan(
+                media_id,
+                selected_leaf_keys=selected_leaf_keys,
+                language_mode=job_language_mode,
+            )
+            result = await media_rewriter.execute_rewrite_plan(
+                plan,
+                size_limit_percent=size_limit_percent,
+            )
+            results.append(result)
+            await db.update_bg_job(job_id, progress=int(((index + 1) / total) * 100))
+
+        await db.update_bg_job(
+            job_id,
+            status='completed',
+            progress=100,
+            result=json.dumps(
+                {
+                    "status": "success",
+                    "count": len(results),
+                    "results": results,
+                }
+            ),
+        )
+    except Exception as exc:
+        await db.update_bg_job(
+            job_id,
+            status='failed',
+            progress=0,
+            error=str(exc),
+        )
+    finally:
+        _running_tasks.pop(job_id, None)
+
+
+async def enqueue_rewrite_job(request: dict) -> int:
+    """Enqueue a media rewrite export job and return its id."""
+    job_id = await db.create_bg_job('rewrite')
+    task = asyncio.create_task(process_rewrite_job(job_id, request))
+    _running_tasks[job_id] = task
+    logger.info(f"Enqueued rewrite job {job_id}")
     return job_id
 
 

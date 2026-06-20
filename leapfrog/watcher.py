@@ -10,6 +10,7 @@ from datetime import datetime
 from .logger import get_logger
 from . import database as db
 from . import filter_engine
+from . import media_rewriter
 from .domain import DEFAULT_CATEGORY_THRESHOLDS
 from .preferences import get_resolved_preferences_for_users
 from .scanner import scanner_loop
@@ -133,6 +134,9 @@ async def library_watcher_loop(get_config_fn, get_client_fn) -> None:
                 if section.section_id in excluded:
                     continue
                 items = await client.get_library_items(section.section_id)
+                await media_rewriter.remember_rewrite_discovery_roots(
+                    [str(item.file_path) for item in items if item.file_path]
+                )
                 for item in items:
                     if not item.file_path:
                         continue

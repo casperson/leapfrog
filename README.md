@@ -401,6 +401,40 @@ Note: some pages, including BuyMeACoffee posts, may not expose the useful timest
 
 The `.skp` export preserves the time blocks and description text. Optional alignment JSON can be appended when you need to keep source-offset metadata in the exported file.
 
+### Rewrite media from VidAngel leaf filters
+
+Leapfrog also includes a Rewrite page that discovers titles with adjacent sidecars or adjacent `.skp` files, filters them using the VidAngel leaf taxonomy, and exports a sibling `.cleaned.mkv` file. Rewrite jobs are non-destructive: the original media file is never edited in place.
+
+The rewrite workflow is:
+
+1. open the Rewrite page in Leapfrog,
+2. choose one or more rewrite-ready titles,
+3. choose explicit VidAngel leaf filters or load them from a saved user profile,
+4. preview the affected cut and mute durations,
+5. start a background rewrite job.
+
+Rewrite defaults:
+
+- output container is always `mkv`
+- output is written next to the original file with a `.cleaned.mkv` suffix
+- non-language VidAngel leaves are always cut
+- language leaves can be muted or cut
+- when muting language, Leapfrog only mutes English-tagged audio streams, and it redacts matched offending words from English-tagged text subtitle streams instead of dropping the whole subtitle cue
+- all detected audio streams are preserved through scene cuts; English alternate audio tracks are cut and muted on the same timeline as the primary English track
+- rewriteable plain-text subtitle streams are rewritten to stay in sync after cuts; styled or image-based subtitle codecs are rejected when a rewrite would need to retime or redact them
+- hardware H.264 encoding is attempted first when ffmpeg exposes a supported GPU encoder, then Leapfrog falls back to `libx264` automatically if hardware encode is unavailable or fails
+- Leapfrog allows rewritten files to be up to 120% of the original file size before failing the job
+
+The rewrite page uses these endpoints:
+
+- `GET /api/rewrite/settings`
+- `PUT /api/rewrite/settings`
+- `GET /api/rewrite/candidates`
+- `GET /api/rewrite/profile-leaf-keys/{user_id}`
+- `POST /api/rewrite/plan`
+- `POST /api/rewrite/jobs`
+- `GET /api/rewrite/jobs/{job_id}`
+
 #### Batch-convert a CSV manifest
 
 You can also batch-convert many external timestamp sources at once from a CSV manifest:

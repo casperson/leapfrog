@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from ...logger import get_logger
+from ... import media_rewriter
 from ...preferences import (
     get_effective_skip_segments,
     get_preference_threshold_settings,
@@ -160,9 +161,10 @@ async def sync_library(library_id: str):
         client = plex_mod.get_client()
         items = await client.get_library_items(library_id)
         logger.info(f"Syncing library {library_id}: found {len(items)} items from Plex")
-        
+
         scan_ratings = set(json.loads(await db.get_setting("scan_ratings", "[]")))
         file_items = [i for i in items if i.file_path]
+        await media_rewriter.remember_rewrite_discovery_roots([str(item.file_path) for item in file_items])
         existing_guids = await db.get_existing_guids([i.plex_guid for i in file_items])
 
         # Refresh mutable Plex metadata for all existing titles in one transaction

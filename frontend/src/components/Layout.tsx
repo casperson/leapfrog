@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Film, Scissors, Users, Settings, FileText, FileDown } from 'lucide-react'
+import { LayoutDashboard, Film, Scissors, Users, Settings, FileText, FileDown, Clapperboard } from 'lucide-react'
 
 const nav = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -7,6 +7,7 @@ const nav = [
   { to: '/logs', icon: FileText, label: 'Logs' },
   { to: '/segments', icon: Scissors, label: 'Segments' },
   { to: '/users', icon: Users, label: 'Users' },
+  { to: '/rewrite-media', icon: Clapperboard, label: 'Rewrite' },
   { to: '/vidangel-export', icon: FileDown, label: 'VidAngel' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]

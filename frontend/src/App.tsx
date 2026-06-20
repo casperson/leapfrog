@@ -6,6 +6,7 @@ import LogsPage from './pages/Logs'
 import Segments from './pages/Segments'
 import UsersPage from './pages/Users'
 import SettingsPage from './pages/Settings'
+import RewriteMediaPage from './pages/RewriteMedia'
 import VidAngelExportPage from './pages/VidAngelExport'
 
 export default function App() {
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/logs" element={<LogsPage />} />
         <Route path="/segments" element={<Segments />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/rewrite-media" element={<RewriteMediaPage />} />
         <Route path="/vidangel-export" element={<VidAngelExportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
