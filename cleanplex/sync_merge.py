@@ -208,6 +208,93 @@ class SegmentMerger:
         return merged, stats
 
 
+def detect_conflicts(
+    sources: list[dict],
+    timing_tolerance_ms: int = 2000,
+    verified_threshold: int = 2,
+) -> list[dict]:
+    """Detect disagreements among multiple source entries for the same file.
+
+    Each entry in *sources* must have the shape expected by SegmentMerger.cloud_sources:
+    ``{"source_instance": str, "confidence_level": str, "segments": [...]}``.
+
+    Conflict types returned:
+    - ``label_disagreement`` (high severity) — sources match on timing but differ on labels
+    - ``timing_variance``    (medium severity) — sources are in the same cluster but their
+      start/end spread exceeds half the timing tolerance
+    - ``unverified``         (low severity) — only one source reported this segment
+
+    Returns a list of conflict dicts; empty when all sources fully agree.
+    """
+    merger = SegmentMerger(
+        local_segments=[],
+        cloud_sources=sources,
+        timing_tolerance_ms=timing_tolerance_ms,
+        verified_threshold=verified_threshold,
+        prefer_local=False,
+    )
+    clusters = merger._cluster_segments()
+
+    conflicts: list[dict] = []
+    for cluster in clusters:
+        source_instances = {seg["_source_instance"] for seg in cluster}
+
+        if len(source_instances) < 2:
+            # Only one source reported this segment — it cannot be corroborated.
+            seg = cluster[0]
+            conflicts.append({
+                "type": "unverified",
+                "severity": "low",
+                "segment_window": {"start_ms": seg["start_ms"], "end_ms": seg["end_ms"]},
+                "sources": [{
+                    "instance": seg["_source_instance"],
+                    "start_ms": seg["start_ms"],
+                    "end_ms": seg["end_ms"],
+                    "labels": seg.get("labels", ""),
+                    "confidence": seg.get("confidence", 0),
+                }],
+            })
+            continue
+
+        label_set = {seg.get("labels", "") for seg in cluster}
+        has_label_conflict = len(label_set) > 1
+
+        start_times = [seg["start_ms"] for seg in cluster]
+        end_times = [seg["end_ms"] for seg in cluster]
+        spread = max(max(start_times) - min(start_times), max(end_times) - min(end_times))
+        # Spread beyond half the tolerance indicates meaningful timing disagreement.
+        has_timing_variance = spread > timing_tolerance_ms // 2
+
+        if not has_label_conflict and not has_timing_variance:
+            continue  # Full agreement — not a conflict.
+
+        if has_label_conflict:
+            conflict_type, severity = "label_disagreement", "high"
+        else:
+            conflict_type, severity = "timing_variance", "medium"
+
+        avg_start = sum(start_times) // len(start_times)
+        avg_end = sum(end_times) // len(end_times)
+
+        conflicts.append({
+            "type": conflict_type,
+            "severity": severity,
+            "segment_window": {"start_ms": avg_start, "end_ms": avg_end},
+            "sources": [
+                {
+                    "instance": seg["_source_instance"],
+                    "start_ms": seg["start_ms"],
+                    "end_ms": seg["end_ms"],
+                    "labels": seg.get("labels", ""),
+                    "confidence": seg.get("confidence", 0),
+                }
+                for seg in cluster
+            ],
+        })
+
+    return conflicts
+
+
 async def resolve_segments(
     file_hash: str,
     local_segments: list[dict[str, Any]],

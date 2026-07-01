@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cleanplex.sync_merge import SegmentMerger, resolve_segments
+from cleanplex.sync_merge import SegmentMerger, detect_conflicts, resolve_segments
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -208,3 +208,93 @@ def test_cluster_sweep_large_input_all_distinct():
     result, stats = merger.merge()
     assert stats["status"] == "local_only"
     assert len(result) == 100
+
+
+# ── detect_conflicts ───────────────────────────────────────────────────────────
+
+def src(instance: str, segments: list[dict], level: str = "verified") -> dict:
+    return {"source_instance": instance, "confidence_level": level, "segments": segments}
+
+
+def test_detect_conflicts_label_disagreement():
+    """Two sources agree on timing but report different labels → label_disagreement (high)."""
+    sources = [
+        src("alpha", [seg(10000, 15000, labels="FEMALE_BREAST_EXPOSED")]),
+        src("beta",  [seg(10500, 14800, labels="BUTTOCKS_EXPOSED")]),
+    ]
+    conflicts = detect_conflicts(sources, timing_tolerance_ms=2000)
+    label_conflicts = [c for c in conflicts if c["type"] == "label_disagreement"]
+    assert len(label_conflicts) == 1
+    assert label_conflicts[0]["severity"] == "high"
+    assert len(label_conflicts[0]["sources"]) == 2
+
+
+def test_detect_conflicts_unverified_segment():
+    """A segment only one source reports → unverified (low)."""
+    sources = [
+        src("alpha", [
+            seg(10000, 15000, labels="FEMALE_BREAST_EXPOSED"),
+            seg(30000, 35000, labels="BUTTOCKS_EXPOSED"),  # unique to alpha
+        ]),
+        src("beta", [seg(10200, 15100, labels="FEMALE_BREAST_EXPOSED")]),
+    ]
+    conflicts = detect_conflicts(sources, timing_tolerance_ms=2000)
+    unverified = [c for c in conflicts if c["type"] == "unverified"]
+    assert len(unverified) == 1
+    assert unverified[0]["sources"][0]["instance"] == "alpha"
+    assert unverified[0]["sources"][0]["start_ms"] == 30000
+
+
+def test_detect_conflicts_timing_variance():
+    """Two sources same label but spread beyond half the tolerance → timing_variance (medium)."""
+    # tolerance=2000, half=1000; spread here is 1200ms — just beyond the threshold
+    sources = [
+        src("alpha", [seg(10000, 15000, labels="NUDITY")]),
+        src("beta",  [seg(11200, 15000, labels="NUDITY")]),  # start diff = 1200 > 1000
+    ]
+    conflicts = detect_conflicts(sources, timing_tolerance_ms=2000)
+    timing = [c for c in conflicts if c["type"] == "timing_variance"]
+    assert len(timing) == 1
+    assert timing[0]["severity"] == "medium"
+
+
+def test_detect_conflicts_no_conflicts_on_full_agreement():
+    """Two sources agree on timing and labels → no conflicts."""
+    sources = [
+        src("alpha", [seg(10000, 15000, labels="NUDITY")]),
+        src("beta",  [seg(10100, 14900, labels="NUDITY")]),  # close timing, same label
+    ]
+    conflicts = detect_conflicts(sources, timing_tolerance_ms=2000)
+    assert conflicts == []
+
+
+def test_detect_conflicts_empty_sources():
+    assert detect_conflicts([], timing_tolerance_ms=2000) == []
+
+
+def test_detect_conflicts_single_source_all_unverified():
+    """With only one source all segments are unverified."""
+    sources = [src("alpha", [seg(0, 1000), seg(5000, 6000)])]
+    conflicts = detect_conflicts(sources, timing_tolerance_ms=2000)
+    assert all(c["type"] == "unverified" for c in conflicts)
+    assert len(conflicts) == 2
+
+
+def test_detect_conflicts_mixed_result():
+    """One agreed cluster + one label disagreement + one unverified."""
+    sources = [
+        src("alpha", [
+            seg(1000, 2000, labels="A"),   # agreed with beta
+            seg(5000, 6000, labels="X"),   # label conflict with beta
+            seg(9000, 10000, labels="A"),  # only alpha — unverified
+        ]),
+        src("beta", [
+            seg(1100, 1900, labels="A"),   # matches alpha[0]
+            seg(5100, 5900, labels="Y"),   # matches alpha[1] — different label
+        ]),
+    ]
+    conflicts = detect_conflicts(sources, timing_tolerance_ms=2000)
+    types = {c["type"] for c in conflicts}
+    assert "label_disagreement" in types
+    assert "unverified" in types
+    assert "timing_variance" not in types

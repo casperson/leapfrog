@@ -1,5 +1,7 @@
 """Web API routes for segment library synchronization."""
 
+import json
+
 from fastapi import APIRouter, HTTPException, Query, Body
 from pydantic import BaseModel
 
@@ -14,10 +16,11 @@ from ...sync import (
     mark_sync_complete,
     compute_file_hash,
 )
-from ...sync_merge import resolve_segments
+from ...sync_merge import resolve_segments, detect_conflicts
 from ...database import (
     get_sync_metadata,
     upsert_sync_metadata,
+    get_multi_source_library_entries,
 )
 from ...bg_jobs import enqueue_upload_job, get_job_status
 from ...logger import get_logger
@@ -280,20 +283,83 @@ async def download_local_library():
 @router.get("/conflicts")
 async def get_conflicts():
     """
-    Get detected conflicts (segments with different timings from multiple sources).
-    
-    Useful for reviewing disagreements between different instances/detectors.
-    Helps identify detector variations or false positives.
+    Detect disagreements in the local segment library across multiple source instances.
+
+    For every file hash that has entries from two or more source instances, clusters the
+    segments using the configured timing tolerance and reports three conflict types:
+    - label_disagreement: sources matched on timing but used different labels (high severity)
+    - timing_variance: sources are in the same cluster but differ beyond half the tolerance (medium)
+    - unverified: only one source reported the segment — cannot be corroborated (low)
+
+    Returns an empty conflicts list (not 400) when sync is enabled but no multi-source data exists.
     """
     if not await is_sync_enabled():
         raise HTTPException(status_code=400, detail="Sync not enabled")
-    
-    logger.info("Conflict list requested (not yet implemented)")
-    
+
+    config = await get_sync_config()
+    timing_tolerance_ms = config.get("timing_tolerance_ms", 2000) if config else 2000
+    verified_threshold = config.get("verified_threshold", 2) if config else 2
+
+    entries = await get_multi_source_library_entries()
+    if not entries:
+        return {
+            "status": "ok",
+            "total_files_with_conflicts": 0,
+            "total_conflicts": 0,
+            "conflicts": [],
+        }
+
+    # Group entries by file_hash.
+    entries_by_hash: dict[str, list[dict]] = {}
+    for entry in entries:
+        entries_by_hash.setdefault(entry["file_hash"], []).append(entry)
+
+    result_conflicts = []
+    total_conflicts = 0
+
+    for file_hash, file_entries in entries_by_hash.items():
+        sources = []
+        for entry in file_entries:
+            try:
+                segs = json.loads(entry["segments_json"])
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Skipping unparseable segments_json for %s/%s", file_hash[:8], entry["source_instance"])
+                continue
+            sources.append({
+                "source_instance": entry["source_instance"],
+                "confidence_level": entry.get("confidence_level", "unverified"),
+                "segments": segs,
+            })
+
+        if len(sources) < 2:
+            continue
+
+        conflicts = detect_conflicts(
+            sources=sources,
+            timing_tolerance_ms=timing_tolerance_ms,
+            verified_threshold=verified_threshold,
+        )
+
+        if conflicts:
+            result_conflicts.append({
+                "file_hash": file_hash,
+                "file_name": file_entries[0].get("file_name", ""),
+                "sources": [s["source_instance"] for s in sources],
+                "conflicts": conflicts,
+            })
+            total_conflicts += len(conflicts)
+
+    logger.info(
+        "Conflict scan complete: %d files with conflicts, %d total conflicts",
+        len(result_conflicts),
+        total_conflicts,
+    )
+
     return {
-        "status": "not_implemented",
-        "message": "Conflict detection will be available in Phase 2",
-        "conflicts": [],
+        "status": "ok",
+        "total_files_with_conflicts": len(result_conflicts),
+        "total_conflicts": total_conflicts,
+        "conflicts": result_conflicts,
     }
 
 

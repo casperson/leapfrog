@@ -607,6 +607,28 @@ async def delete_segment_library_entry(file_hash: str, source_instance: str) -> 
         return cursor.rowcount > 0
 
 
+async def get_multi_source_library_entries() -> list[dict]:
+    """Return all segment library entries for files that have 2+ distinct source instances.
+
+    Uses a subquery so only one DB round-trip is needed — avoids N+1 lookups per hash.
+    """
+    async with get_connection() as conn:
+        rows = await conn.execute_fetchall(
+            """
+            SELECT e.*
+            FROM segment_library_entries e
+            WHERE e.file_hash IN (
+                SELECT file_hash
+                FROM segment_library_entries
+                GROUP BY file_hash
+                HAVING COUNT(DISTINCT source_instance) >= 2
+            )
+            ORDER BY e.file_hash, e.source_instance
+            """
+        )
+        return [dict(r) for r in rows]
+
+
 async def get_sync_metadata() -> dict | None:
     """Get sync configuration for this instance."""
     async with get_connection() as conn:
