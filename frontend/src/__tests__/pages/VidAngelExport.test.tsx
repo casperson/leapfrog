@@ -293,6 +293,24 @@ describe('VidAngelExport', () => {
     expect(screen.getByRole('button', { name: 'Collapse Profanity' })).toHaveAttribute('aria-expanded', 'true')
   })
 
+  it('collapses and expands individual leaf filters without changing selection', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('First f-word event')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Fu**' }))
+
+    expect(screen.queryByText('First f-word event')).not.toBeInTheDocument()
+    expect(screen.queryByText('Second f-word event')).not.toBeInTheDocument()
+    expect(screen.getByText('One s-word event')).toBeInTheDocument()
+    expect(screen.getByText('4 / 4 selected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand Fu**' })).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Fu**' }))
+
+    expect(screen.getByText('First f-word event')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Collapse Fu**' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('downloads a filtered skp using the selected event ids', async () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('Generate `.skp`')).toBeInTheDocument())

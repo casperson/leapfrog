@@ -13,6 +13,7 @@ import re
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -55,6 +56,22 @@ def _parse_optional_int(value: Any) -> int | None:
             return int(float(raw))
         except ValueError:
             return None
+
+
+def _parse_approx_ms(value: Any) -> int | None:
+    """Convert a VidAngel approximate-seconds value to millisecond precision."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        seconds = Decimal(raw)
+    except InvalidOperation:
+        return None
+    if not seconds.is_finite():
+        return None
+    # RawFilterEvent stores integer milliseconds, so only sub-millisecond
+    # source precision requires rounding; fractional seconds remain intact.
+    return int((seconds * 1000).to_integral_value(rounding=ROUND_HALF_UP))
 
 
 def _parse_required_int(value: Any, *, field_name: str) -> int:
@@ -1178,8 +1195,8 @@ def _collect_leaf_data(
         example_description=example_description,
     )
     for tag in category_node.get("tags") or []:
-        start_approx = _parse_optional_int(tag.get("start_approx")) or 0
-        end_approx = _parse_optional_int(tag.get("end_approx")) or 0
+        start_ms = _parse_approx_ms(tag.get("start_approx")) or 0
+        end_ms = _parse_approx_ms(tag.get("end_approx")) or 0
         events.append(
             RawFilterEvent(
                 media_id=str(media["media_id"]),
@@ -1195,8 +1212,8 @@ def _collect_leaf_data(
                 display_title=str(category_node.get("display_title") or leaf_key),
                 description=(str(tag.get("description")).strip() if tag.get("description") else None),
                 tag_type=str(tag.get("type") or category_node.get("default_type") or ""),
-                start_ms=start_approx * 1000,
-                end_ms=end_approx * 1000,
+                start_ms=start_ms,
+                end_ms=end_ms,
                 mapped_category=mapped_category,
                 leaf_key=leaf_key,
             )

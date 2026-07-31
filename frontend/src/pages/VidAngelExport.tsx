@@ -120,6 +120,7 @@ export default function VidAngelExportPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [collapsedCategoryKeys, setCollapsedCategoryKeys] = useState<string[]>([])
+  const [collapsedFilterKeys, setCollapsedFilterKeys] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
   const [downloadResult, setDownloadResult] = useState<{ ok: boolean; message: string } | null>(null)
 
@@ -229,6 +230,15 @@ export default function VidAngelExportPage() {
       current.includes(categoryKey)
         ? current.filter(key => key !== categoryKey)
         : [...current, categoryKey]
+    ))
+  }
+
+  const toggleFilterCollapsed = (categoryKey: string, filterKey: string) => {
+    const collapseKey = `${categoryKey}:${filterKey}`
+    setCollapsedFilterKeys(current => (
+      current.includes(collapseKey)
+        ? current.filter(key => key !== collapseKey)
+        : [...current, collapseKey]
     ))
   }
 
@@ -550,34 +560,50 @@ export default function VidAngelExportPage() {
                             const filterEventIds = eventIdsForFilter(filter)
                             const selectedInFilter = filterEventIds.filter(eventId => selectedEventIds.includes(eventId)).length
                             const checked = selectedInFilter === filterEventIds.length && filterEventIds.length > 0
+                            const filterCollapseKey = `${category.key}:${filter.leaf_key}`
+                            const filterCollapsed = collapsedFilterKeys.includes(filterCollapseKey)
                             return (
                               <div
                                 key={filter.leaf_key}
                                 className="rounded-lg border border-plex-border/60 bg-plex-card/60 px-3 py-3 text-sm text-gray-300"
                               >
-                                <label className="flex items-start gap-3">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleFilter(filter)}
-                                    className="mt-0.5 h-4 w-4 flex-shrink-0 accent-plex-orange"
-                                  />
-                                  <span className="min-w-0 flex-1">
-                                  <span className="flex flex-wrap items-center gap-2">
-                                    <span className="text-gray-100">{filter.label}</span>
-                                    <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
-                                      {filter.leaf_key}
+                                <div className="flex items-start gap-2">
+                                  <button
+                                    type="button"
+                                    aria-expanded={!filterCollapsed}
+                                    aria-label={`${filterCollapsed ? 'Expand' : 'Collapse'} ${filter.label}`}
+                                    onClick={() => toggleFilterCollapsed(category.key, filter.leaf_key)}
+                                    className="mt-0.5 flex-shrink-0 rounded p-0.5 text-gray-500 transition-colors hover:bg-white/5 hover:text-gray-300"
+                                  >
+                                    <ChevronDown
+                                      size={15}
+                                      className={`transition-transform ${filterCollapsed ? '-rotate-90' : ''}`}
+                                    />
+                                  </button>
+                                  <label className="flex min-w-0 flex-1 items-start gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleFilter(filter)}
+                                      className="mt-0.5 h-4 w-4 flex-shrink-0 accent-plex-orange"
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="flex flex-wrap items-center gap-2">
+                                        <span className="text-gray-100">{filter.label}</span>
+                                        <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
+                                          {filter.leaf_key}
+                                        </span>
+                                        <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
+                                          {selectedInFilter}/{filter.event_count} events selected
+                                        </span>
+                                      </span>
+                                      {filter.description && (
+                                        <span className="mt-1 block text-xs text-gray-500">{filter.description}</span>
+                                      )}
                                     </span>
-                                    <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
-                                      {selectedInFilter}/{filter.event_count} events selected
-                                    </span>
-                                  </span>
-                                  {filter.description && (
-                                    <span className="mt-1 block text-xs text-gray-500">{filter.description}</span>
-                                  )}
-                                  </span>
-                                </label>
-                                <div className="mt-3 space-y-2 border-t border-plex-border/60 pt-3">
+                                  </label>
+                                </div>
+                                {!filterCollapsed && <div className="mt-3 space-y-2 border-t border-plex-border/60 pt-3">
                                   {visibleEvents.map(event => {
                                     const eventChecked = selectedEventIds.includes(event.event_id)
                                     const timeRange = event.end_ms > event.start_ms
@@ -601,7 +627,7 @@ export default function VidAngelExportPage() {
                                       </label>
                                     )
                                   })}
-                                </div>
+                                </div>}
                               </div>
                             )
                           })}

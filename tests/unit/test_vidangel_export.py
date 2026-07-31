@@ -118,8 +118,8 @@ def test_flatten_tag_tree_collects_exact_events_and_leaf_definitions():
                                     {
                                         "description": "f-word",
                                         "type": "audio",
-                                        "start_approx": 12,
-                                        "end_approx": 12,
+                                        "start_approx": "12.25",
+                                        "end_approx": "12.45",
                                     }
                                 ],
                                 "child_categories": [],
@@ -170,7 +170,8 @@ def test_flatten_tag_tree_collects_exact_events_and_leaf_definitions():
     events, definitions = flatten_tag_tree(tag_tree, media=media)
 
     assert len(events) == 2
-    assert events[0].start_ms == 12_000
+    assert events[0].start_ms == 12_250
+    assert events[0].end_ms == 12_450
     assert events[0].mapped_category == "language_profanity"
     assert events[1].mapped_category == "sex_nudity_immodesty"
     assert definitions["fuck"].path_keys == ("language", "profanity", "fuck")
