@@ -25,7 +25,7 @@ const catalogResponse = {
       media_type: 'movie',
       title: 'Angel Has Fallen',
       slug: 'angel-has-fallen',
-      event_count: 3,
+      event_count: 4,
       category_count: 2,
       year: 2019,
       rating: 'R',
@@ -36,7 +36,7 @@ const catalogResponse = {
 const filtersResponse = {
   title: catalogResponse.titles[0],
   leaf_count: 3,
-  event_count: 3,
+  event_count: 4,
   categories: [
     {
       key: 'language_profanity',
@@ -51,6 +51,20 @@ const filtersResponse = {
           category_label: 'Profanity',
           event_count: 2,
           tag_type: 'audio',
+          events: [
+            {
+              event_id: 'event-1',
+              start_ms: 1000,
+              end_ms: 1200,
+              description: 'First f-word event',
+            },
+            {
+              event_id: 'event-2',
+              start_ms: 3000,
+              end_ms: 3200,
+              description: 'Second f-word event',
+            },
+          ],
         },
         {
           leaf_key: 'shit',
@@ -60,6 +74,14 @@ const filtersResponse = {
           category_label: 'Profanity',
           event_count: 1,
           tag_type: 'audio',
+          events: [
+            {
+              event_id: 'event-3',
+              start_ms: 5000,
+              end_ms: 5200,
+              description: 'One s-word event',
+            },
+          ],
         },
       ],
     },
@@ -76,6 +98,14 @@ const filtersResponse = {
           category_label: 'Nudity & Immodesty',
           event_count: 1,
           tag_type: 'audiovisual',
+          events: [
+            {
+              event_id: 'event-4',
+              start_ms: 6000,
+              end_ms: 9000,
+              description: 'Visible immodesty event',
+            },
+          ],
         },
       ],
     },
@@ -122,14 +152,16 @@ describe('VidAngelExport', () => {
     await waitFor(() => expect(screen.getByText('Profanity')).toBeInTheDocument())
     expect(screen.getByDisplayValue('Angel Has Fallen')).toBeInTheDocument()
     expect(screen.getByText('Nudity & Immodesty')).toBeInTheDocument()
-    expect(screen.getByText('3 / 3 selected')).toBeInTheDocument()
+    expect(screen.getByText('4 / 4 selected')).toBeInTheDocument()
+    expect(screen.getByText('First f-word event')).toBeInTheDocument()
+    expect(screen.getByText('0:00:01 → 0:00:01.2')).toBeInTheDocument()
   })
 
-  it('updates the selected count when a filter is toggled', async () => {
+  it('updates the selected count when one exact event is toggled', async () => {
     renderPage()
-    await waitFor(() => expect(screen.getByText('Fu**')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('First f-word event')).toBeInTheDocument())
 
-    const label = screen.getByText('Fu**').closest('label')
+    const label = screen.getByText('First f-word event').closest('label')
     expect(label).toBeTruthy()
     const checkbox = within(label as HTMLElement).getByRole('checkbox')
 
@@ -137,10 +169,29 @@ describe('VidAngelExport', () => {
       fireEvent.click(checkbox)
     })
 
-    expect(screen.getByText('2 / 3 selected')).toBeInTheDocument()
+    expect(screen.getByText('3 / 4 selected')).toBeInTheDocument()
   })
 
-  it('downloads a filtered skp using the selected leaf keys', async () => {
+  it('uses complete groups when toggling during an event search', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('First f-word event')).toBeInTheDocument())
+
+    fireEvent.change(
+      screen.getByPlaceholderText('Search filters, event descriptions, or timestamps'),
+      { target: { value: 'First f-word event' } },
+    )
+
+    expect(screen.queryByText('Second f-word event')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear category' }))
+    expect(screen.getByText('1 / 4 selected')).toBeInTheDocument()
+
+    const filterLabel = screen.getByText('Fu**').closest('label')
+    expect(filterLabel).toBeTruthy()
+    fireEvent.click(within(filterLabel as HTMLElement).getByRole('checkbox'))
+    expect(screen.getByText('3 / 4 selected')).toBeInTheDocument()
+  })
+
+  it('downloads a filtered skp using the selected event ids', async () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('Generate `.skp`')).toBeInTheDocument())
 
@@ -149,7 +200,7 @@ describe('VidAngelExport', () => {
     await waitFor(() =>
       expect(mockApi.postText).toHaveBeenCalledWith(
         '/api/vidangel/export/titles/movie-1/skp',
-        { selected_leaf_keys: ['fuck', 'shit', 'immodesty_female'] },
+        { selected_event_ids: ['event-1', 'event-2', 'event-3', 'event-4'] },
       ),
     )
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()

@@ -11,7 +11,8 @@ from ...vidangel_export import (
     build_vidangel_filter_catalog,
     generate_filtered_vidangel_skp,
     get_vidangel_export_dir,
-    load_vidangel_title_catalog_records,
+    load_vidangel_exportable_title_catalog_records,
+    prepare_vidangel_export,
     VidAngelExportDataError,
 )
 
@@ -27,6 +28,7 @@ class GenerateVidAngelSidecarsRequest(BaseModel):
 
 class GenerateVidAngelSkpRequest(BaseModel):
     selected_leaf_keys: list[str] = Field(default_factory=list)
+    selected_event_ids: list[str] | None = None
     output_path: str | None = None
 
 
@@ -46,7 +48,7 @@ async def generate_sidecars(payload: GenerateVidAngelSidecarsRequest):
 async def get_export_catalog():
     """Return the persisted VidAngel title catalog for export browsing."""
     try:
-        titles = await load_vidangel_title_catalog_records()
+        titles = await load_vidangel_exportable_title_catalog_records()
     except VidAngelExportDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return {
@@ -55,6 +57,15 @@ async def get_export_catalog():
         "title_count": len(titles),
         "titles": titles,
     }
+
+
+@router.post("/export/prepare")
+async def prepare_existing_export():
+    """Index and warm existing VidAngel export files without refetching them."""
+    try:
+        return await prepare_vidangel_export()
+    except VidAngelExportDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 @router.get("/export/titles/{media_id}/filters")
@@ -76,6 +87,7 @@ async def generate_title_skp(media_id: str, payload: GenerateVidAngelSkpRequest)
             media_id,
             payload.selected_leaf_keys,
             output_path=payload.output_path,
+            selected_event_ids=payload.selected_event_ids,
         )
     except LookupError:
         raise HTTPException(status_code=404, detail="VidAngel title not found")
@@ -91,6 +103,7 @@ async def generate_title_skp(media_id: str, payload: GenerateVidAngelSkpRequest)
             "output_path": result["output_path"],
             "selected_event_count": result["selected_event_count"],
             "selected_leaf_keys": result["selected_leaf_keys"],
+            "selected_event_ids": result["selected_event_ids"],
             "title": result["title"],
         }
 

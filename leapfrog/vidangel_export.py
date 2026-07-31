@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import hashlib
 import io
 import json
 import os
@@ -20,7 +21,6 @@ from xml.sax.saxutils import escape
 import httpx
 
 from .logger import get_logger, setup_logging
-from .paths import get_data_dir
 from .skip_file_converter import sidecar_to_skp_text
 from .vidangel_taxonomy import get_vidangel_category_rows, normalize_vidangel_group_key
 
@@ -33,6 +33,16 @@ DEFAULT_CONCURRENCY = 6
 DEFAULT_AUDIO_MERGE_GAP_MS = 1500
 DEFAULT_VISUAL_MERGE_GAP_MS = 2000
 DEFAULT_MIN_SEGMENT_MS = 500
+RAW_EVENT_INDEX_FILENAME = "raw_filter_events.index.json"
+RAW_EVENT_INDEX_FORMAT = "leapfrog.vidangel.raw-event-index/v1"
+
+_raw_event_index_lock = asyncio.Lock()
+_raw_event_index_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+_json_rows_cache_lock = asyncio.Lock()
+_json_rows_cache: dict[
+    tuple[str, str],
+    tuple[tuple[int, int], list[dict[str, Any]]],
+] = {}
 
 
 def _parse_optional_int(value: Any) -> int | None:
@@ -434,38 +444,85 @@ def get_vidangel_export_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "vidangel"
 
 
+def _read_json_rows_sync(source: Path, rows_key: str) -> list[dict[str, Any]]:
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    rows = payload.get(rows_key)
+    if not isinstance(rows, list):
+        raise ValueError(f"missing {rows_key} list")
+    return [dict(row) for row in rows]
+
+
+async def _load_cached_json_rows(
+    source: Path,
+    *,
+    rows_key: str,
+    artifact_label: str,
+) -> list[dict[str, Any]]:
+    if not await asyncio.to_thread(source.exists):
+        return []
+    try:
+        stamp = await asyncio.to_thread(_raw_event_source_stamp, source)
+        resolved_source = await asyncio.to_thread(source.resolve)
+    except OSError as exc:
+        raise VidAngelExportDataError(f"Invalid {artifact_label}: {source}") from exc
+    cache_key = (str(resolved_source), rows_key)
+    cached = _json_rows_cache.get(cache_key)
+    if cached and cached[0] == stamp:
+        return cached[1]
+
+    async with _json_rows_cache_lock:
+        cached = _json_rows_cache.get(cache_key)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        try:
+            rows = await asyncio.to_thread(_read_json_rows_sync, source, rows_key)
+        except Exception as exc:
+            raise VidAngelExportDataError(f"Invalid {artifact_label}: {source}") from exc
+        _json_rows_cache[cache_key] = (stamp, rows)
+        return rows
+
+
 async def load_vidangel_title_catalog_records(export_dir: Path | None = None) -> list[dict[str, Any]]:
     """Return normalized title catalog rows from the master VidAngel export, if present."""
     root = export_dir or get_vidangel_export_dir()
-    source = root / "title_catalog.json"
-    if not source.exists():
+    return await _load_cached_json_rows(
+        root / "title_catalog.json",
+        rows_key="titles",
+        artifact_label="VidAngel title catalog",
+    )
+
+
+async def load_vidangel_exportable_title_catalog_records(
+    export_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return only VidAngel titles physically present in the raw event export."""
+    root = export_dir or get_vidangel_export_dir()
+    rows = await load_vidangel_title_catalog_records(root)
+    if not rows:
         return []
-    try:
-        raw = await asyncio.to_thread(source.read_text, encoding="utf-8")
-        payload = json.loads(raw)
-    except Exception as exc:
-        raise VidAngelExportDataError(f"Invalid VidAngel title catalog: {source}") from exc
-    rows = payload.get("titles")
-    if not isinstance(rows, list):
-        raise VidAngelExportDataError(f"Invalid VidAngel title catalog: {source}")
-    return [dict(row) for row in rows]
+    index = await _load_raw_event_index(root)
+    indexed_titles = index.get("titles")
+    if not isinstance(indexed_titles, dict):
+        raise VidAngelExportDataError("Invalid VidAngel raw filter event index.")
+    return [
+        row
+        for row in rows
+        if _raw_event_index_key(
+            str(row.get("media_type") or ""),
+            str(row.get("media_id") or ""),
+        )
+        in indexed_titles
+    ]
 
 
 async def load_vidangel_tag_definition_records(export_dir: Path | None = None) -> list[dict[str, Any]]:
     """Return normalized tag definition rows from the master VidAngel export, if present."""
     root = export_dir or get_vidangel_export_dir()
-    source = root / "tag_definitions.json"
-    if not source.exists():
-        return []
-    try:
-        raw = await asyncio.to_thread(source.read_text, encoding="utf-8")
-        payload = json.loads(raw)
-    except Exception as exc:
-        raise VidAngelExportDataError(f"Invalid VidAngel tag definitions: {source}") from exc
-    rows = payload.get("definitions")
-    if not isinstance(rows, list):
-        raise VidAngelExportDataError(f"Invalid VidAngel tag definitions: {source}")
-    return [dict(row) for row in rows]
+    return await _load_cached_json_rows(
+        root / "tag_definitions.json",
+        rows_key="definitions",
+        artifact_label="VidAngel tag definitions",
+    )
 
 
 async def load_vidangel_raw_event_records(
@@ -498,6 +555,253 @@ async def load_vidangel_raw_event_records(
     return grouped
 
 
+def _raw_event_index_key(media_type: str, media_id: str) -> str:
+    return f"{media_type}\x1f{media_id}"
+
+
+def _raw_event_source_stamp(source: Path) -> tuple[int, int]:
+    stat = source.stat()
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _raw_event_index_matches_source(
+    payload: dict[str, Any],
+    source: Path,
+) -> bool:
+    source_meta = payload.get("source")
+    if payload.get("format") != RAW_EVENT_INDEX_FORMAT or not isinstance(source_meta, dict):
+        return False
+    size, mtime_ns = _raw_event_source_stamp(source)
+    return source_meta.get("size") == size and source_meta.get("mtime_ns") == mtime_ns
+
+
+def _build_raw_event_index_sync(source: Path, index_path: Path) -> dict[str, Any]:
+    """Build byte spans so one title can be read without parsing the full CSV."""
+    titles: dict[str, dict[str, Any]] = {}
+    with source.open("rb") as handle:
+        header_line = handle.readline()
+        try:
+            fieldnames = next(csv.reader([header_line.decode("utf-8")]))
+        except (UnicodeDecodeError, StopIteration, csv.Error) as exc:
+            raise VidAngelExportDataError(f"Invalid VidAngel raw filter events export: {source}") from exc
+
+        def decoded_lines():
+            # readline(), rather than file iteration, keeps tell() available so
+            # each logical CSV record can be mapped to its exact byte span.
+            while raw_line := handle.readline():
+                yield raw_line.decode("utf-8")
+
+        reader = csv.DictReader(decoded_lines(), fieldnames=fieldnames)
+        while True:
+            start_offset = handle.tell()
+            try:
+                row = next(reader)
+            except StopIteration:
+                break
+            except (UnicodeDecodeError, csv.Error) as exc:
+                raise VidAngelExportDataError(f"Invalid VidAngel raw filter events export: {source}") from exc
+            end_offset = handle.tell()
+            media_type = str(row.get("media_type") or "").strip()
+            media_id = str(row.get("media_id") or "").strip()
+            if not media_type or not media_id:
+                continue
+            key = _raw_event_index_key(media_type, media_id)
+            entry = titles.setdefault(key, {"event_count": 0, "spans": []})
+            entry["event_count"] += 1
+            spans = entry["spans"]
+            if spans and spans[-1][1] == start_offset:
+                spans[-1][1] = end_offset
+            else:
+                spans.append([start_offset, end_offset])
+
+    size, mtime_ns = _raw_event_source_stamp(source)
+    payload = {
+        "format": RAW_EVENT_INDEX_FORMAT,
+        "source": {
+            "name": source.name,
+            "size": size,
+            "mtime_ns": mtime_ns,
+        },
+        "title_count": len(titles),
+        "titles": titles,
+    }
+    try:
+        temporary_path = index_path.with_name(f"{index_path.name}.tmp")
+        temporary_path.write_text(f"{json.dumps(payload, separators=(',', ':'))}\n", encoding="utf-8")
+        temporary_path.replace(index_path)
+    except OSError as exc:
+        # The in-memory index still makes this request fast even when the export
+        # directory is read-only; only future process starts will rebuild it.
+        logger.warning("Could not persist VidAngel raw event index at %s: %s", index_path, exc)
+    return payload
+
+
+async def _load_raw_event_index(export_dir: Path) -> dict[str, Any]:
+    source = export_dir / "raw_filter_events.csv"
+    if not source.exists() or source.stat().st_size == 0:
+        raise VidAngelExportDataError("VidAngel raw filter events export is missing.")
+    stamp = _raw_event_source_stamp(source)
+    cache_key = str(source.resolve())
+    cached = _raw_event_index_cache.get(cache_key)
+    if cached and cached[0] == stamp:
+        return cached[1]
+
+    async with _raw_event_index_lock:
+        cached = _raw_event_index_cache.get(cache_key)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        index_path = export_dir / RAW_EVENT_INDEX_FILENAME
+        payload: dict[str, Any] | None = None
+        if index_path.exists():
+            try:
+                raw = await asyncio.to_thread(index_path.read_text, encoding="utf-8")
+                candidate = json.loads(raw)
+                if isinstance(candidate, dict) and _raw_event_index_matches_source(candidate, source):
+                    payload = candidate
+            except (OSError, json.JSONDecodeError):
+                payload = None
+        if payload is None:
+            payload = await asyncio.to_thread(_build_raw_event_index_sync, source, index_path)
+        _raw_event_index_cache[cache_key] = (stamp, payload)
+        return payload
+
+
+async def prepare_vidangel_export(export_dir: Path | None = None) -> dict[str, Any]:
+    """Index and cache an existing VidAngel export without network requests."""
+    root = export_dir or get_vidangel_export_dir()
+    titles = await load_vidangel_title_catalog_records(root)
+    if not titles:
+        raise VidAngelExportDataError("VidAngel title catalog is missing or empty.")
+    definitions = await load_vidangel_tag_definition_records(root)
+    if not definitions:
+        raise VidAngelExportDataError("VidAngel tag definitions export is missing or empty.")
+    index = await _load_raw_event_index(root)
+    indexed_titles = index.get("titles")
+    if not isinstance(indexed_titles, dict):
+        raise VidAngelExportDataError("Invalid VidAngel raw filter event index.")
+    event_count = sum(
+        int(entry.get("event_count") or 0)
+        for entry in indexed_titles.values()
+        if isinstance(entry, dict)
+    )
+    return {
+        "ok": True,
+        "export_dir": str(root),
+        "catalog_title_count": len(titles),
+        "indexed_title_count": len(indexed_titles),
+        "event_count": event_count,
+        "definition_count": len(definitions),
+        "index_path": str(root / RAW_EVENT_INDEX_FILENAME),
+    }
+
+
+async def prepare_vidangel_export_if_available(
+    export_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Warm an existing export when present, logging failures without stopping startup."""
+    root = export_dir or get_vidangel_export_dir()
+    if not await asyncio.to_thread((root / "title_catalog.json").exists):
+        return {"ok": False, "available": False, "export_dir": str(root)}
+    try:
+        result = await prepare_vidangel_export(root)
+    except Exception as exc:
+        # Preparation is an optimization; damaged optional export artifacts
+        # must never prevent the core Leapfrog service from starting.
+        logger.warning("Could not prepare existing VidAngel export at %s: %s", root, exc)
+        return {
+            "ok": False,
+            "available": True,
+            "export_dir": str(root),
+            "error": str(exc),
+        }
+    logger.info(
+        "Prepared existing VidAngel export: titles=%s events=%s definitions=%s",
+        result["indexed_title_count"],
+        result["event_count"],
+        result["definition_count"],
+    )
+    return {**result, "available": True}
+
+
+def _read_indexed_raw_events_sync(
+    source: Path,
+    spans: list[list[int]],
+) -> list[RawFilterEvent]:
+    with source.open("rb") as handle:
+        header_line = handle.readline().decode("utf-8")
+        fieldnames = next(csv.reader([header_line]))
+        events: list[RawFilterEvent] = []
+        for start_offset, end_offset in spans:
+            handle.seek(start_offset)
+            raw = handle.read(end_offset - start_offset).decode("utf-8")
+            reader = csv.DictReader(io.StringIO(raw), fieldnames=fieldnames)
+            for row in reader:
+                try:
+                    events.append(RawFilterEvent.from_record(dict(row)))
+                except ValueError as exc:
+                    logger.warning(
+                        "Skipping malformed indexed VidAngel event for media_id=%r: %s",
+                        row.get("media_id"),
+                        exc,
+                    )
+        return events
+
+
+async def load_vidangel_raw_events_for_title(
+    media_type: str,
+    media_id: str,
+    *,
+    export_dir: Path | None = None,
+) -> list[RawFilterEvent]:
+    """Return one title's events using the persisted raw-event byte index."""
+    root = export_dir or get_vidangel_export_dir()
+    source = root / "raw_filter_events.csv"
+    index = await _load_raw_event_index(root)
+    titles = index.get("titles")
+    if not isinstance(titles, dict):
+        raise VidAngelExportDataError("Invalid VidAngel raw filter event index.")
+    entry = titles.get(_raw_event_index_key(media_type, media_id))
+    if not isinstance(entry, dict):
+        return []
+    spans = entry.get("spans")
+    if not isinstance(spans, list):
+        raise VidAngelExportDataError("Invalid VidAngel raw filter event index.")
+    return await asyncio.to_thread(_read_indexed_raw_events_sync, source, spans)
+
+
+def _event_base_id(event: RawFilterEvent) -> str:
+    identity = json.dumps(
+        {
+            "media_id": event.media_id,
+            "media_type": event.media_type,
+            "tag_set_id": event.tag_set_id,
+            "leaf_key": event.leaf_key,
+            "start_ms": event.start_ms,
+            "end_ms": event.end_ms,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return f"event-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]}"
+
+
+def _events_with_ids(events: list[RawFilterEvent]) -> list[tuple[str, RawFilterEvent]]:
+    base_ids = [_event_base_id(event) for event in events]
+    totals = Counter(base_ids)
+    occurrences: Counter[str] = Counter()
+    indexed_events: list[tuple[str, RawFilterEvent]] = []
+    for base_id, event in zip(base_ids, events, strict=True):
+        occurrences[base_id] += 1
+        event_id = (
+            base_id
+            if totals[base_id] == 1
+            else f"{base_id}-{occurrences[base_id]}"
+        )
+        indexed_events.append((event_id, event))
+    return indexed_events
+
+
 async def load_vidangel_export_title(
     media_id: str,
     *,
@@ -523,9 +827,11 @@ async def build_vidangel_filter_catalog(
     if not raw_source.exists() or raw_source.stat().st_size == 0:
         raise VidAngelExportDataError("VidAngel raw filter events export is missing.")
 
-    grouped_events = await load_vidangel_raw_event_records(export_dir)
-    key = (str(title.get("media_type") or ""), str(title.get("media_id") or ""))
-    events = grouped_events.get(key, [])
+    events = await load_vidangel_raw_events_for_title(
+        str(title.get("media_type") or ""),
+        str(title.get("media_id") or ""),
+        export_dir=export_dir,
+    )
     if not events:
         raise VidAngelExportDataError(
             f"No VidAngel raw filter events were exported for {media_id}."
@@ -540,7 +846,8 @@ async def build_vidangel_filter_catalog(
         raise VidAngelExportDataError("VidAngel tag definitions export is missing.")
 
     category_meta = {row["key"]: row for row in get_vidangel_category_rows()}
-    counts = Counter(event.leaf_key for event in events if event.leaf_key)
+    indexed_events = _events_with_ids(events)
+    counts = Counter(event.leaf_key for _, event in indexed_events if event.leaf_key)
     leaf_rows: list[dict[str, Any]] = []
     for leaf_key, count in sorted(counts.items()):
         definition = definitions.get(leaf_key, {})
@@ -561,6 +868,18 @@ async def build_vidangel_filter_catalog(
                     (event.tag_type for event in events if event.leaf_key == leaf_key),
                     "",
                 ),
+                "events": [
+                    {
+                        "event_id": event_id,
+                        "start_ms": event.start_ms,
+                        "end_ms": event.end_ms,
+                        "description": event.description or event.display_title or leaf_key,
+                        "display_title": event.display_title or None,
+                        "tag_type": event.tag_type or None,
+                    }
+                    for event_id, event in indexed_events
+                    if event.leaf_key == leaf_key
+                ],
             }
         )
 
@@ -592,41 +911,65 @@ async def build_vidangel_filter_catalog(
 
 async def generate_filtered_vidangel_skp(
     media_id: str,
-    selected_leaf_keys: list[str],
+    selected_leaf_keys: list[str] | None = None,
     *,
     export_dir: Path | None = None,
     output_path: str | Path | None = None,
+    selected_event_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Generate .skp text from a VidAngel title and a selected leaf-filter subset."""
+    """Generate .skp text from selected VidAngel leaf filters or exact events."""
     title = await load_vidangel_export_title(media_id, export_dir=export_dir)
     root = export_dir or get_vidangel_export_dir()
     raw_source = root / "raw_filter_events.csv"
     if not raw_source.exists() or raw_source.stat().st_size == 0:
         raise VidAngelExportDataError("VidAngel raw filter events export is missing.")
 
-    grouped_events = await load_vidangel_raw_event_records(export_dir)
-    key = (str(title.get("media_type") or ""), str(title.get("media_id") or ""))
-    events = grouped_events.get(key, [])
+    events = await load_vidangel_raw_events_for_title(
+        str(title.get("media_type") or ""),
+        str(title.get("media_id") or ""),
+        export_dir=export_dir,
+    )
     if not events:
         raise VidAngelExportDataError(
             f"No VidAngel raw filter events were exported for {media_id}."
         )
 
-    requested = [str(value).strip() for value in selected_leaf_keys if str(value).strip()]
-    if not requested:
-        raise ValueError("At least one leaf filter must be selected.")
-
-    requested_set = set(requested)
-    available = {event.leaf_key for event in events if event.leaf_key}
-    unknown = sorted(requested_set - available)
-    if unknown:
-        raise ValueError(f"Unknown VidAngel leaf filter(s): {', '.join(unknown)}")
-
-    filtered_events = [event for event in events if event.leaf_key in requested_set]
+    requested = [str(value).strip() for value in (selected_leaf_keys or []) if str(value).strip()]
+    requested_event_ids = [
+        str(value).strip() for value in (selected_event_ids or []) if str(value).strip()
+    ]
+    indexed_events = _events_with_ids(events)
+    if selected_event_ids is not None:
+        if not requested_event_ids:
+            raise ValueError("At least one VidAngel event must be selected.")
+        events_by_id = dict(indexed_events)
+        unknown_event_ids = sorted(set(requested_event_ids) - events_by_id.keys())
+        if unknown_event_ids:
+            raise ValueError(f"Unknown VidAngel event(s): {', '.join(unknown_event_ids)}")
+        requested_event_id_set = set(requested_event_ids)
+        filtered_events = [
+            event
+            for event_id, event in indexed_events
+            if event_id in requested_event_id_set
+        ]
+    else:
+        if not requested:
+            raise ValueError("At least one leaf filter must be selected.")
+        requested_set = set(requested)
+        available = {event.leaf_key for event in events if event.leaf_key}
+        unknown = sorted(requested_set - available)
+        if unknown:
+            raise ValueError(f"Unknown VidAngel leaf filter(s): {', '.join(unknown)}")
+        filtered_events = [event for event in events if event.leaf_key in requested_set]
     if not filtered_events:
         raise ValueError("The selected VidAngel filters did not match any export events.")
 
-    sidecar_payload = build_sidecar_payload(
+    sidecar_builder = (
+        _build_exact_event_sidecar_payload
+        if selected_event_ids is not None
+        else build_sidecar_payload
+    )
+    sidecar_payload = sidecar_builder(
         media_id=str(title.get("media_id") or media_id),
         title=str(title.get("title") or media_id),
         slug=str(title.get("slug") or ""),
@@ -641,6 +984,7 @@ async def generate_filtered_vidangel_skp(
     return {
         "title": title,
         "selected_leaf_keys": requested,
+        "selected_event_ids": requested_event_ids,
         "selected_event_count": len(filtered_events),
         "skp_text": skp_text,
         "filename": f"{_sanitize_filename(str(title.get('title') or media_id))}.skp",
@@ -814,6 +1158,43 @@ def flatten_tag_tree(
         )
     events.sort(key=lambda item: (item.start_ms, item.end_ms, item.display_title))
     return events, definitions
+
+
+def _build_exact_event_sidecar_payload(
+    *,
+    media_id: str,
+    title: str,
+    slug: str,
+    events: list[RawFilterEvent],
+) -> dict[str, Any]:
+    # Exact UI selections preserve each source boundary. The grouped sidecar
+    # builder intentionally expands and merges events for runtime filtering.
+    segments = [
+        {
+            "media_id": media_id,
+            "start_time": event.start_ms / 1000,
+            "end_time": event.end_ms / 1000,
+            "category": event.mapped_category or "uncategorized",
+            "source": "vidangel",
+            "confidence": None,
+            "labels": event.leaf_key,
+            "text_excerpt": event.description or event.display_title or event.leaf_key or "skip",
+            "created_at": None,
+            "updated_at": None,
+            "review_status": "pending",
+        }
+        for event in sorted(
+            events,
+            key=lambda item: (item.start_ms, item.end_ms, item.display_title, item.leaf_key),
+        )
+    ]
+    return {
+        "format": "leapfrog.segment.sidecar/v1",
+        "media_id": media_id,
+        "title": title,
+        "external_ids": {"vidangel_slug": slug, "vidangel_media_id": media_id},
+        "segments": segments,
+    }
 
 
 def build_sidecar_payload(
@@ -1262,6 +1643,9 @@ async def export_vidangel_artifacts(
     await _write_title_catalog_csv(output_dir / "tv_catalog.csv", episode_artifacts)
     await _write_show_catalog_csv(output_dir / "shows_catalog.csv", show_summaries)
     await _write_csv(output_dir / "raw_filter_events.csv", raw_events)
+    # Persist a compact title-to-byte-span index so the browser never has to
+    # parse the multi-million-row raw event export for each title selection.
+    await _load_raw_event_index(output_dir)
     await _write_csv(output_dir / "movie_filter_events.csv", movie_events)
     await _write_csv(output_dir / "tv_filter_events.csv", episode_events)
     await _write_tag_definitions_csv(
@@ -1649,7 +2033,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--output-dir",
-        default=str(get_data_dir() / "vidangel_exports"),
+        default=str(get_vidangel_export_dir()),
         help="Directory for raw JSON, CSV, definitions, and sidecars.",
     )
     parser.add_argument(
@@ -1680,12 +2064,32 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Directory containing the VidAngel export artifacts. Defaults to the configured export directory.",
     )
     skp_parser.add_argument("--output", help="Optional output .skp path. Writes to stdout when omitted.")
+    prepare_parser = export_skp_parser.add_parser(
+        "prepare",
+        help="Index and cache existing export files without contacting VidAngel.",
+    )
+    prepare_parser.add_argument(
+        "--export-dir",
+        help="Directory containing existing VidAngel export artifacts.",
+    )
     return parser
 
 
 async def _amain() -> int:
     setup_logging(level=os.environ.get("LEAPFROG_LOG_LEVEL", "INFO"))
     args = _build_arg_parser().parse_args()
+    if getattr(args, "command", None) == "prepare":
+        result = await prepare_vidangel_export(
+            Path(args.export_dir) if args.export_dir else get_vidangel_export_dir()
+        )
+        logger.info(
+            "VidAngel export preparation completed: titles=%s events=%s definitions=%s index=%s",
+            result["indexed_title_count"],
+            result["event_count"],
+            result["definition_count"],
+            result["index_path"],
+        )
+        return 0
     if getattr(args, "command", None) == "export-skp":
         result = await generate_filtered_vidangel_skp(
             args.media_id,

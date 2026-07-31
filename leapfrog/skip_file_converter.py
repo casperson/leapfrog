@@ -196,7 +196,7 @@ def _format_skp_time(value: float) -> str:
     seconds = value - (hours * 3600) - (minutes * 60)
     if abs(seconds - round(seconds)) < 0.001:
         return f"{hours}:{minutes:02d}:{int(round(seconds)):02d}"
-    trimmed = f"{seconds:05.2f}".rstrip("0").rstrip(".")
+    trimmed = f"{seconds:.3f}".rstrip("0").rstrip(".")
     if seconds < 10:
         trimmed = f"0{trimmed}"
     return f"{hours}:{minutes:02d}:{trimmed}"

@@ -245,6 +245,8 @@ LEAPFROG_VIDANGEL_PROFILE_ID='736336' \
 .venv/bin/python -m leapfrog.vidangel_export
 ```
 
+The catalog export is a full refresh: it refetches every discovered VidAngel work and rewrites the master artifacts. It does not run Leapfrog's local video scanner. Sidecar generation remains incremental by default and skips existing adjacent `.leapfrog.json` files unless `--overwrite` is supplied.
+
 #### `vidangel_export` command reference
 
 ```bash
@@ -285,6 +287,7 @@ By default the exporter writes to `repo_root/vidangel/`:
 - `tag_definitions.json`
 - `tag_definitions.csv`
 - `raw_filter_events.csv`
+- `raw_filter_events.index.json`
 - `movie_filter_events.csv`
 - `tv_filter_events.csv`
 - `vidangel_catalog.xlsx`
@@ -293,14 +296,23 @@ This default output is intentionally database-first: one master catalog plus one
 
 #### Generate a filtered `.skp` from VidAngel export data
 
-Leapfrog also lets you browse the exported VidAngel title catalog, pick only the leaf filters you want, and generate a filtered `.skp` file from that subset. The browser UI lives on the new VidAngel page, and the same path is available from the backend and CLI for automation.
+Leapfrog also lets you browse VidAngel titles that have exported events, review every timestamp and description, and generate a filtered `.skp` file containing only the exact events you select. The VidAngel page also keeps category and leaf-filter toggles for quickly selecting or clearing groups. The same leaf-filter path remains available from the backend and CLI for automation.
 
 The filtered export workflow is:
 
 1. open the VidAngel page in Leapfrog,
-2. choose a title from the exported catalog,
-3. toggle the leaf filters you want to keep,
+2. choose a title that has exported VidAngel events,
+3. select whole categories or leaf filters, then include or exclude individual events,
 4. generate the `.skp` download.
+
+The exporter writes `raw_filter_events.index.json` beside the master event CSV. This compact byte index makes title changes load only the selected title's rows instead of reparsing the full export. Leapfrog also caches the large title catalog and tag definitions until their source files change.
+
+Existing export files are prepared automatically in the background when Leapfrog starts. To prepare them explicitly without contacting VidAngel, refreshing the catalog, or scanning local movies, run:
+
+```bash
+.venv/bin/python -m leapfrog.vidangel_export prepare \
+  --export-dir /path/to/existing/vidangel
+```
 
 The matching CLI command exports the same filtered selection to disk or stdout:
 
@@ -479,10 +491,11 @@ To generate sidecars only for titles in your local Plex library, run:
 The VidAngel export browser page uses these endpoints:
 
 - `GET /api/vidangel/export/catalog`
+- `POST /api/vidangel/export/prepare`
 - `GET /api/vidangel/export/titles/{media_id}/filters`
 - `POST /api/vidangel/export/titles/{media_id}/skp`
 
-`POST /api/vidangel/export/titles/{media_id}/skp` returns a downloadable `.skp` by default. Include `output_path` in the JSON body when you want Leapfrog to write the file to disk instead of returning it inline.
+`POST /api/vidangel/export/prepare` indexes and warms existing local artifacts without making VidAngel or Plex requests. `GET /api/vidangel/export/titles/{media_id}/filters` includes every event's stable `event_id`, timestamps, and description. `POST /api/vidangel/export/titles/{media_id}/skp` accepts `selected_event_ids` for exact event selection or `selected_leaf_keys` for grouped automation, and returns a downloadable `.skp` by default. Include `output_path` in the JSON body when you want Leapfrog to write the file to disk instead of returning it inline.
 
 ```bash
 .venv/bin/python -m leapfrog.vidangel_sidecars \

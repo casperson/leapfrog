@@ -24,6 +24,16 @@ interface VidAngelLeafFilter {
   category_label: string
   event_count: number
   tag_type?: string | null
+  events: VidAngelEvent[]
+}
+
+interface VidAngelEvent {
+  event_id: string
+  start_ms: number
+  end_ms: number
+  description: string
+  display_title?: string | null
+  tag_type?: string | null
 }
 
 interface VidAngelCategory {
@@ -62,6 +72,24 @@ function formatVidAngelError(error: unknown, fallback: string): string {
   return message || fallback
 }
 
+function formatEventTime(valueMs: number): string {
+  const totalSeconds = Math.max(0, valueMs) / 1000
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds - hours * 3600 - minutes * 60
+  const fractionalText = (seconds - Math.floor(seconds))
+    .toFixed(3)
+    .slice(1)
+    .replace(/0+$/, '')
+    .replace(/\.$/, '')
+  const secondsText = `${String(Math.floor(seconds)).padStart(2, '0')}${fractionalText}`
+  return `${hours}:${String(minutes).padStart(2, '0')}:${secondsText}`
+}
+
+function eventIdsForFilter(filter: VidAngelLeafFilter): string[] {
+  return filter.events.map(event => event.event_id)
+}
+
 export default function VidAngelExportPage() {
   const [titles, setTitles] = useState<VidAngelTitle[]>([])
   const [loadingCatalog, setLoadingCatalog] = useState(true)
@@ -71,7 +99,7 @@ export default function VidAngelExportPage() {
   const [loadingFilters, setLoadingFilters] = useState(false)
   const [filtersError, setFiltersError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedLeafKeys, setSelectedLeafKeys] = useState<string[]>([])
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
   const [downloadResult, setDownloadResult] = useState<{ ok: boolean; message: string } | null>(null)
 
@@ -111,7 +139,7 @@ export default function VidAngelExportPage() {
     let cancelled = false
     if (!selectedMediaId) {
       setCatalog(null)
-      setSelectedLeafKeys([])
+      setSelectedEventIds([])
       setFiltersError(null)
       return
     }
@@ -122,14 +150,16 @@ export default function VidAngelExportPage() {
       .then(data => {
         if (cancelled) return
         setCatalog(data)
-        const allLeafKeys = data.categories.flatMap(category => category.filters.map(filter => filter.leaf_key))
-        setSelectedLeafKeys(allLeafKeys)
+        const allEventIds = data.categories.flatMap(category =>
+          category.filters.flatMap(eventIdsForFilter),
+        )
+        setSelectedEventIds(allEventIds)
         setLoadingFilters(false)
       })
       .catch(error => {
         if (cancelled) return
         setCatalog(null)
-        setSelectedLeafKeys([])
+        setSelectedEventIds([])
         setFiltersError(formatVidAngelError(error, 'Failed to load VidAngel filters'))
         setLoadingFilters(false)
       })
@@ -139,46 +169,56 @@ export default function VidAngelExportPage() {
     }
   }, [selectedMediaId])
 
-  const selectedCount = selectedLeafKeys.length
-  const totalCount = catalog?.leaf_count ?? 0
+  const selectedCount = selectedEventIds.length
+  const totalCount = catalog?.event_count ?? 0
   const normalizedSearch = searchTerm.trim().toLowerCase()
 
-  const toggleLeaf = (leafKey: string) => {
-    setSelectedLeafKeys(current =>
-      current.includes(leafKey)
-        ? current.filter(key => key !== leafKey)
-        : [...current, leafKey],
+  const toggleEvent = (eventId: string) => {
+    setSelectedEventIds(current =>
+      current.includes(eventId)
+        ? current.filter(id => id !== eventId)
+        : [...current, eventId],
     )
   }
 
-  const toggleCategory = (category: VidAngelCategory) => {
-    const keys = category.filters.map(filter => filter.leaf_key)
-    const allSelected = keys.every(key => selectedLeafKeys.includes(key))
-    setSelectedLeafKeys(current => (
+  const toggleFilter = (filter: VidAngelLeafFilter) => {
+    const eventIds = eventIdsForFilter(filter)
+    const allSelected = eventIds.every(eventId => selectedEventIds.includes(eventId))
+    setSelectedEventIds(current => (
       allSelected
-        ? current.filter(key => !keys.includes(key))
-        : Array.from(new Set([...current, ...keys]))
+        ? current.filter(eventId => !eventIds.includes(eventId))
+        : Array.from(new Set([...current, ...eventIds]))
+    ))
+  }
+
+  const toggleCategory = (category: VidAngelCategory) => {
+    const eventIds = category.filters.flatMap(eventIdsForFilter)
+    const allSelected = eventIds.every(eventId => selectedEventIds.includes(eventId))
+    setSelectedEventIds(current => (
+      allSelected
+        ? current.filter(eventId => !eventIds.includes(eventId))
+        : Array.from(new Set([...current, ...eventIds]))
     ))
   }
 
   const clearSelection = () => {
-    setSelectedLeafKeys([])
+    setSelectedEventIds([])
   }
 
   const selectAll = () => {
     if (!catalog) return
-    setSelectedLeafKeys(catalog.categories.flatMap(category => category.filters.map(filter => filter.leaf_key)))
+    setSelectedEventIds(catalog.categories.flatMap(category => category.filters.flatMap(eventIdsForFilter)))
   }
 
   const downloadSkp = async () => {
-    if (!selectedMediaId || selectedLeafKeys.length === 0) return
+    if (!selectedMediaId || selectedEventIds.length === 0) return
 
     setDownloading(true)
     setDownloadResult(null)
     try {
       const text = await api.postText(
         `/api/vidangel/export/titles/${encodeURIComponent(selectedMediaId)}/skp`,
-        { selected_leaf_keys: selectedLeafKeys },
+        { selected_event_ids: selectedEventIds },
       )
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
       const url = URL.createObjectURL(blob)
@@ -191,7 +231,7 @@ export default function VidAngelExportPage() {
       link.click()
       link.remove()
       window.setTimeout(() => revokeObjectURL?.(url), 0)
-      setDownloadResult({ ok: true, message: `Downloaded ${selectedCount} selected filter(s) as .skp.` })
+      setDownloadResult({ ok: true, message: `Downloaded ${selectedCount} selected event(s) as .skp.` })
     } catch (error) {
       setDownloadResult({ ok: false, message: formatVidAngelError(error, 'Failed to generate SKP export') })
     } finally {
@@ -199,22 +239,31 @@ export default function VidAngelExportPage() {
     }
   }
 
-  const visibleCategories = (catalog?.categories ?? []).map(category => {
-    const filters = category.filters.filter(filter => {
-      if (!normalizedSearch) return true
-      const haystack = [
+  const visibleCategories = (catalog?.categories ?? []).flatMap(category => {
+    const filters = category.filters.flatMap(filter => {
+      if (!normalizedSearch) return [{ filter, visibleEvents: filter.events }]
+      const filterHaystack = [
         filter.label,
         filter.description ?? '',
         filter.leaf_key,
         filter.category_label,
       ].join(' ').toLowerCase()
-      return haystack.includes(normalizedSearch)
+      if (filterHaystack.includes(normalizedSearch)) {
+        return [{ filter, visibleEvents: filter.events }]
+      }
+      const visibleEvents = filter.events.filter(event => {
+        const eventHaystack = [
+          event.description,
+          event.display_title ?? '',
+          formatEventTime(event.start_ms),
+          formatEventTime(event.end_ms),
+        ].join(' ').toLowerCase()
+        return eventHaystack.includes(normalizedSearch)
+      })
+      return visibleEvents.length > 0 ? [{ filter, visibleEvents }] : []
     })
-    return {
-      ...category,
-      filters,
-    }
-  }).filter(category => category.filters.length > 0)
+    return filters.length > 0 ? [{ category, filters }] : []
+  })
 
   const selectedTitle = titles.find(title => title.media_id === selectedMediaId) ?? null
 
@@ -227,7 +276,7 @@ export default function VidAngelExportPage() {
             <h1 className="text-2xl font-bold text-gray-100">VidAngel Export</h1>
           </div>
           <p className="mt-2 text-sm text-gray-500">
-            Pick a VidAngel title, choose the filters you want to keep, and export a filtered `.skp` file.
+            Pick a VidAngel title, review every event, and export only the exact skips you want.
           </p>
         </div>
 
@@ -297,14 +346,14 @@ export default function VidAngelExportPage() {
                 <div>
                   <h2 className="text-lg font-semibold text-gray-100">Choose filters</h2>
                   <p className="text-sm text-gray-500">
-                    Search and toggle the exact VidAngel leaf filters you want included in the export.
+                    Toggle whole groups or include and exclude individual VidAngel events.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={selectAll}
-                    disabled={!catalog || loadingFilters || selectedLeafKeys.length === totalCount}
+                    disabled={!catalog || loadingFilters || selectedEventIds.length === totalCount}
                     className="rounded-lg border border-plex-border px-3 py-2 text-xs font-medium text-gray-300 transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Select all
@@ -312,7 +361,7 @@ export default function VidAngelExportPage() {
                   <button
                     type="button"
                     onClick={clearSelection}
-                    disabled={loadingFilters || selectedLeafKeys.length === 0}
+                    disabled={loadingFilters || selectedEventIds.length === 0}
                     className="rounded-lg border border-plex-border px-3 py-2 text-xs font-medium text-gray-300 transition-colors hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Clear all
@@ -320,7 +369,7 @@ export default function VidAngelExportPage() {
                   <button
                     type="button"
                     onClick={downloadSkp}
-                    disabled={downloading || loadingFilters || selectedLeafKeys.length === 0}
+                    disabled={downloading || loadingFilters || selectedEventIds.length === 0}
                     className="inline-flex items-center gap-2 rounded-lg bg-plex-orange px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-plex-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {downloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
@@ -334,7 +383,7 @@ export default function VidAngelExportPage() {
                 <input
                   value={searchTerm}
                   onChange={event => setSearchTerm(event.target.value)}
-                  placeholder="Search filters by label, description, or leaf key"
+                  placeholder="Search filters, event descriptions, or timestamps"
                   className="w-full bg-transparent text-sm text-gray-100 placeholder:text-gray-600 focus:outline-none"
                 />
               </label>
@@ -354,10 +403,10 @@ export default function VidAngelExportPage() {
                 </div>
               ) : (
                 <div className="mt-4 space-y-4">
-                  {visibleCategories.map(category => {
-                    const categoryKeys = category.filters.map(filter => filter.leaf_key)
-                    const selectedInCategory = categoryKeys.filter(key => selectedLeafKeys.includes(key)).length
-                    const allSelected = selectedInCategory === categoryKeys.length && categoryKeys.length > 0
+                  {visibleCategories.map(({ category, filters }) => {
+                    const categoryEventIds = category.filters.flatMap(eventIdsForFilter)
+                    const selectedInCategory = categoryEventIds.filter(eventId => selectedEventIds.includes(eventId)).length
+                    const allSelected = selectedInCategory === categoryEventIds.length && categoryEventIds.length > 0
                     const partiallySelected = selectedInCategory > 0 && !allSelected
                     return (
                       <div key={category.key} className="rounded-xl border border-plex-border/70 bg-plex-darker/60 p-4">
@@ -366,7 +415,7 @@ export default function VidAngelExportPage() {
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-gray-100">{category.label}</span>
                               <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-400">
-                                {selectedInCategory}/{category.filters.length}
+                                {selectedInCategory}/{categoryEventIds.length} events
                               </span>
                             </div>
                             {category.description && (
@@ -385,34 +434,63 @@ export default function VidAngelExportPage() {
                         </div>
 
                         <div className="mt-4 space-y-2">
-                          {category.filters.map(filter => {
-                            const checked = selectedLeafKeys.includes(filter.leaf_key)
+                          {filters.map(({ filter, visibleEvents }) => {
+                            const filterEventIds = eventIdsForFilter(filter)
+                            const selectedInFilter = filterEventIds.filter(eventId => selectedEventIds.includes(eventId)).length
+                            const checked = selectedInFilter === filterEventIds.length && filterEventIds.length > 0
                             return (
-                              <label
+                              <div
                                 key={filter.leaf_key}
-                                className="flex items-start gap-3 rounded-lg border border-plex-border/60 bg-plex-card/60 px-3 py-2 text-sm text-gray-300"
+                                className="rounded-lg border border-plex-border/60 bg-plex-card/60 px-3 py-3 text-sm text-gray-300"
                               >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() => toggleLeaf(filter.leaf_key)}
-                                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-plex-orange"
-                                />
-                                <span className="min-w-0 flex-1">
+                                <label className="flex items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleFilter(filter)}
+                                    className="mt-0.5 h-4 w-4 flex-shrink-0 accent-plex-orange"
+                                  />
+                                  <span className="min-w-0 flex-1">
                                   <span className="flex flex-wrap items-center gap-2">
                                     <span className="text-gray-100">{filter.label}</span>
                                     <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
                                       {filter.leaf_key}
                                     </span>
                                     <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
-                                      {filter.event_count} event{filter.event_count === 1 ? '' : 's'}
+                                      {selectedInFilter}/{filter.event_count} events selected
                                     </span>
                                   </span>
                                   {filter.description && (
                                     <span className="mt-1 block text-xs text-gray-500">{filter.description}</span>
                                   )}
-                                </span>
-                              </label>
+                                  </span>
+                                </label>
+                                <div className="mt-3 space-y-2 border-t border-plex-border/60 pt-3">
+                                  {visibleEvents.map(event => {
+                                    const eventChecked = selectedEventIds.includes(event.event_id)
+                                    const timeRange = event.end_ms > event.start_ms
+                                      ? `${formatEventTime(event.start_ms)} → ${formatEventTime(event.end_ms)}`
+                                      : formatEventTime(event.start_ms)
+                                    return (
+                                      <label
+                                        key={event.event_id}
+                                        className="flex items-start gap-3 rounded-md bg-plex-darker/70 px-3 py-2"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={eventChecked}
+                                          onChange={() => toggleEvent(event.event_id)}
+                                          className="mt-0.5 h-4 w-4 flex-shrink-0 accent-plex-orange"
+                                        />
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block font-mono text-xs text-plex-orange">{timeRange}</span>
+                                          <span className="mt-1 block text-xs text-gray-300">{event.description}</span>
+                                        </span>
+                                      </label>
+                                    )
+                                  })}
+                                </div>
+                              </div>
                             )
                           })}
                         </div>

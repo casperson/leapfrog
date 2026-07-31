@@ -126,6 +126,33 @@ def test_sidecar_to_skp_text_emits_time_blocks_and_alignment_json():
     assert '{"local": 0, "faselhdwatch": 0}' in raw
 
 
+def test_sidecar_to_skp_text_formats_single_digit_fractional_seconds():
+    payload = {
+        "media_id": "movie-1",
+        "segments": [
+            {
+                "start_time": 300.0,
+                "end_time": 300.5,
+                "category": "sex_nudity_immodesty",
+                "text_excerpt": "Event description",
+            },
+            {
+                "start_time": 6186.0,
+                "end_time": 6186.5,
+                "category": "sex_nudity_immodesty",
+                "text_excerpt": "Later event",
+            },
+        ],
+    }
+
+    raw = sidecar_to_skp_text(payload)
+
+    assert "0:05:00 --> 0:05:00.5" in raw
+    assert "1:43:06 --> 1:43:06.5" in raw
+    assert ":000.5" not in raw
+    assert ":006.5" not in raw
+
+
 @pytest.mark.asyncio
 async def test_convert_manifest_to_sidecars_builds_outputs(tmp_path: Path):
     skp_path = tmp_path / "fight_club.skp"

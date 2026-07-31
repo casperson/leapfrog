@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import leapfrog.vidangel_export as vidangel_export
 from leapfrog.vidangel_export import (
     DEFAULT_MIN_SEGMENT_MS,
     ShowSummary,
@@ -21,6 +22,9 @@ from leapfrog.vidangel_export import (
     _parse_required_int,
     _show_catalog_rows,
     generate_filtered_vidangel_skp,
+    load_vidangel_exportable_title_catalog_records,
+    load_vidangel_raw_events_for_title,
+    prepare_vidangel_export,
     WorkStub,
     build_catalog_queries,
     build_show_summaries,
@@ -458,6 +462,15 @@ def test_module_help_entrypoint_exits_zero():
     assert "output-dir" in result.stdout
     assert "write-per-title-artifacts" in result.stdout
     assert "export-skp" in result.stdout
+    assert "prepare" in result.stdout
+
+
+def test_export_defaults_to_configured_vidangel_directory(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("LEAPFROG_VIDANGEL_EXPORT_DIR", str(tmp_path))
+
+    args = vidangel_export._build_arg_parser().parse_args([])
+
+    assert args.output_dir == str(tmp_path)
 
 
 def _write_sample_vidangel_export(tmp_path: Path) -> Path:
@@ -539,6 +552,39 @@ def _write_sample_vidangel_export_without_raw_events(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
+async def test_prepare_vidangel_export_builds_index_without_network(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+
+    result = await prepare_vidangel_export(export_dir)
+
+    assert result["ok"] is True
+    assert result["catalog_title_count"] == 1
+    assert result["indexed_title_count"] == 1
+    assert result["event_count"] == 4
+    assert result["definition_count"] == 3
+    assert Path(result["index_path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_prepare_vidangel_export_caches_catalog_and_definitions(tmp_path: Path, monkeypatch):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    original_reader = vidangel_export._read_json_rows_sync
+    read_keys: list[str] = []
+
+    def counted_reader(source: Path, rows_key: str):
+        read_keys.append(rows_key)
+        return original_reader(source, rows_key)
+
+    monkeypatch.setattr(vidangel_export, "_read_json_rows_sync", counted_reader)
+
+    await prepare_vidangel_export(export_dir)
+    await prepare_vidangel_export(export_dir)
+
+    assert read_keys.count("titles") == 1
+    assert read_keys.count("definitions") == 1
+
+
+@pytest.mark.asyncio
 async def test_build_vidangel_filter_catalog_groups_leaf_filters(tmp_path: Path):
     export_dir = _write_sample_vidangel_export(tmp_path)
 
@@ -552,6 +598,56 @@ async def test_build_vidangel_filter_catalog_groups_leaf_filters(tmp_path: Path)
     ]
     profanity = next(category for category in catalog["categories"] if category["key"] == "language_profanity")
     assert [filter_row["leaf_key"] for filter_row in profanity["filters"]] == ["fuck", "shit"]
+    event_ids = [event["event_id"] for event in profanity["filters"][0]["events"]]
+    assert all(event_id.startswith("event-") for event_id in event_ids)
+    assert len(set(event_ids)) == 2
+    assert profanity["filters"][0]["events"][0]["description"] == "f-word"
+    assert (export_dir / "raw_filter_events.index.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_filter_catalog_event_ids_survive_raw_row_reordering(tmp_path: Path):
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first_root.mkdir()
+    second_root.mkdir()
+    first_export = _write_sample_vidangel_export(first_root)
+    second_export = _write_sample_vidangel_export(second_root)
+    source = second_export / "raw_filter_events.csv"
+    lines = source.read_text(encoding="utf-8").splitlines()
+    source.write_text("\n".join([lines[0], *reversed(lines[1:])]) + "\n", encoding="utf-8")
+
+    first_catalog = await build_vidangel_filter_catalog("movie-1", export_dir=first_export)
+    second_catalog = await build_vidangel_filter_catalog("movie-1", export_dir=second_export)
+
+    def ids_by_start(catalog: dict) -> dict[int, str]:
+        return {
+            event["start_ms"]: event["event_id"]
+            for category in catalog["categories"]
+            for filter_row in category["filters"]
+            for event in filter_row["events"]
+        }
+
+    assert ids_by_start(first_catalog) == ids_by_start(second_catalog)
+
+
+@pytest.mark.asyncio
+async def test_load_exportable_catalog_excludes_titles_without_events(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    payload = json.loads((export_dir / "title_catalog.json").read_text(encoding="utf-8"))
+    payload["titles"].append(
+        {
+            "media_id": "movie-empty",
+            "media_type": "movie",
+            "title": "Empty Movie",
+            "event_count": 0,
+        }
+    )
+    (export_dir / "title_catalog.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    titles = await load_vidangel_exportable_title_catalog_records(export_dir)
+
+    assert [title["media_id"] for title in titles] == ["movie-1"]
 
 
 @pytest.mark.asyncio
@@ -579,6 +675,69 @@ async def test_generate_filtered_vidangel_skp_uses_only_selected_leaf_keys(tmp_p
     content = output_path.read_text(encoding="utf-8")
     assert "Example immodesty filter." in content
     assert "s-word" not in content
+
+
+@pytest.mark.asyncio
+async def test_generate_filtered_vidangel_skp_uses_only_selected_event_ids(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    catalog = await build_vidangel_filter_catalog("movie-1", export_dir=export_dir)
+    event_ids_by_start = {
+        event["start_ms"]: event["event_id"]
+        for category in catalog["categories"]
+        for filter_row in category["filters"]
+        for event in filter_row["events"]
+    }
+    selected_event_ids = [event_ids_by_start[1300], event_ids_by_start[6000]]
+
+    result = await generate_filtered_vidangel_skp(
+        "movie-1",
+        export_dir=export_dir,
+        selected_event_ids=selected_event_ids,
+    )
+
+    assert result["selected_event_ids"] == selected_event_ids
+    assert result["selected_event_count"] == 2
+    assert "0:00:01.3" in result["skp_text"]
+    assert "Example immodesty filter." in result["skp_text"]
+    assert "s-word" not in result["skp_text"]
+
+
+@pytest.mark.asyncio
+async def test_generate_exact_event_skp_does_not_cover_unselected_neighbor(tmp_path: Path):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    catalog = await build_vidangel_filter_catalog("movie-1", export_dir=export_dir)
+    first_event = next(
+        event
+        for category in catalog["categories"]
+        for filter_row in category["filters"]
+        for event in filter_row["events"]
+        if event["start_ms"] == 1000
+    )
+
+    result = await generate_filtered_vidangel_skp(
+        "movie-1",
+        export_dir=export_dir,
+        selected_event_ids=[first_event["event_id"]],
+    )
+
+    assert result["skp_text"] == "0:00:01\nf-word\n"
+    assert "0:00:01.3" not in result["skp_text"]
+
+
+@pytest.mark.asyncio
+async def test_indexed_title_load_reuses_persisted_index(tmp_path: Path, monkeypatch):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    await load_vidangel_raw_events_for_title("movie", "movie-1", export_dir=export_dir)
+
+    monkeypatch.setattr(
+        "leapfrog.vidangel_export._build_raw_event_index_sync",
+        lambda *_args: pytest.fail("the valid persisted index should be reused"),
+    )
+    vidangel_export._raw_event_index_cache.clear()
+
+    events = await load_vidangel_raw_events_for_title("movie", "movie-1", export_dir=export_dir)
+
+    assert len(events) == 4
 
 
 @pytest.mark.asyncio

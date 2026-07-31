@@ -15,6 +15,7 @@ from .paths import get_data_dir
 import leapfrog.plex_client as plex_mod
 from .watcher import session_watcher_loop, library_watcher_loop
 from .scanner import scanner_loop
+from .vidangel_export import prepare_vidangel_export_if_available
 from .web.app import create_app
 from .bg_jobs import recover_stale_jobs
 
@@ -71,6 +72,7 @@ async def _amain() -> None:
         session_watcher_loop(get_config, get_client),
         library_watcher_loop(get_config, get_client),
         scanner_loop(get_config),
+        prepare_vidangel_export_if_available(),
     )
 
 

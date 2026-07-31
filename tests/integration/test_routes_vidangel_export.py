@@ -25,7 +25,15 @@ def _write_sample_vidangel_export(tmp_path: Path) -> Path:
                         "slug": "sample-movie",
                         "event_count": 2,
                         "category_count": 1,
-                    }
+                    },
+                    {
+                        "media_id": "movie-empty",
+                        "media_type": "movie",
+                        "title": "Empty Movie",
+                        "slug": "empty-movie",
+                        "event_count": 0,
+                        "category_count": 0,
+                    },
                 ]
             }
         ),
@@ -78,6 +86,28 @@ def _write_sample_vidangel_export_without_raw_events(tmp_path: Path) -> Path:
     return export_dir
 
 
+async def test_prepare_vidangel_export_route_indexes_existing_artifacts(http_client, tmp_path, monkeypatch):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    monkeypatch.setattr(vidangel_export, "get_vidangel_export_dir", lambda: export_dir)
+
+    response = await http_client.post("/api/vidangel/export/prepare")
+
+    assert response.status_code == 200
+    assert response.json()["indexed_title_count"] == 1
+    assert (export_dir / "raw_filter_events.index.json").exists()
+
+
+async def test_prepare_vidangel_export_route_reports_missing_artifacts(http_client, tmp_path, monkeypatch):
+    export_dir = tmp_path / "empty"
+    export_dir.mkdir()
+    monkeypatch.setattr(vidangel_export, "get_vidangel_export_dir", lambda: export_dir)
+
+    response = await http_client.post("/api/vidangel/export/prepare")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "VidAngel title catalog is missing or empty."
+
+
 async def test_vidangel_export_catalog_and_filter_routes(http_client, tmp_path, monkeypatch):
     export_dir = _write_sample_vidangel_export(tmp_path)
     monkeypatch.setattr(vidangel_export, "get_vidangel_export_dir", lambda: export_dir)
@@ -87,6 +117,7 @@ async def test_vidangel_export_catalog_and_filter_routes(http_client, tmp_path, 
     catalog = catalog_resp.json()
     assert catalog["available"] is True
     assert catalog["title_count"] == 1
+    assert [title["media_id"] for title in catalog["titles"]] == ["movie-1"]
 
     filters_resp = await http_client.get("/api/vidangel/export/titles/movie-1/filters")
     assert filters_resp.status_code == 200
@@ -94,6 +125,7 @@ async def test_vidangel_export_catalog_and_filter_routes(http_client, tmp_path, 
     assert filters["title"]["title"] == "Sample Movie"
     assert filters["leaf_count"] == 2
     assert filters["categories"][0]["label"] == "Profanity"
+    assert filters["categories"][0]["filters"][0]["events"][0]["event_id"].startswith("event-")
 
 
 async def test_vidangel_export_skp_route_returns_attachment(http_client, tmp_path, monkeypatch):
@@ -109,6 +141,29 @@ async def test_vidangel_export_skp_route_returns_attachment(http_client, tmp_pat
     assert response.headers["content-disposition"].startswith("attachment;")
     assert "0:00:01" in response.text
     assert "s-word" not in response.text
+
+
+async def test_vidangel_export_skp_route_accepts_exact_event_selection(http_client, tmp_path, monkeypatch):
+    export_dir = _write_sample_vidangel_export(tmp_path)
+    monkeypatch.setattr(vidangel_export, "get_vidangel_export_dir", lambda: export_dir)
+    filters_response = await http_client.get("/api/vidangel/export/titles/movie-1/filters")
+    filters = filters_response.json()
+    selected_event_id = next(
+        event["event_id"]
+        for category in filters["categories"]
+        for filter_row in category["filters"]
+        for event in filter_row["events"]
+        if event["start_ms"] == 4000
+    )
+
+    response = await http_client.post(
+        "/api/vidangel/export/titles/movie-1/skp",
+        json={"selected_event_ids": [selected_event_id]},
+    )
+
+    assert response.status_code == 200
+    assert "0:00:04" in response.text
+    assert "f-word" not in response.text
 
 
 async def test_vidangel_export_skp_route_reports_missing_export_data(http_client, tmp_path, monkeypatch):
