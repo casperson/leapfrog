@@ -21,7 +21,6 @@ from xml.sax.saxutils import escape
 import httpx
 
 from .logger import get_logger, setup_logging
-from .skip_file_converter import sidecar_to_skp_text
 from .vidangel_taxonomy import get_vidangel_category_rows, normalize_vidangel_group_key
 
 logger = get_logger(__name__)
@@ -909,6 +908,80 @@ async def build_vidangel_filter_catalog(
     }
 
 
+def _format_clean_media_player_time(value_ms: int) -> str:
+    """Format milliseconds using Clean Media Player's TimeSpan JSON form."""
+    total_ms = max(0, int(value_ms))
+    hours, remainder = divmod(total_ms, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    seconds, milliseconds = divmod(remainder, 1_000)
+    base = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{base}.{milliseconds:03d}0000" if milliseconds else base
+
+
+def _clean_media_player_scene_type(event: RawFilterEvent) -> str:
+    """Map VidAngel taxonomy to Clean Media Player's scene type names."""
+    detail = " ".join(
+        [event.leaf_key, event.display_title, event.description or ""]
+    ).lower()
+    category = str(event.mapped_category or "").lower()
+    if "sex" in detail:
+        return "Sex"
+    if any(token in detail for token in ("nud", "immodest", "undress")):
+        return "Nudity"
+    if any(token in detail or token in category for token in ("violence", "gore")):
+        return "Violence"
+    if any(token in detail or token in category for token in ("profanity", "language")):
+        return "Profanity"
+    if any(token in detail or token in category for token in ("drug", "alcohol", "substance")):
+        return "Substance"
+    if any(token in detail or token in category for token in ("intense", "disturb", "horror")):
+        return "Intense"
+    if category == "sex_nudity_immodesty":
+        return "Nudity"
+    return "Other"
+
+
+def build_clean_media_player_skp_payload(
+    title: dict[str, Any],
+    events: list[RawFilterEvent],
+) -> dict[str, Any]:
+    """Build the native JSON structure written by Clean Media Player."""
+    extra = title.get("extra_metadata") if isinstance(title.get("extra_metadata"), dict) else {}
+    year = _parse_optional_int(title.get("year") or extra.get("year"))
+    season_number = _parse_optional_int(title.get("season_number"))
+    episode_number = _parse_optional_int(title.get("episode_number"))
+    skip_scenes = []
+    for scene_id, event in enumerate(
+        sorted(events, key=lambda item: (item.start_ms, item.end_ms, item.display_title)),
+        start=1,
+    ):
+        # Clean Media Player rejects zero-length scenes, while many VidAngel
+        # audio events are point timestamps. Expand those to the existing 500ms minimum.
+        end_ms = (
+            event.end_ms
+            if event.end_ms > event.start_ms
+            else event.start_ms + DEFAULT_MIN_SEGMENT_MS
+        )
+        skip_scenes.append(
+            {
+                "Id": scene_id,
+                "SceneType": _clean_media_player_scene_type(event),
+                "StartTime": _format_clean_media_player_time(event.start_ms),
+                "EndTime": _format_clean_media_player_time(end_ms),
+                "Blur": False,
+            }
+        )
+    return {
+        "SceneFileTypeId": 1,
+        "Year": year,
+        "SeasonNumber": season_number,
+        "EpisodeNumber": episode_number,
+        "SkipScenes": skip_scenes,
+        "SkipScenesSyncs": [],
+        "Unsynced": False,
+    }
+
+
 async def generate_filtered_vidangel_skp(
     media_id: str,
     selected_leaf_keys: list[str] | None = None,
@@ -917,7 +990,7 @@ async def generate_filtered_vidangel_skp(
     output_path: str | Path | None = None,
     selected_event_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Generate .skp text from selected VidAngel leaf filters or exact events."""
+    """Generate a native Clean Media Player .skp from selected VidAngel events."""
     title = await load_vidangel_export_title(media_id, export_dir=export_dir)
     root = export_dir or get_vidangel_export_dir()
     raw_source = root / "raw_filter_events.csv"
@@ -964,18 +1037,8 @@ async def generate_filtered_vidangel_skp(
     if not filtered_events:
         raise ValueError("The selected VidAngel filters did not match any export events.")
 
-    sidecar_builder = (
-        _build_exact_event_sidecar_payload
-        if selected_event_ids is not None
-        else build_sidecar_payload
-    )
-    sidecar_payload = sidecar_builder(
-        media_id=str(title.get("media_id") or media_id),
-        title=str(title.get("title") or media_id),
-        slug=str(title.get("slug") or ""),
-        events=filtered_events,
-    )
-    skp_text = sidecar_to_skp_text(sidecar_payload)
+    skp_payload = build_clean_media_player_skp_payload(title, filtered_events)
+    skp_text = json.dumps(skp_payload, separators=(",", ":"), ensure_ascii=False)
     output_file = Path(output_path) if output_path else None
     if output_file:
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1158,43 +1221,6 @@ def flatten_tag_tree(
         )
     events.sort(key=lambda item: (item.start_ms, item.end_ms, item.display_title))
     return events, definitions
-
-
-def _build_exact_event_sidecar_payload(
-    *,
-    media_id: str,
-    title: str,
-    slug: str,
-    events: list[RawFilterEvent],
-) -> dict[str, Any]:
-    # Exact UI selections preserve each source boundary. The grouped sidecar
-    # builder intentionally expands and merges events for runtime filtering.
-    segments = [
-        {
-            "media_id": media_id,
-            "start_time": event.start_ms / 1000,
-            "end_time": event.end_ms / 1000,
-            "category": event.mapped_category or "uncategorized",
-            "source": "vidangel",
-            "confidence": None,
-            "labels": event.leaf_key,
-            "text_excerpt": event.description or event.display_title or event.leaf_key or "skip",
-            "created_at": None,
-            "updated_at": None,
-            "review_status": "pending",
-        }
-        for event in sorted(
-            events,
-            key=lambda item: (item.start_ms, item.end_ms, item.display_title, item.leaf_key),
-        )
-    ]
-    return {
-        "format": "leapfrog.segment.sidecar/v1",
-        "media_id": media_id,
-        "title": title,
-        "external_ids": {"vidangel_slug": slug, "vidangel_media_id": media_id},
-        "segments": segments,
-    }
 
 
 def build_sidecar_payload(
@@ -2050,7 +2076,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     export_skp_parser = parser.add_subparsers(dest="command")
     skp_parser = export_skp_parser.add_parser(
         "export-skp",
-        help="Export a filtered VidAngel title to .skp text.",
+        help="Export a filtered VidAngel title to native Clean Media Player .skp JSON.",
     )
     skp_parser.add_argument("--media-id", required=True, help="VidAngel media_id to export.")
     skp_parser.add_argument(

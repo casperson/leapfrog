@@ -16,6 +16,7 @@ from leapfrog.vidangel_export import (
     ShowSummary,
     TitleArtifact,
     VidAngelExportDataError,
+    _format_clean_media_player_time,
     _create_simple_xlsx,
     build_vidangel_filter_catalog,
     _parse_optional_int,
@@ -27,6 +28,7 @@ from leapfrog.vidangel_export import (
     prepare_vidangel_export,
     WorkStub,
     build_catalog_queries,
+    build_clean_media_player_skp_payload,
     build_show_summaries,
     build_sidecar_payload,
     flatten_tag_tree,
@@ -672,9 +674,29 @@ async def test_generate_filtered_vidangel_skp_uses_only_selected_leaf_keys(tmp_p
 
     assert result["selected_event_count"] == 3
     assert output_path.exists()
-    content = output_path.read_text(encoding="utf-8")
-    assert "Example immodesty filter." in content
-    assert "s-word" not in content
+    raw_skp = output_path.read_text(encoding="utf-8")
+    payload = json.loads(raw_skp)
+    assert raw_skp.startswith('{"SceneFileTypeId":1,"Year":null')
+    assert not raw_skp.endswith("\n")
+    assert list(payload) == [
+        "SceneFileTypeId",
+        "Year",
+        "SeasonNumber",
+        "EpisodeNumber",
+        "SkipScenes",
+        "SkipScenesSyncs",
+        "Unsynced",
+    ]
+    assert payload["SceneFileTypeId"] == 1
+    assert payload["SkipScenesSyncs"] == []
+    assert payload["Unsynced"] is False
+    assert [scene["SceneType"] for scene in payload["SkipScenes"]] == [
+        "Profanity",
+        "Profanity",
+        "Nudity",
+    ]
+    assert payload["SkipScenes"][0]["StartTime"] == "00:00:01"
+    assert payload["SkipScenes"][0]["EndTime"] == "00:00:01.5000000"
 
 
 @pytest.mark.asyncio
@@ -697,13 +719,19 @@ async def test_generate_filtered_vidangel_skp_uses_only_selected_event_ids(tmp_p
 
     assert result["selected_event_ids"] == selected_event_ids
     assert result["selected_event_count"] == 2
-    assert "0:00:01.3" in result["skp_text"]
-    assert "Example immodesty filter." in result["skp_text"]
-    assert "s-word" not in result["skp_text"]
+    payload = json.loads(result["skp_text"])
+    assert [scene["StartTime"] for scene in payload["SkipScenes"]] == [
+        "00:00:01.3000000",
+        "00:00:06",
+    ]
+    assert [scene["SceneType"] for scene in payload["SkipScenes"]] == [
+        "Profanity",
+        "Nudity",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_generate_exact_event_skp_does_not_cover_unselected_neighbor(tmp_path: Path):
+async def test_generate_exact_event_skp_preserves_only_selected_event_record(tmp_path: Path):
     export_dir = _write_sample_vidangel_export(tmp_path)
     catalog = await build_vidangel_filter_catalog("movie-1", export_dir=export_dir)
     first_event = next(
@@ -720,8 +748,51 @@ async def test_generate_exact_event_skp_does_not_cover_unselected_neighbor(tmp_p
         selected_event_ids=[first_event["event_id"]],
     )
 
-    assert result["skp_text"] == "0:00:01\nf-word\n"
-    assert "0:00:01.3" not in result["skp_text"]
+    payload = json.loads(result["skp_text"])
+    assert payload["SkipScenes"] == [
+        {
+            "Id": 1,
+            "SceneType": "Profanity",
+            "StartTime": "00:00:01",
+            "EndTime": "00:00:01.5000000",
+            "Blur": False,
+        }
+    ]
+
+
+def test_clean_media_player_skp_preserves_short_event_and_uses_fixed_width_hours():
+    event = vidangel_export.RawFilterEvent(
+        media_id="episode-1",
+        media_type="episode",
+        title="Episode",
+        slug="episode",
+        service_slug="vidangel",
+        tag_set_id=1,
+        season_number=2,
+        episode_number=3,
+        path_keys=("sex_nudity_immodesty", "immodesty_female"),
+        path_titles=("Nudity & Immodesty", "Female Immodesty"),
+        display_title="Female Immodesty",
+        description=None,
+        tag_type="audiovisual",
+        start_ms=7_386_500,
+        end_ms=7_386_700,
+        mapped_category="sex_nudity_immodesty",
+        leaf_key="immodesty_female",
+    )
+
+    payload = build_clean_media_player_skp_payload(
+        {"year": 2024, "season_number": 2, "episode_number": 3},
+        [event],
+    )
+
+    assert _format_clean_media_player_time(0) == "00:00:00"
+    assert _format_clean_media_player_time(7_386_500) == "02:03:06.5000000"
+    assert payload["Year"] == 2024
+    assert payload["SeasonNumber"] == 2
+    assert payload["EpisodeNumber"] == 3
+    assert payload["SkipScenes"][0]["StartTime"] == "02:03:06.5000000"
+    assert payload["SkipScenes"][0]["EndTime"] == "02:03:06.7000000"
 
 
 @pytest.mark.asyncio

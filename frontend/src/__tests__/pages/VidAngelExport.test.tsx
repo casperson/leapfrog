@@ -130,7 +130,7 @@ beforeEach(() => {
     }
     return Promise.resolve({})
   })
-  mockApi.postText.mockResolvedValue('0:00:01 --> 0:00:02\nskip\n')
+  mockApi.postText.mockResolvedValue('{"SceneFileTypeId":1,"SkipScenes":[]}')
   vi.stubGlobal('URL', {
     createObjectURL: vi.fn(() => 'blob:vidangel'),
     revokeObjectURL: vi.fn(),
@@ -277,6 +277,22 @@ describe('VidAngelExport', () => {
     expect(screen.getByText('3 / 4 selected')).toBeInTheDocument()
   })
 
+  it('collapses and expands filter categories without changing selection', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText('First f-word event')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Profanity' }))
+
+    expect(screen.queryByText('First f-word event')).not.toBeInTheDocument()
+    expect(screen.getByText('4 / 4 selected')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand Profanity' })).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Profanity' }))
+
+    expect(screen.getByText('First f-word event')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Collapse Profanity' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('downloads a filtered skp using the selected event ids', async () => {
     renderPage()
     await waitFor(() => expect(screen.getByText('Generate `.skp`')).toBeInTheDocument())
@@ -291,6 +307,8 @@ describe('VidAngelExport', () => {
     )
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalled()
     expect(URL.createObjectURL).toHaveBeenCalled()
+    const downloadedBlob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob
+    expect(downloadedBlob.type).toBe('application/json;charset=utf-8')
   })
 
   it('shows a guided message when the VidAngel export data is not ready', async () => {

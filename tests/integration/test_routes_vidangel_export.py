@@ -157,8 +157,18 @@ async def test_vidangel_export_skp_route_returns_attachment(http_client, tmp_pat
 
     assert response.status_code == 200
     assert response.headers["content-disposition"].startswith("attachment;")
-    assert "0:00:01" in response.text
-    assert "s-word" not in response.text
+    assert response.headers["content-type"] == "application/json"
+    payload = response.json()
+    assert payload["SceneFileTypeId"] == 1
+    assert payload["SkipScenes"] == [
+        {
+            "Id": 1,
+            "SceneType": "Profanity",
+            "StartTime": "00:00:01",
+            "EndTime": "00:00:01.5000000",
+            "Blur": False,
+        }
+    ]
 
 
 async def test_vidangel_export_skp_route_accepts_exact_event_selection(http_client, tmp_path, monkeypatch):
@@ -180,8 +190,15 @@ async def test_vidangel_export_skp_route_accepts_exact_event_selection(http_clie
     )
 
     assert response.status_code == 200
-    assert "0:00:04" in response.text
-    assert "f-word" not in response.text
+    assert response.json()["SkipScenes"] == [
+        {
+            "Id": 1,
+            "SceneType": "Profanity",
+            "StartTime": "00:00:04",
+            "EndTime": "00:00:04.5000000",
+            "Blur": False,
+        }
+    ]
 
 
 async def test_vidangel_export_skp_route_reports_missing_export_data(http_client, tmp_path, monkeypatch):

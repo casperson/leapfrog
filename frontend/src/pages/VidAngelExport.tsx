@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckSquare2, Download, Loader2, Search, Square, FileDown, XCircle } from 'lucide-react'
+import { CheckSquare2, ChevronDown, Download, Loader2, Search, Square, FileDown, XCircle } from 'lucide-react'
 import { api } from '../api/client'
 
 interface VidAngelTitle {
@@ -119,6 +119,7 @@ export default function VidAngelExportPage() {
   const [filtersError, setFiltersError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedEventIds, setSelectedEventIds] = useState<string[]>([])
+  const [collapsedCategoryKeys, setCollapsedCategoryKeys] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
   const [downloadResult, setDownloadResult] = useState<{ ok: boolean; message: string } | null>(null)
 
@@ -223,6 +224,14 @@ export default function VidAngelExportPage() {
     ))
   }
 
+  const toggleCategoryCollapsed = (categoryKey: string) => {
+    setCollapsedCategoryKeys(current => (
+      current.includes(categoryKey)
+        ? current.filter(key => key !== categoryKey)
+        : [...current, categoryKey]
+    ))
+  }
+
   const clearSelection = () => {
     setSelectedEventIds([])
   }
@@ -242,7 +251,7 @@ export default function VidAngelExportPage() {
         `/api/vidangel/export/titles/${encodeURIComponent(selectedMediaId)}/skp`,
         { selected_event_ids: selectedEventIds },
       )
-      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const revokeObjectURL = typeof URL.revokeObjectURL === 'function' ? URL.revokeObjectURL.bind(URL) : null
       const link = document.createElement('a')
@@ -498,20 +507,33 @@ export default function VidAngelExportPage() {
                     const selectedInCategory = categoryEventIds.filter(eventId => selectedEventIds.includes(eventId)).length
                     const allSelected = selectedInCategory === categoryEventIds.length && categoryEventIds.length > 0
                     const partiallySelected = selectedInCategory > 0 && !allSelected
+                    const collapsed = collapsedCategoryKeys.includes(category.key)
                     return (
                       <div key={category.key} className="rounded-xl border border-plex-border/70 bg-plex-darker/60 p-4">
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium text-gray-100">{category.label}</span>
-                              <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-400">
-                                {selectedInCategory}/{categoryEventIds.length} events
-                              </span>
+                          <button
+                            type="button"
+                            aria-expanded={!collapsed}
+                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${category.label}`}
+                            onClick={() => toggleCategoryCollapsed(category.key)}
+                            className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                          >
+                            <ChevronDown
+                              size={16}
+                              className={`mt-0.5 flex-shrink-0 text-gray-500 transition-transform ${collapsed ? '-rotate-90' : ''}`}
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-100">{category.label}</span>
+                                <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-400">
+                                  {selectedInCategory}/{categoryEventIds.length} events
+                                </span>
+                              </div>
+                              {category.description && (
+                                <p className="mt-1 text-xs text-gray-500">{category.description}</p>
+                              )}
                             </div>
-                            {category.description && (
-                              <p className="mt-1 text-xs text-gray-500">{category.description}</p>
-                            )}
-                          </div>
+                          </button>
 
                           <button
                             type="button"
@@ -523,7 +545,7 @@ export default function VidAngelExportPage() {
                           </button>
                         </div>
 
-                        <div className="mt-4 space-y-2">
+                        {!collapsed && <div className="mt-4 space-y-2">
                           {filters.map(({ filter, visibleEvents }) => {
                             const filterEventIds = eventIdsForFilter(filter)
                             const selectedInFilter = filterEventIds.filter(eventId => selectedEventIds.includes(eventId)).length
@@ -583,7 +605,7 @@ export default function VidAngelExportPage() {
                               </div>
                             )
                           })}
-                        </div>
+                        </div>}
                       </div>
                     )
                   })}

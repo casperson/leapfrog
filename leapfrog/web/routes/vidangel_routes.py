@@ -81,7 +81,7 @@ async def get_title_filters(media_id: str):
 
 @router.post("/export/titles/{media_id}/skp")
 async def generate_title_skp(media_id: str, payload: GenerateVidAngelSkpRequest):
-    """Generate filtered .skp text for one VidAngel title."""
+    """Generate native Clean Media Player .skp JSON for one VidAngel title."""
     try:
         result = await generate_filtered_vidangel_skp(
             media_id,
@@ -110,4 +110,4 @@ async def generate_title_skp(media_id: str, payload: GenerateVidAngelSkpRequest)
     headers = {
         "Content-Disposition": f'attachment; filename="{result["filename"]}"',
     }
-    return Response(content=result["skp_text"], media_type="text/plain; charset=utf-8", headers=headers)
+    return Response(content=result["skp_text"], media_type="application/json", headers=headers)
