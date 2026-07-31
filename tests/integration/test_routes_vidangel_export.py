@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from leapfrog import database as db
 import leapfrog.vidangel_export as vidangel_export
 
 
@@ -33,6 +34,14 @@ def _write_sample_vidangel_export(tmp_path: Path) -> Path:
                         "slug": "empty-movie",
                         "event_count": 0,
                         "category_count": 0,
+                    },
+                    {
+                        "media_id": "movie-not-owned",
+                        "media_type": "movie",
+                        "title": "Not In Library",
+                        "slug": "not-in-library",
+                        "event_count": 1,
+                        "category_count": 1,
                     },
                 ]
             }
@@ -72,6 +81,7 @@ def _write_sample_vidangel_export(tmp_path: Path) -> Path:
                 "media_id,media_type,title,slug,service_slug,season_number,episode_number,tag_set_id,path_keys,path_titles,display_title,description,tag_type,start_ms,end_ms,mapped_category,leaf_key",
                 "movie-1,movie,Sample Movie,sample-movie,vidangel,,,1,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,1000,1000,language_profanity,fuck",
                 "movie-1,movie,Sample Movie,sample-movie,vidangel,,,1,language/profanity/shit,Language > Profanity > s-word,s-word,s-word,audio,4000,4000,language_profanity,shit",
+                "movie-not-owned,movie,Not In Library,not-in-library,vidangel,,,1,language/profanity/fuck,Language > Profanity > f-word,f-word,f-word,audio,1000,1000,language_profanity,fuck",
             ]
         )
         + "\n",
@@ -93,7 +103,7 @@ async def test_prepare_vidangel_export_route_indexes_existing_artifacts(http_cli
     response = await http_client.post("/api/vidangel/export/prepare")
 
     assert response.status_code == 200
-    assert response.json()["indexed_title_count"] == 1
+    assert response.json()["indexed_title_count"] == 2
     assert (export_dir / "raw_filter_events.index.json").exists()
 
 
@@ -111,6 +121,14 @@ async def test_prepare_vidangel_export_route_reports_missing_artifacts(http_clie
 async def test_vidangel_export_catalog_and_filter_routes(http_client, tmp_path, monkeypatch):
     export_dir = _write_sample_vidangel_export(tmp_path)
     monkeypatch.setattr(vidangel_export, "get_vidangel_export_dir", lambda: export_dir)
+    await db.upsert_scan_job(
+        plex_guid="plex://movie/sample",
+        title="Sample Movie",
+        file_path="/media/Sample Movie.mkv",
+        rating_key="1",
+        library_id="movies",
+        library_title="Movies",
+    )
 
     catalog_resp = await http_client.get("/api/vidangel/export/catalog")
     assert catalog_resp.status_code == 200

@@ -150,11 +150,97 @@ describe('VidAngelExport', () => {
 
     await waitFor(() => expect(screen.getByText('VidAngel Export')).toBeInTheDocument())
     await waitFor(() => expect(screen.getByText('Profanity')).toBeInTheDocument())
-    expect(screen.getByDisplayValue('Angel Has Fallen')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Angel Has Fallen (2019)' })).toBeInTheDocument()
     expect(screen.getByText('Nudity & Immodesty')).toBeInTheDocument()
     expect(screen.getByText('4 / 4 selected')).toBeInTheDocument()
     expect(screen.getByText('First f-word event')).toBeInTheDocument()
     expect(screen.getByText('0:00:01 → 0:00:01.2')).toBeInTheDocument()
+  })
+
+  it('searches library titles and separates movies from TV episodes', async () => {
+    const mixedCatalog = {
+      ...catalogResponse,
+      title_count: 4,
+      titles: [
+        ...catalogResponse.titles,
+        {
+          ...catalogResponse.titles[0],
+          media_id: 'movie-2',
+          title: 'Another Movie',
+          slug: 'another-movie',
+          year: 2020,
+        },
+        {
+          ...catalogResponse.titles[0],
+          media_id: 'episode-1',
+          media_type: 'episode',
+          title: 'Pilot',
+          show_title: 'Sample Show',
+          season_number: 1,
+          episode_number: 1,
+        },
+        {
+          ...catalogResponse.titles[0],
+          media_id: 'episode-2',
+          media_type: 'episode',
+          title: 'Finale',
+          show_title: 'Sample Show',
+          season_number: 1,
+          episode_number: 8,
+        },
+      ],
+    }
+    mockApi.get.mockImplementation((path: string) => {
+      if (path === '/api/vidangel/export/catalog') return Promise.resolve(mixedCatalog)
+      return Promise.resolve(filtersResponse)
+    })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Movies (2)' })).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /Sample Show/ })).not.toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'TV (2)' }))
+    })
+    const titleSearch = screen.getByPlaceholderText('Search TV episodes')
+    await act(async () => {
+      fireEvent.change(titleSearch, { target: { value: 'pilot' } })
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Sample Show · S01E01 · Pilot' })).toBeInTheDocument(),
+    )
+    expect(screen.getAllByText('Sample Show · S01E01 · Pilot')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /Finale/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps an explicitly selected empty media tab active while filters are loading', async () => {
+    let resolveFilters!: (value: typeof filtersResponse) => void
+    const pendingFilters = new Promise<typeof filtersResponse>(resolve => {
+      resolveFilters = resolve
+    })
+    mockApi.get.mockImplementation((path: string) => {
+      if (path === '/api/vidangel/export/catalog') return Promise.resolve(catalogResponse)
+      return pendingFilters
+    })
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'TV (0)' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Loading filters...')).toBeInTheDocument())
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'TV (0)' }))
+    })
+
+    expect(screen.getByRole('button', { name: 'TV (0)' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('No matching TV episodes in your library.')).toBeInTheDocument()
+    expect(screen.getByText('Choose a title to begin')).toBeInTheDocument()
+    expect(screen.getByText('0 / 0 selected')).toBeInTheDocument()
+    expect(screen.queryByText('Loading filters...')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveFilters(filtersResponse)
+      await pendingFilters
+    })
   })
 
   it('updates the selected count when one exact event is toggled', async () => {

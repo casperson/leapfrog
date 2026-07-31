@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckSquare2, Download, Loader2, Search, Square, FileDown, XCircle } from 'lucide-react'
 import { api } from '../api/client'
 
@@ -56,6 +56,22 @@ interface VidAngelCatalogResponse {
   titles: VidAngelTitle[]
 }
 
+type TitleType = 'movie' | 'tv'
+
+function titleTypeFor(title: VidAngelTitle): TitleType {
+  return title.media_type === 'movie' ? 'movie' : 'tv'
+}
+
+function formatTitleName(title: VidAngelTitle): string {
+  if (titleTypeFor(title) === 'movie') {
+    return title.year ? `${title.title} (${title.year})` : title.title
+  }
+  const episodeCode = title.season_number != null && title.episode_number != null
+    ? `S${String(title.season_number).padStart(2, '0')}E${String(title.episode_number).padStart(2, '0')}`
+    : ''
+  return [title.show_title, episodeCode, title.title].filter(Boolean).join(' · ')
+}
+
 function sanitizeFilename(value: string): string {
   return value
     .trim()
@@ -91,10 +107,13 @@ function eventIdsForFilter(filter: VidAngelLeafFilter): string[] {
 }
 
 export default function VidAngelExportPage() {
+  const initialTitleSelected = useRef(false)
   const [titles, setTitles] = useState<VidAngelTitle[]>([])
   const [loadingCatalog, setLoadingCatalog] = useState(true)
   const [catalogError, setCatalogError] = useState<string | null>(null)
   const [selectedMediaId, setSelectedMediaId] = useState('')
+  const [titleType, setTitleType] = useState<TitleType>('movie')
+  const [titleSearch, setTitleSearch] = useState('')
   const [catalog, setCatalog] = useState<VidAngelFilterCatalog | null>(null)
   const [loadingFilters, setLoadingFilters] = useState(false)
   const [filtersError, setFiltersError] = useState<string | null>(null)
@@ -125,13 +144,15 @@ export default function VidAngelExportPage() {
   }, [])
 
   useEffect(() => {
-    // When the title changes we reset the filter panel to the title's leaf set
-    // so the default export starts from the complete VidAngel event list.
-    if (!titles.length) return
-    if (!selectedMediaId) {
-      setSelectedMediaId(titles[0].media_id)
-    }
-  }, [selectedMediaId, titles])
+    // Choose a useful initial tab and title after the library-matched catalog
+    // first arrives, without overriding an empty tab the user selects later.
+    if (!titles.length || initialTitleSelected.current) return
+    initialTitleSelected.current = true
+    const firstMovie = titles.find(title => titleTypeFor(title) === 'movie')
+    const initialTitle = firstMovie ?? titles[0]
+    setTitleType(titleTypeFor(initialTitle))
+    setSelectedMediaId(initialTitle.media_id)
+  }, [titles])
 
   useEffect(() => {
     // Load the chosen title's leaf filters whenever the title changes so the
@@ -141,6 +162,7 @@ export default function VidAngelExportPage() {
       setCatalog(null)
       setSelectedEventIds([])
       setFiltersError(null)
+      setLoadingFilters(false)
       return
     }
 
@@ -224,7 +246,8 @@ export default function VidAngelExportPage() {
       const url = URL.createObjectURL(blob)
       const revokeObjectURL = typeof URL.revokeObjectURL === 'function' ? URL.revokeObjectURL.bind(URL) : null
       const link = document.createElement('a')
-      const title = titles.find(item => item.media_id === selectedMediaId)?.title ?? selectedMediaId
+      const selectedTitle = titles.find(item => item.media_id === selectedMediaId)
+      const title = selectedTitle ? formatTitleName(selectedTitle) : selectedMediaId
       link.href = url
       link.download = `${sanitizeFilename(title)}.skp`
       document.body.appendChild(link)
@@ -266,6 +289,28 @@ export default function VidAngelExportPage() {
   })
 
   const selectedTitle = titles.find(title => title.media_id === selectedMediaId) ?? null
+  const movieCount = titles.filter(title => titleTypeFor(title) === 'movie').length
+  const tvCount = titles.length - movieCount
+  const normalizedTitleSearch = titleSearch.trim().toLowerCase()
+  const visibleTitles = titles.filter(title => {
+    if (titleTypeFor(title) !== titleType) return false
+    if (!normalizedTitleSearch) return true
+    return [
+      title.title,
+      title.show_title ?? '',
+      title.year?.toString() ?? '',
+      title.season_number != null ? `season ${title.season_number}` : '',
+      title.episode_number != null ? `episode ${title.episode_number}` : '',
+      formatTitleName(title),
+    ].join(' ').toLowerCase().includes(normalizedTitleSearch)
+  })
+
+  const chooseTitleType = (nextType: TitleType) => {
+    setTitleType(nextType)
+    setTitleSearch('')
+    const firstTitle = titles.find(title => titleTypeFor(title) === nextType)
+    setSelectedMediaId(firstTitle?.media_id ?? '')
+  }
 
   return (
     <div className="max-w-6xl space-y-6">
@@ -286,7 +331,7 @@ export default function VidAngelExportPage() {
             <span>{selectedCount} / {totalCount} selected</span>
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            {selectedTitle ? selectedTitle.title : 'Choose a title to begin'}
+            {selectedTitle ? formatTitleName(selectedTitle) : 'Choose a title to begin'}
           </div>
         </div>
       </div>
@@ -301,29 +346,74 @@ export default function VidAngelExportPage() {
         </div>
       ) : titles.length === 0 ? (
         <div className="rounded-xl border border-plex-border bg-plex-card p-6 text-sm text-gray-400 space-y-2">
-          <p>No VidAngel export catalog was found yet.</p>
+          <p>No VidAngel titles with filters match your local media library.</p>
           <p className="text-gray-500">
-            Run the VidAngel export first so Leapfrog can load the title list and leaf filters.
+            Sync your Plex libraries and prepare the VidAngel export, then refresh this page.
           </p>
         </div>
       ) : (
         <div className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
             <div className="rounded-xl border border-plex-border bg-plex-card p-4">
-              <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                VidAngel title
+              <div className="mb-3 grid grid-cols-2 rounded-lg border border-plex-border bg-plex-darker p-1">
+                <button
+                  type="button"
+                  aria-pressed={titleType === 'movie'}
+                  onClick={() => chooseTitleType('movie')}
+                  className={`rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                    titleType === 'movie' ? 'bg-plex-orange text-white' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  Movies ({movieCount})
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={titleType === 'tv'}
+                  onClick={() => chooseTitleType('tv')}
+                  className={`rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                    titleType === 'tv' ? 'bg-plex-orange text-white' : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  TV ({tvCount})
+                </button>
+              </div>
+
+              <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-gray-500" htmlFor="vidangel-title-search">
+                Find a title in your library
               </label>
-              <select
-                value={selectedMediaId}
-                onChange={event => setSelectedMediaId(event.target.value)}
-                className="w-full rounded-lg border border-plex-border bg-plex-darker px-3 py-2 text-sm text-gray-100 focus:border-plex-orange/60 focus:outline-none"
-              >
-                {titles.map(title => (
-                  <option key={title.media_id} value={title.media_id}>
-                    {title.title}
-                  </option>
+              <div className="relative">
+                <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" />
+                <input
+                  id="vidangel-title-search"
+                  type="search"
+                  value={titleSearch}
+                  onChange={event => setTitleSearch(event.target.value)}
+                  placeholder={`Search ${titleType === 'movie' ? 'movies' : 'TV episodes'}`}
+                  className="w-full rounded-lg border border-plex-border bg-plex-darker py-2 pl-9 pr-3 text-sm text-gray-100 placeholder:text-gray-600 focus:border-plex-orange/60 focus:outline-none"
+                />
+              </div>
+
+              <div className="mt-3 max-h-72 space-y-1 overflow-y-auto pr-1" aria-label="Matching library titles">
+                {visibleTitles.map(title => (
+                  <button
+                    key={`${title.media_type}-${title.media_id}`}
+                    type="button"
+                    onClick={() => setSelectedMediaId(title.media_id)}
+                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                      selectedMediaId === title.media_id
+                        ? 'border-plex-orange/60 bg-plex-orange/10 text-gray-100'
+                        : 'border-transparent text-gray-400 hover:border-plex-border hover:bg-white/5 hover:text-gray-200'
+                    }`}
+                  >
+                    {formatTitleName(title)}
+                  </button>
                 ))}
-              </select>
+                {visibleTitles.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-plex-border px-3 py-4 text-center text-xs text-gray-500">
+                    No matching {titleType === 'movie' ? 'movies' : 'TV episodes'} in your library.
+                  </div>
+                )}
+              </div>
 
               <div className="mt-4 space-y-3 text-sm text-gray-400">
                 <div className="rounded-lg border border-plex-border/80 bg-plex-darker/60 px-3 py-2">

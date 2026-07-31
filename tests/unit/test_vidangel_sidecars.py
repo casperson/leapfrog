@@ -13,6 +13,7 @@ from leapfrog.vidangel_sidecars import (
     _build_movie_index,
     _load_raw_events,
     _parse_optional_int,
+    filter_vidangel_catalog_to_library,
     generate_vidangel_sidecars,
     match_episode_catalog_row,
     match_movie_catalog_row,
@@ -127,6 +128,89 @@ def test_build_episode_index_skips_non_numeric_episode_numbers():
     )
 
     assert index == {}
+
+
+def test_filter_vidangel_catalog_to_library_matches_movies_and_owned_episodes():
+    catalog = [
+        {
+            "media_id": "movie-1",
+            "media_type": "movie",
+            "title": "Sample Movie",
+            "extra_metadata": {"year": 2024},
+        },
+        {
+            "media_id": "episode-1",
+            "media_type": "episode",
+            "title": "Pilot",
+            "season_number": 1,
+            "episode_number": 1,
+            "extra_metadata": {"show_title": "Sample Show"},
+        },
+        {
+            "media_id": "episode-2",
+            "media_type": "episode",
+            "title": "Not Owned",
+            "season_number": 1,
+            "episode_number": 2,
+            "extra_metadata": {"show_title": "Sample Show"},
+        },
+    ]
+    jobs = [
+        {"media_type": "movie", "title": "Sample Movie", "year": 2024},
+        {
+            "media_type": "episode",
+            "title": "Sample Show – Season 1 – Pilot",
+            "file_path": "/tv/Sample Show/Sample.Show.S01E01.mkv",
+        },
+    ]
+
+    matches = filter_vidangel_catalog_to_library(catalog, jobs)
+
+    assert [row["media_id"] for row in matches] == ["movie-1", "episode-1"]
+
+
+def test_filter_vidangel_catalog_to_library_uses_unique_episode_title_fallback():
+    catalog = [
+        {
+            "media_id": "episode-1",
+            "media_type": "episode",
+            "title": "A Different Kind of Truth",
+            "season_number": 2,
+            "episode_number": 7,
+            "extra_metadata": {"show_title": "Sample Show"},
+        }
+    ]
+    jobs = [
+        {
+            "media_type": "episode",
+            "title": "Sample Show – Season 2 – A Different Kind of Truth",
+            "file_path": "/tv/Sample Show/episode.mkv",
+        }
+    ]
+
+    assert filter_vidangel_catalog_to_library(catalog, jobs) == catalog
+
+
+def test_filter_vidangel_catalog_to_library_rejects_title_fallback_from_wrong_season():
+    catalog = [
+        {
+            "media_id": "episode-1",
+            "media_type": "episode",
+            "title": "The Return",
+            "season_number": 3,
+            "episode_number": 4,
+            "extra_metadata": {"show_title": "Sample Show"},
+        }
+    ]
+    jobs = [
+        {
+            "media_type": "episode",
+            "title": "Sample Show – Season 1 – The Return",
+            "file_path": "/tv/Sample Show/episode.mkv",
+        }
+    ]
+
+    assert filter_vidangel_catalog_to_library(catalog, jobs) == []
 
 
 def test_parse_optional_int_accepts_blank_and_float_like_values():

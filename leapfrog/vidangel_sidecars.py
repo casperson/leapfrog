@@ -20,6 +20,7 @@ from .vidangel_export import (
     RawFilterEvent,
     build_sidecar_payload,
     get_vidangel_export_dir,
+    load_vidangel_exportable_title_catalog_records,
     load_vidangel_raw_event_records,
 )
 import leapfrog.plex_client as plex_mod
@@ -257,6 +258,124 @@ def match_episode_catalog_row(
     if len(matches) > 1:
         return None, "ambiguous episode match"
     return None, "no episode match"
+
+
+def _library_episode_metadata(job: dict[str, Any]) -> tuple[str, str, int | None, int | None]:
+    title_parts = re.split(r"\s+[\u2013\u2014]\s+", str(job.get("title") or ""), maxsplit=2)
+    show_title = title_parts[0] if len(title_parts) == 3 else ""
+    episode_title = title_parts[2] if len(title_parts) == 3 else ""
+
+    season_number = None
+    if len(title_parts) == 3:
+        season_match = re.search(r"\b(\d+)\b", title_parts[1])
+        season_number = int(season_match.group(1)) if season_match else None
+
+    episode_number = None
+    filename_match = re.search(
+        r"(?i)\bS(\d{1,3})E(\d{1,4})\b",
+        Path(str(job.get("file_path") or "")).name,
+    )
+    if filename_match:
+        season_number = int(filename_match.group(1))
+        episode_number = int(filename_match.group(2))
+    return show_title, episode_title, season_number, episode_number
+
+
+def filter_vidangel_catalog_to_library(
+    catalog_rows: list[dict[str, Any]],
+    library_jobs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return catalog rows that match a movie or episode in the local library."""
+    movie_index = _build_movie_index(
+        [row for row in catalog_rows if str(row.get("media_type") or "") == "movie"]
+    )
+    episode_rows = [
+        row for row in catalog_rows if str(row.get("media_type") or "") != "movie"
+    ]
+    episode_index = _build_episode_index(episode_rows)
+    episode_title_index: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    episode_season_title_index: dict[tuple[str, int, str], list[dict[str, Any]]] = {}
+    for row in episode_rows:
+        extra = row.get("extra_metadata") if isinstance(row.get("extra_metadata"), dict) else {}
+        show_title = _normalize_title(str(row.get("show_title") or extra.get("show_title") or ""))
+        episode_title = _normalize_title(str(row.get("title") or ""))
+        if show_title and episode_title:
+            episode_title_index.setdefault((show_title, episode_title), []).append(row)
+            season_number = _parse_optional_int(row.get("season_number"))
+            if season_number is not None:
+                episode_season_title_index.setdefault(
+                    (show_title, season_number, episode_title),
+                    [],
+                ).append(row)
+
+    matched_keys: set[tuple[str, str]] = set()
+    for job in library_jobs:
+        media_type = str(job.get("media_type") or "movie")
+        match: dict[str, Any] | None = None
+        if media_type == "episode":
+            show_title, episode_title, season_number, episode_number = _library_episode_metadata(job)
+            match, _ = match_episode_catalog_row(
+                show_title=show_title,
+                season_number=season_number,
+                episode_number=episode_number,
+                episode_index=episode_index,
+            )
+            if match is None and show_title and episode_title:
+                normalized_show_title = _normalize_title(show_title)
+                normalized_episode_title = _normalize_title(episode_title)
+                if season_number is not None:
+                    title_matches = episode_season_title_index.get(
+                        (normalized_show_title, season_number, normalized_episode_title),
+                        [],
+                    )
+                else:
+                    title_matches = episode_title_index.get(
+                        (normalized_show_title, normalized_episode_title),
+                        [],
+                    )
+                if len(title_matches) == 1:
+                    match = title_matches[0]
+        else:
+            match, _ = match_movie_catalog_row(job, movie_index)
+        if match is not None:
+            matched_keys.add(
+                (
+                    str(match.get("media_type") or media_type),
+                    str(match.get("media_id") or ""),
+                )
+            )
+
+    return [
+        row
+        for row in catalog_rows
+        if (
+            str(row.get("media_type") or ""),
+            str(row.get("media_id") or ""),
+        )
+        in matched_keys
+    ]
+
+
+async def load_vidangel_library_title_catalog_records(
+    export_dir: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return exportable VidAngel titles matched to the persisted local library."""
+    catalog_rows = await load_vidangel_exportable_title_catalog_records(export_dir)
+    if not catalog_rows:
+        return []
+    matched_rows = filter_vidangel_catalog_to_library(catalog_rows, await db.get_scan_jobs())
+    result = []
+    for row in matched_rows:
+        extra = row.get("extra_metadata") if isinstance(row.get("extra_metadata"), dict) else {}
+        result.append(
+            {
+                **row,
+                "show_title": row.get("show_title") or extra.get("show_title"),
+                "year": row.get("year") or extra.get("year"),
+                "rating": row.get("rating") or extra.get("rating"),
+            }
+        )
+    return result
 
 
 def _build_report_stem(base_name: str, media_group: str) -> str:

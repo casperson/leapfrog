@@ -11,10 +11,10 @@ from ...vidangel_export import (
     build_vidangel_filter_catalog,
     generate_filtered_vidangel_skp,
     get_vidangel_export_dir,
-    load_vidangel_exportable_title_catalog_records,
     prepare_vidangel_export,
     VidAngelExportDataError,
 )
+from ...vidangel_sidecars import load_vidangel_library_title_catalog_records
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/vidangel", tags=["vidangel"])
@@ -46,9 +46,9 @@ async def generate_sidecars(payload: GenerateVidAngelSidecarsRequest):
 
 @router.get("/export/catalog")
 async def get_export_catalog():
-    """Return the persisted VidAngel title catalog for export browsing."""
+    """Return exportable VidAngel titles matched to the local media library."""
     try:
-        titles = await load_vidangel_exportable_title_catalog_records()
+        titles = await load_vidangel_library_title_catalog_records()
     except VidAngelExportDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return {
