@@ -6,6 +6,7 @@ import subprocess
 import sys
 import zipfile
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ from leapfrog.vidangel_export import (
     build_sidecar_payload,
     flatten_tag_tree,
 )
+from leapfrog.vidangel_taxonomy import vidangel_ui_category_sort_key
 
 
 def test_build_catalog_queries_includes_base_service_and_category_fanout():
@@ -75,6 +77,30 @@ def test_parse_int_helpers_tolerate_float_like_and_invalid_values():
     assert _parse_optional_int("1.0") == 1
     assert _parse_optional_int("immodesty_female") is None
     assert _parse_required_int("2.0", field_name="episode.id") == 2
+
+
+def test_vidangel_ui_category_order_groups_related_filters():
+    categories = [
+        "credits",
+        "sex_nudity_immodesty",
+        "alcohol_or_drug_use",
+        "language_profanity",
+        "violence_blood_gore",
+        "sex_any",
+        "kissing",
+        "language_language_sexual",
+    ]
+
+    assert sorted(categories, key=vidangel_ui_category_sort_key) == [
+        "language_profanity",
+        "sex_any",
+        "sex_nudity_immodesty",
+        "kissing",
+        "language_language_sexual",
+        "violence_blood_gore",
+        "alcohol_or_drug_use",
+        "credits",
+    ]
 
 
 def test_work_stub_from_payload_tolerates_non_numeric_year_and_tag_count():
@@ -596,8 +622,8 @@ async def test_build_vidangel_filter_catalog_groups_leaf_filters(tmp_path: Path)
     assert catalog["title"]["title"] == "Sample Movie"
     assert catalog["leaf_count"] == 3
     assert [category["label"] for category in catalog["categories"]] == [
-        "Nudity & Immodesty",
         "Profanity",
+        "Nudity & Immodesty",
     ]
     profanity = next(category for category in catalog["categories"] if category["key"] == "language_profanity")
     assert [filter_row["leaf_key"] for filter_row in profanity["filters"]] == ["fuck", "shit"]
@@ -693,11 +719,10 @@ async def test_generate_filtered_vidangel_skp_uses_only_selected_leaf_keys(tmp_p
     assert payload["Unsynced"] is False
     assert [scene["SceneType"] for scene in payload["SkipScenes"]] == [
         "Profanity",
-        "Profanity",
         "Nudity",
     ]
     assert payload["SkipScenes"][0]["StartTime"] == "00:00:01"
-    assert payload["SkipScenes"][0]["EndTime"] == "00:00:01.5000000"
+    assert payload["SkipScenes"][0]["EndTime"] == "00:00:01.8000000"
 
 
 @pytest.mark.asyncio
@@ -794,6 +819,54 @@ def test_clean_media_player_skp_preserves_short_event_and_uses_fixed_width_hours
     assert payload["EpisodeNumber"] == 3
     assert payload["SkipScenes"][0]["StartTime"] == "02:03:06.5000000"
     assert payload["SkipScenes"][0]["EndTime"] == "02:03:06.7000000"
+
+
+def test_clean_media_player_skp_consolidates_overlapping_and_touching_events():
+    base_event = vidangel_export.RawFilterEvent(
+        media_id="movie-1",
+        media_type="movie",
+        title="Movie",
+        slug="movie",
+        service_slug="vidangel",
+        tag_set_id=1,
+        season_number=None,
+        episode_number=None,
+        path_keys=("language", "profanity", "fuck"),
+        path_titles=("Language", "Profanity", "f-word"),
+        display_title="f-word",
+        description=None,
+        tag_type="audio",
+        start_ms=10_000,
+        end_ms=12_000,
+        mapped_category="language_profanity",
+        leaf_key="fuck",
+    )
+    events = [
+        base_event,
+        replace(base_event, start_ms=10_000, end_ms=12_000, leaf_key="shit"),
+        replace(base_event, start_ms=11_000, end_ms=15_000, mapped_category="violence_blood_gore", leaf_key="graphic"),
+        replace(base_event, start_ms=15_000, end_ms=16_000, mapped_category="alcohol_or_drug_use", leaf_key="drugs_illegal"),
+        replace(base_event, start_ms=20_000, end_ms=21_000, mapped_category="sex_nudity_immodesty", leaf_key="immodesty_female"),
+    ]
+
+    payload = build_clean_media_player_skp_payload({}, events)
+
+    assert payload["SkipScenes"] == [
+        {
+            "Id": 1,
+            "SceneType": "Violence",
+            "StartTime": "00:00:10",
+            "EndTime": "00:00:16",
+            "Blur": False,
+        },
+        {
+            "Id": 2,
+            "SceneType": "Nudity",
+            "StartTime": "00:00:20",
+            "EndTime": "00:00:21",
+            "Blur": False,
+        },
+    ]
 
 
 @pytest.mark.asyncio

@@ -296,11 +296,11 @@ This default output is intentionally database-first: one master catalog plus one
 
 #### Generate a filtered `.skp` from VidAngel export data
 
-Leapfrog also lets you browse VidAngel titles that both have exported events and match your local Plex library, review every timestamp and description, and generate a filtered `.skp` file containing only the exact events you select. The VidAngel page separates movies from TV episodes and provides a title search, plus collapsible category and leaf-filter sections and category/leaf-filter toggles for quickly selecting or clearing groups. The same leaf-filter path remains available from the backend and CLI for automation.
+Leapfrog also lets you browse VidAngel titles that both have exported events and match your local Plex library, review every timestamp and description, and generate a filtered `.skp` file containing only the exact events you select. The VidAngel page separates movies from TV episodes and provides a title search, predictable family-first category ordering, and category/leaf-filter controls for quickly selecting or clearing groups. Each category can collapse or expand all of its leaf filters. The same leaf-filter path remains available from the backend and CLI for automation.
 
 Generated `.skp` downloads use Clean Media Player's native JSON structure. Times use fixed-width `HH:MM:SS` values such as `00:09:00` and `01:43:06.5000000`, matching files saved directly by Clean Media Player.
 
-Leapfrog preserves valid VidAngel start and end boundaries to millisecond precision without adding padding. VidAngel point events whose start and end are identical receive a 500ms end boundary because Clean Media Player requires a non-zero skip range.
+Leapfrog preserves valid VidAngel start and end boundaries to millisecond precision without adding padding. VidAngel point events whose start and end are identical receive a 500ms end boundary because Clean Media Player requires a non-zero skip range. Selected events with duplicate, overlapping, or touching ranges are consolidated into one continuous skip scene.
 
 The filtered export workflow is:
 

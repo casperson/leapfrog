@@ -22,7 +22,11 @@ from xml.sax.saxutils import escape
 import httpx
 
 from .logger import get_logger, setup_logging
-from .vidangel_taxonomy import get_vidangel_category_rows, normalize_vidangel_group_key
+from .vidangel_taxonomy import (
+    get_vidangel_category_rows,
+    normalize_vidangel_group_key,
+    vidangel_ui_category_sort_key,
+)
 
 logger = get_logger(__name__)
 
@@ -861,7 +865,15 @@ async def build_vidangel_filter_catalog(
     if not definitions:
         raise VidAngelExportDataError("VidAngel tag definitions export is missing.")
 
-    category_meta = {row["key"]: row for row in get_vidangel_category_rows()}
+    category_rows = get_vidangel_category_rows()
+    category_meta = {row["key"]: row for row in category_rows}
+    leaf_order = {
+        str(row["key"]): {
+            str(label["key"]): index
+            for index, label in enumerate(row.get("labels") or [])
+        }
+        for row in category_rows
+    }
     indexed_events = _events_with_ids(events)
     counts = Counter(event.leaf_key for _, event in indexed_events if event.leaf_key)
     leaf_rows: list[dict[str, Any]] = []
@@ -914,13 +926,22 @@ async def build_vidangel_filter_catalog(
         )
         grouped_by_category[category]["filters"].append(leaf)
 
+    for category, group in grouped_by_category.items():
+        group["filters"].sort(
+            key=lambda leaf: (
+                leaf_order.get(category, {}).get(str(leaf["leaf_key"]), float("inf")),
+                str(leaf["label"]).casefold(),
+                str(leaf["leaf_key"]),
+            )
+        )
+
     return {
         "title": title,
         "leaf_count": len(leaf_rows),
         "event_count": len(events),
         "categories": sorted(
             grouped_by_category.values(),
-            key=lambda item: str(item["label"]).lower(),
+            key=lambda item: vidangel_ui_category_sort_key(str(item["key"])),
         ),
     }
 
@@ -968,22 +989,15 @@ def build_clean_media_player_skp_payload(
     season_number = _parse_optional_int(title.get("season_number"))
     episode_number = _parse_optional_int(title.get("episode_number"))
     skip_scenes = []
-    for scene_id, event in enumerate(
-        sorted(events, key=lambda item: (item.start_ms, item.end_ms, item.display_title)),
+    for scene_id, (start_ms, end_ms, event) in enumerate(
+        _consolidate_clean_media_player_scenes(events),
         start=1,
     ):
-        # Clean Media Player rejects zero-length scenes, while many VidAngel
-        # audio events are point timestamps. Expand those to the existing 500ms minimum.
-        end_ms = (
-            event.end_ms
-            if event.end_ms > event.start_ms
-            else event.start_ms + DEFAULT_MIN_SEGMENT_MS
-        )
         skip_scenes.append(
             {
                 "Id": scene_id,
                 "SceneType": _clean_media_player_scene_type(event),
-                "StartTime": _format_clean_media_player_time(event.start_ms),
+                "StartTime": _format_clean_media_player_time(start_ms),
                 "EndTime": _format_clean_media_player_time(end_ms),
                 "Blur": False,
             }
@@ -997,6 +1011,41 @@ def build_clean_media_player_skp_payload(
         "SkipScenesSyncs": [],
         "Unsynced": False,
     }
+
+
+def _consolidate_clean_media_player_scenes(
+    events: list[RawFilterEvent],
+) -> list[tuple[int, int, RawFilterEvent]]:
+    """Merge duplicate, overlapping, and touching selected events into skip scenes."""
+    normalized_events = [
+        (
+            event.start_ms,
+            event.end_ms if event.end_ms > event.start_ms else event.start_ms + DEFAULT_MIN_SEGMENT_MS,
+            event,
+        )
+        for event in events
+    ]
+    normalized_events.sort(
+        key=lambda item: (item[0], -item[1], item[2].display_title, item[2].leaf_key)
+    )
+    consolidated: list[tuple[int, int, RawFilterEvent]] = []
+    for start_ms, end_ms, event in normalized_events:
+        if not consolidated or start_ms > consolidated[-1][1]:
+            consolidated.append((start_ms, end_ms, event))
+            continue
+
+        current_start_ms, current_end_ms, representative = consolidated[-1]
+        representative_end_ms = (
+            representative.end_ms
+            if representative.end_ms > representative.start_ms
+            else representative.start_ms + DEFAULT_MIN_SEGMENT_MS
+        )
+        # Keep the event with the widest original range as the scene's type;
+        # all ranges in the connected overlap group are still skipped.
+        if end_ms - start_ms > representative_end_ms - representative.start_ms:
+            representative = event
+        consolidated[-1] = (current_start_ms, max(current_end_ms, end_ms), representative)
+    return consolidated
 
 
 async def generate_filtered_vidangel_skp(

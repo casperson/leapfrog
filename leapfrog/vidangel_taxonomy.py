@@ -41,6 +41,25 @@ _GROUP_DESCRIPTION_OVERRIDES = {
     "violence_blood_gore": "VidAngel violence and gore filters.",
 }
 
+# Keep the export UI in a predictable family-first order even when a title
+# contains only a subset of VidAngel's categories.
+_UI_CATEGORY_ORDER = (
+    "language_profanity",
+    "language_profanity_captions",
+    "language_blasphemy",
+    "language_language_racial",
+    "language_language_childish",
+    "sex_any",
+    "sex_nudity_immodesty",
+    "kissing",
+    "language_language_sexual",
+    "violence_blood_gore",
+    "alcohol_or_drug_use",
+    "human_functions",
+    "credits",
+)
+_UI_CATEGORY_ORDER_INDEX = {key: index for index, key in enumerate(_UI_CATEGORY_ORDER)}
+
 _UNCENSORED_CONNECTORS = {"a", "an", "and", "for", "in", "of", "on", "or", "the", "to", "with"}
 
 
@@ -56,6 +75,12 @@ def normalize_vidangel_group_key(path_keys: list[str] | tuple[str, ...]) -> str:
     if parts[0] == "language" and len(parts) > 1:
         return f"language_{parts[1]}"
     return parts[0]
+
+
+def vidangel_ui_category_sort_key(category_key: str) -> tuple[int, str]:
+    """Return the stable category order used by the VidAngel export UI."""
+    normalized = str(category_key or "").strip()
+    return (_UI_CATEGORY_ORDER_INDEX.get(normalized, len(_UI_CATEGORY_ORDER)), normalized)
 
 
 def _censor_word(match: re.Match[str]) -> str:
@@ -137,7 +162,7 @@ def build_vidangel_taxonomy() -> tuple[list[dict[str, Any]], dict[str, list[dict
             **meta,
             "labels": sorted(labels_by_category.get(meta["key"], []), key=lambda item: str(item["label"]).lower()),
         }
-        for meta in sorted(category_meta.values(), key=lambda item: str(item["label"]).lower())
+        for meta in sorted(category_meta.values(), key=lambda item: vidangel_ui_category_sort_key(item["key"]))
     ]
     return category_rows, labels_by_category, leaf_lookup
 

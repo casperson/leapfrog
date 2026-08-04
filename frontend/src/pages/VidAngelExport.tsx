@@ -242,6 +242,16 @@ export default function VidAngelExportPage() {
     ))
   }
 
+  const toggleCategoryFiltersCollapsed = (category: VidAngelCategory) => {
+    const filterKeys = category.filters.map(filter => `${category.key}:${filter.leaf_key}`)
+    const allCollapsed = filterKeys.length > 0 && filterKeys.every(key => collapsedFilterKeys.includes(key))
+    setCollapsedFilterKeys(current => (
+      allCollapsed
+        ? current.filter(key => !filterKeys.includes(key))
+        : Array.from(new Set([...current, ...filterKeys]))
+    ))
+  }
+
   const clearSelection = () => {
     setSelectedEventIds([])
   }
@@ -518,6 +528,9 @@ export default function VidAngelExportPage() {
                     const allSelected = selectedInCategory === categoryEventIds.length && categoryEventIds.length > 0
                     const partiallySelected = selectedInCategory > 0 && !allSelected
                     const collapsed = collapsedCategoryKeys.includes(category.key)
+                    const categoryFilterCollapseKeys = category.filters.map(filter => `${category.key}:${filter.leaf_key}`)
+                    const allFiltersCollapsed = categoryFilterCollapseKeys.length > 0
+                      && categoryFilterCollapseKeys.every(key => collapsedFilterKeys.includes(key))
                     return (
                       <div key={category.key} className="rounded-xl border border-plex-border/70 bg-plex-darker/60 p-4">
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -545,14 +558,24 @@ export default function VidAngelExportPage() {
                             </div>
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => toggleCategory(category)}
-                            className="inline-flex items-center gap-2 rounded-lg border border-plex-border px-3 py-2 text-xs font-medium text-gray-300 transition-colors hover:bg-white/5"
-                          >
-                            {allSelected ? <CheckSquare2 size={14} /> : partiallySelected ? <Square size={14} /> : <Square size={14} />}
-                            {allSelected ? 'Clear category' : 'Select category'}
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              aria-label={`${allFiltersCollapsed ? 'Expand' : 'Collapse'} all filters in ${category.label}`}
+                              onClick={() => toggleCategoryFiltersCollapsed(category)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-plex-border px-3 py-2 text-xs font-medium text-gray-300 transition-colors hover:bg-white/5"
+                            >
+                              {allFiltersCollapsed ? 'Expand all' : 'Collapse all'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleCategory(category)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-plex-border px-3 py-2 text-xs font-medium text-gray-300 transition-colors hover:bg-white/5"
+                            >
+                              {allSelected ? <CheckSquare2 size={14} /> : partiallySelected ? <Square size={14} /> : <Square size={14} />}
+                              {allSelected ? 'Clear category' : 'Select category'}
+                            </button>
+                          </div>
                         </div>
 
                         {!collapsed && <div className="mt-4 space-y-2">
