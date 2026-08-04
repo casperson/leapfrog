@@ -296,7 +296,7 @@ This default output is intentionally database-first: one master catalog plus one
 
 #### Generate a filtered `.skp` from VidAngel export data
 
-Leapfrog also lets you browse VidAngel titles that both have exported events and match your local Plex library, review every timestamp and description, and generate a filtered `.skp` file containing only the exact events you select. The VidAngel page separates movies from TV episodes and provides a title search, predictable family-first category ordering, and category/leaf-filter controls for quickly selecting or clearing groups. Each category can collapse or expand all of its leaf filters. The same leaf-filter path remains available from the backend and CLI for automation.
+Leapfrog also lets you browse VidAngel titles that both have exported events and match your local Plex library, review every timestamp and description, and generate a filtered `.skp` file containing only the exact events you select. The VidAngel page separates movies from TV episodes and provides a title search. Its filter sections are always ordered as Profanity, Sexual Content, Violence, Drugs & Alcohol, then Other; granular groups and filters inside each section use the same deterministic order. Category and leaf-filter controls make it quick to select, clear, collapse, or expand groups. The same leaf-filter path remains available from the backend and CLI for automation.
 
 Generated `.skp` downloads use Clean Media Player's native JSON structure. Times use fixed-width `HH:MM:SS` values such as `00:09:00` and `01:43:06.5000000`, matching files saved directly by Clean Media Player.
 

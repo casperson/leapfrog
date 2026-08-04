@@ -43,7 +43,7 @@ _GROUP_DESCRIPTION_OVERRIDES = {
 
 # Keep the export UI in a predictable family-first order even when a title
 # contains only a subset of VidAngel's categories.
-_UI_CATEGORY_ORDER = (
+_UI_SUBCATEGORY_ORDER = (
     "language_profanity",
     "language_profanity_captions",
     "language_blasphemy",
@@ -58,7 +58,22 @@ _UI_CATEGORY_ORDER = (
     "human_functions",
     "credits",
 )
-_UI_CATEGORY_ORDER_INDEX = {key: index for index, key in enumerate(_UI_CATEGORY_ORDER)}
+_UI_SUBCATEGORY_ORDER_INDEX = {key: index for index, key in enumerate(_UI_SUBCATEGORY_ORDER)}
+
+_UI_CATEGORY_FAMILIES = (
+    ("profanity", "Profanity", "VidAngel profanity and language filters."),
+    ("sexual_content", "Sexual Content", "VidAngel sex, nudity, kissing, and sexual-reference filters."),
+    ("violence", "Violence", "VidAngel violence and gore filters."),
+    ("drugs_alcohol", "Drugs & Alcohol", "VidAngel drugs and alcohol filters."),
+    ("other", "Other", "Other VidAngel filters."),
+)
+_UI_CATEGORY_FAMILY_META = {
+    key: {"key": key, "label": label, "description": description}
+    for key, label, description in _UI_CATEGORY_FAMILIES
+}
+_UI_CATEGORY_FAMILY_ORDER_INDEX = {
+    key: index for index, (key, _, _) in enumerate(_UI_CATEGORY_FAMILIES)
+}
 
 _UNCENSORED_CONNECTORS = {"a", "an", "and", "for", "in", "of", "on", "or", "the", "to", "with"}
 
@@ -77,10 +92,52 @@ def normalize_vidangel_group_key(path_keys: list[str] | tuple[str, ...]) -> str:
     return parts[0]
 
 
-def vidangel_ui_category_sort_key(category_key: str) -> tuple[int, str]:
-    """Return the stable category order used by the VidAngel export UI."""
+def vidangel_ui_subcategory_sort_key(category_key: str) -> tuple[int, str]:
+    """Return the stable granular-group order used within an export category."""
     normalized = str(category_key or "").strip()
-    return (_UI_CATEGORY_ORDER_INDEX.get(normalized, len(_UI_CATEGORY_ORDER)), normalized)
+    return (_UI_SUBCATEGORY_ORDER_INDEX.get(normalized, len(_UI_SUBCATEGORY_ORDER)), normalized)
+
+
+def vidangel_ui_category_family(category_key: str) -> str:
+    """Return the fixed export-screen category family for a VidAngel group."""
+    normalized = str(category_key or "").strip()
+    if normalized in _UI_CATEGORY_FAMILY_META:
+        return normalized
+    if normalized in {
+        "language_profanity",
+        "language_profanity_captions",
+        "language_blasphemy",
+        "language_language_racial",
+        "language_language_childish",
+    }:
+        return "profanity"
+    if normalized in {
+        "sex_any",
+        "sex_nudity_immodesty",
+        "kissing",
+        "language_language_sexual",
+    }:
+        return "sexual_content"
+    if normalized == "violence_blood_gore":
+        return "violence"
+    if normalized == "alcohol_or_drug_use":
+        return "drugs_alcohol"
+    return "other"
+
+
+def get_vidangel_ui_category_family(category_key: str) -> dict[str, str]:
+    """Return fixed export-screen metadata for a VidAngel group."""
+    family_key = vidangel_ui_category_family(category_key)
+    return dict(_UI_CATEGORY_FAMILY_META[family_key])
+
+
+def vidangel_ui_category_family_sort_key(category_key: str) -> tuple[int, str]:
+    """Return the fixed top-level category order used by the export UI."""
+    normalized = str(category_key or "").strip()
+    return (
+        _UI_CATEGORY_FAMILY_ORDER_INDEX.get(normalized, len(_UI_CATEGORY_FAMILIES)),
+        normalized,
+    )
 
 
 def _censor_word(match: re.Match[str]) -> str:
@@ -162,7 +219,7 @@ def build_vidangel_taxonomy() -> tuple[list[dict[str, Any]], dict[str, list[dict
             **meta,
             "labels": sorted(labels_by_category.get(meta["key"], []), key=lambda item: str(item["label"]).lower()),
         }
-        for meta in sorted(category_meta.values(), key=lambda item: vidangel_ui_category_sort_key(item["key"]))
+        for meta in sorted(category_meta.values(), key=lambda item: str(item["label"]).casefold())
     ]
     return category_rows, labels_by_category, leaf_lookup
 

@@ -22,6 +22,8 @@ interface VidAngelLeafFilter {
   description?: string | null
   category?: string | null
   category_label: string
+  subcategory?: string | null
+  subcategory_label?: string | null
   event_count: number
   tag_type?: string | null
   events: VidAngelEvent[]
@@ -547,7 +549,7 @@ export default function VidAngelExportPage() {
                             />
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-gray-100">{category.label}</span>
+                                <span role="heading" aria-level={3} className="text-sm font-medium text-gray-100">{category.label}</span>
                                 <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-400">
                                   {selectedInCategory}/{categoryEventIds.length} events
                                 </span>
@@ -613,6 +615,9 @@ export default function VidAngelExportPage() {
                                     <span className="min-w-0 flex-1">
                                       <span className="flex flex-wrap items-center gap-2">
                                         <span className="text-gray-100">{filter.label}</span>
+                                        <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
+                                          {filter.subcategory_label ?? filter.category_label}
+                                        </span>
                                         <span className="rounded-full border border-plex-border px-2 py-0.5 text-[11px] text-gray-500">
                                           {filter.leaf_key}
                                         </span>

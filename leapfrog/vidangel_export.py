@@ -24,8 +24,10 @@ import httpx
 from .logger import get_logger, setup_logging
 from .vidangel_taxonomy import (
     get_vidangel_category_rows,
+    get_vidangel_ui_category_family,
     normalize_vidangel_group_key,
-    vidangel_ui_category_sort_key,
+    vidangel_ui_category_family_sort_key,
+    vidangel_ui_subcategory_sort_key,
 )
 
 logger = get_logger(__name__)
@@ -879,16 +881,24 @@ async def build_vidangel_filter_catalog(
     leaf_rows: list[dict[str, Any]] = []
     for leaf_key, count in sorted(counts.items()):
         definition = definitions.get(leaf_key, {})
-        category_key = str(definition.get("mapped_category") or "").strip()
+        path_keys = [str(key) for key in (definition.get("path_keys") or []) if str(key).strip()]
+        # Older prepared exports stored broad categories here; the taxonomy path
+        # remains the stable source for the granular group used in this UI.
+        category_key = normalize_vidangel_group_key(path_keys) or str(
+            definition.get("mapped_category") or ""
+        ).strip()
         category_row = category_meta.get(category_key, {})
+        category_family = get_vidangel_ui_category_family(category_key)
         leaf_rows.append(
             {
                 "leaf_key": leaf_key,
                 "label": str(definition.get("display_title") or definition.get("key") or leaf_key),
                 "description": str(definition.get("example_description") or "").strip() or None,
-                "category": category_key or None,
+                "category": category_family["key"],
                 "category_label": str(category_row.get("label") or category_key or "Uncategorized"),
-                "path_keys": list(definition.get("path_keys") or []),
+                "subcategory": category_key or "uncategorized",
+                "subcategory_label": str(category_row.get("label") or category_key or "Uncategorized"),
+                "path_keys": path_keys,
                 "path_titles": list(definition.get("path_titles") or []),
                 "default_type": str(definition.get("default_type") or "").strip() or None,
                 "event_count": count,
@@ -913,23 +923,24 @@ async def build_vidangel_filter_catalog(
 
     grouped_by_category: dict[str, dict[str, Any]] = {}
     for leaf in leaf_rows:
-        category = str(leaf.get("category") or "").strip() or "uncategorized"
-        category_row = category_meta.get(category, {})
+        category = str(leaf.get("category") or "other").strip() or "other"
+        category_family = get_vidangel_ui_category_family(str(leaf.get("subcategory") or ""))
         grouped_by_category.setdefault(
             category,
             {
                 "key": category,
-                "label": str(category_row.get("label") or (category.replace("_", " ").title() if category != "uncategorized" else "Uncategorized")),
-                "description": str(category_row.get("description") or ""),
+                "label": category_family["label"],
+                "description": category_family["description"],
                 "filters": [],
             },
         )
         grouped_by_category[category]["filters"].append(leaf)
 
-    for category, group in grouped_by_category.items():
+    for group in grouped_by_category.values():
         group["filters"].sort(
             key=lambda leaf: (
-                leaf_order.get(category, {}).get(str(leaf["leaf_key"]), float("inf")),
+                vidangel_ui_subcategory_sort_key(str(leaf.get("subcategory") or "")),
+                leaf_order.get(str(leaf.get("subcategory") or ""), {}).get(str(leaf["leaf_key"]), float("inf")),
                 str(leaf["label"]).casefold(),
                 str(leaf["leaf_key"]),
             )
@@ -941,7 +952,7 @@ async def build_vidangel_filter_catalog(
         "event_count": len(events),
         "categories": sorted(
             grouped_by_category.values(),
-            key=lambda item: vidangel_ui_category_sort_key(str(item["key"])),
+            key=lambda item: vidangel_ui_category_family_sort_key(str(item["key"])),
         ),
     }
 

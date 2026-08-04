@@ -34,7 +34,11 @@ from leapfrog.vidangel_export import (
     build_sidecar_payload,
     flatten_tag_tree,
 )
-from leapfrog.vidangel_taxonomy import vidangel_ui_category_sort_key
+from leapfrog.vidangel_taxonomy import (
+    vidangel_ui_category_family,
+    vidangel_ui_category_family_sort_key,
+    vidangel_ui_subcategory_sort_key,
+)
 
 
 def test_build_catalog_queries_includes_base_service_and_category_fanout():
@@ -80,7 +84,7 @@ def test_parse_int_helpers_tolerate_float_like_and_invalid_values():
 
 
 def test_vidangel_ui_category_order_groups_related_filters():
-    categories = [
+    subcategories = [
         "credits",
         "sex_nudity_immodesty",
         "alcohol_or_drug_use",
@@ -91,7 +95,7 @@ def test_vidangel_ui_category_order_groups_related_filters():
         "language_language_sexual",
     ]
 
-    assert sorted(categories, key=vidangel_ui_category_sort_key) == [
+    assert sorted(subcategories, key=vidangel_ui_subcategory_sort_key) == [
         "language_profanity",
         "sex_any",
         "sex_nudity_immodesty",
@@ -100,6 +104,14 @@ def test_vidangel_ui_category_order_groups_related_filters():
         "violence_blood_gore",
         "alcohol_or_drug_use",
         "credits",
+    ]
+    category_families = [vidangel_ui_category_family(category) for category in subcategories]
+    assert sorted(set(category_families), key=vidangel_ui_category_family_sort_key) == [
+        "profanity",
+        "sexual_content",
+        "violence",
+        "drugs_alcohol",
+        "other",
     ]
 
 
@@ -532,7 +544,7 @@ def _write_sample_vidangel_export(tmp_path: Path) -> Path:
                         "path_keys": ["language", "profanity", "fuck"],
                         "path_titles": ["Language", "Profanity", "f-word"],
                         "default_type": "audio",
-                        "mapped_category": "language_profanity",
+                        "mapped_category": "profanity",
                         "example_description": "Example f-word usage.",
                     },
                     {
@@ -541,7 +553,7 @@ def _write_sample_vidangel_export(tmp_path: Path) -> Path:
                         "path_keys": ["language", "profanity", "shit"],
                         "path_titles": ["Language", "Profanity", "s-word"],
                         "default_type": "audio",
-                        "mapped_category": "language_profanity",
+                        "mapped_category": "profanity",
                         "example_description": "Example s-word usage.",
                     },
                     {
@@ -550,7 +562,7 @@ def _write_sample_vidangel_export(tmp_path: Path) -> Path:
                         "path_keys": ["sex_nudity_immodesty", "immodesty_female"],
                         "path_titles": ["Nudity & Immodesty", "Female Immodesty"],
                         "default_type": "audiovisual",
-                        "mapped_category": "sex_nudity_immodesty",
+                        "mapped_category": "sexual_content",
                         "example_description": "Example immodesty filter.",
                     },
                 ]
@@ -623,10 +635,11 @@ async def test_build_vidangel_filter_catalog_groups_leaf_filters(tmp_path: Path)
     assert catalog["leaf_count"] == 3
     assert [category["label"] for category in catalog["categories"]] == [
         "Profanity",
-        "Nudity & Immodesty",
+        "Sexual Content",
     ]
-    profanity = next(category for category in catalog["categories"] if category["key"] == "language_profanity")
+    profanity = next(category for category in catalog["categories"] if category["key"] == "profanity")
     assert [filter_row["leaf_key"] for filter_row in profanity["filters"]] == ["fuck", "shit"]
+    assert profanity["filters"][0]["subcategory"] == "language_profanity"
     event_ids = [event["event_id"] for event in profanity["filters"][0]["events"]]
     assert all(event_id.startswith("event-") for event_id in event_ids)
     assert len(set(event_ids)) == 2

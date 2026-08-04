@@ -86,15 +86,15 @@ const filtersResponse = {
       ],
     },
     {
-      key: 'sex_nudity_immodesty',
-      label: 'Nudity & Immodesty',
-      description: 'Nudity filters.',
+      key: 'sexual_content',
+      label: 'Sexual Content',
+      description: 'Sexual-content filters.',
       filters: [
         {
           leaf_key: 'immodesty_female',
           label: 'Female Immodesty',
           description: 'Example immodesty filter.',
-          category: 'sex_nudity_immodesty',
+          category: 'sexual_content',
           category_label: 'Nudity & Immodesty',
           event_count: 1,
           tag_type: 'audiovisual',
@@ -149,8 +149,9 @@ describe('VidAngelExport', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByText('VidAngel Export')).toBeInTheDocument())
-    await waitFor(() => expect(screen.getByText('Profanity')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Profanity' })).toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'Angel Has Fallen (2019)' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Sexual Content' })).toBeInTheDocument()
     expect(screen.getByText('Nudity & Immodesty')).toBeInTheDocument()
     expect(screen.getByText('4 / 4 selected')).toBeInTheDocument()
     expect(screen.getByText('First f-word event')).toBeInTheDocument()
